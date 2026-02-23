@@ -1,0 +1,88 @@
+import { z } from 'zod';
+
+import { multicurveAuctionSchema } from '../auctions/multicurve/schema';
+
+const addressSchema = z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'must be a valid EVM address');
+const bigintStringSchema = z.string().regex(/^\d+$/, 'must be a positive integer string');
+const staticAuctionSchema = z.object({
+  type: z.literal('static'),
+});
+const dynamicAuctionSchema = z.object({
+  type: z.literal('dynamic'),
+});
+const auctionSchema = z.discriminatedUnion('type', [
+  multicurveAuctionSchema,
+  staticAuctionSchema,
+  dynamicAuctionSchema,
+]);
+const allocationConfigSchema = z.object({
+  recipientAddress: addressSchema.optional(),
+  allocations: z
+    .array(
+      z.object({
+        address: addressSchema,
+        amount: bigintStringSchema,
+      }),
+    )
+    .max(10)
+    .optional(),
+  mode: z.enum(['vest', 'unlock', 'vault']).optional(),
+  durationSeconds: z.number().int().nonnegative().optional(),
+  cliffDurationSeconds: z.number().int().nonnegative().optional(),
+});
+
+export const createLaunchRequestSchema = z.object({
+  chainId: z.number().int().positive().optional(),
+  userAddress: addressSchema,
+  integrationAddress: addressSchema.optional(),
+  tokenMetadata: z.object({
+    name: z.string().min(1),
+    symbol: z.string().min(1),
+    tokenURI: z.string().min(1),
+  }),
+  tokenomics: z.object({
+    totalSupply: bigintStringSchema,
+    tokensForSale: bigintStringSchema.optional(),
+    allocations: allocationConfigSchema.optional(),
+  }),
+  pairing: z
+    .object({
+      numeraireAddress: addressSchema.optional(),
+    })
+    .optional(),
+  pricing: z
+    .object({
+      numerairePriceUsd: z.number().positive().optional(),
+    })
+    .optional(),
+  feeBeneficiaries: z
+    .array(
+      z.object({
+        address: addressSchema,
+        sharesWad: bigintStringSchema,
+      }),
+    )
+    .optional(),
+  governance: z
+    .union([
+      z.boolean(),
+      z.object({
+        enabled: z.boolean(),
+        mode: z.enum(['noOp', 'default', 'custom']).optional(),
+      }),
+    ])
+    .optional(),
+  migration: z.object({
+    type: z.enum(['noOp', 'uniswapV2', 'uniswapV4']),
+  }),
+  auction: auctionSchema,
+});
+
+export const launchIdSchema = z
+  .string()
+  .regex(/^\d+:0x[a-fA-F0-9]{64}$/, 'launchId must be <chainId>:<txHash>');
+
+export type CreateLaunchRequestInput = z.infer<typeof createLaunchRequestSchema>;
+export type CreateMulticurveLaunchRequestInput = CreateLaunchRequestInput & {
+  auction: z.infer<typeof multicurveAuctionSchema>;
+};

@@ -1,0 +1,608 @@
+openapi: 3.1.0
+info:
+  title: Doppler Launch API
+  version: 0.1.0
+  description: |
+    REST API for creating Doppler launches with multicurve support.
+    v1 deployment profile supports multicurve + noOp migration + no-op governance only.
+    tokensForSale is configurable; when omitted it defaults to totalSupply (100% market allocation).
+    Any remainder (totalSupply - tokensForSale) is non-market allocation and uses vesting defaults.
+servers:
+  - url: http://localhost:3000
+security:
+  - ApiKeyAuth: []
+tags:
+  - name: Launches
+  - name: Status
+  - name: Ops
+  - name: Capabilities
+paths:
+  /v1/launches:
+    post:
+      tags: [Launches]
+      summary: Create a launch
+      operationId: createLaunch
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Reuse the same key for safe retries of identical create payloads.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLaunchRequest'
+      responses:
+        '200':
+          description: Launch submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateLaunchResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '501':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /v1/launches/multicurve:
+    post:
+      tags: [Launches]
+      summary: Create multicurve launch (alias)
+      operationId: createMulticurveLaunch
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Reuse the same key for safe retries of identical create payloads.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLaunchRequest'
+      responses:
+        '200':
+          description: Launch submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateLaunchResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '501':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /v1/launches/{launchId}:
+    get:
+      tags: [Status]
+      summary: Fetch launch status
+      operationId: getLaunchStatus
+      parameters:
+        - name: launchId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^\d+:0x[a-fA-F0-9]{64}$'
+      responses:
+        '200':
+          description: Launch status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LaunchStatusResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /v1/capabilities:
+    get:
+      tags: [Capabilities]
+      summary: Get deployment capabilities
+      operationId: getCapabilities
+      security: []
+      responses:
+        '200':
+          description: Capabilities matrix
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapabilitiesResponse'
+  /health:
+    get:
+      tags: [Ops]
+      summary: Liveness check
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                required: [status]
+  /ready:
+    get:
+      tags: [Ops]
+      summary: Readiness check
+      operationId: getReady
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+        '503':
+          description: Degraded readiness
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+  /metrics:
+    get:
+      tags: [Ops]
+      summary: Metrics snapshot
+      operationId: getMetrics
+      security: []
+      responses:
+        '200':
+          description: Metrics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsResponse'
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+  responses:
+    Error:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+  schemas:
+    HexAddress:
+      type: string
+      pattern: '^0x[a-fA-F0-9]{40}$'
+    HexHash:
+      type: string
+      pattern: '^0x[a-fA-F0-9]{64}$'
+    ErrorEnvelope:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details: {}
+          required: [code, message]
+      required: [error]
+    TokenMetadata:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        symbol:
+          type: string
+          minLength: 1
+        tokenURI:
+          type: string
+          minLength: 1
+      required: [name, symbol, tokenURI]
+    Tokenomics:
+      type: object
+      properties:
+        totalSupply:
+          type: string
+          pattern: '^\d+$'
+        tokensForSale:
+          type: string
+          pattern: '^\d+$'
+          description: >
+            Optional amount allocated to the launch market.
+            Defaults to totalSupply when omitted.
+            If tokensForSale is less than totalSupply, it must be at least 20% of totalSupply.
+        allocations:
+          type: object
+          description: >
+            Optional non-market allocation controls for the non-sale remainder.
+            allocations[] may be used to split remainder across up to 10 unique addresses.
+            allocations amounts must sum to totalSupply - tokensForSale.
+          properties:
+            recipientAddress:
+              $ref: '#/components/schemas/HexAddress'
+            allocations:
+              type: array
+              maxItems: 10
+              items:
+                type: object
+                properties:
+                  address:
+                    $ref: '#/components/schemas/HexAddress'
+                  amount:
+                    type: string
+                    pattern: '^\d+$'
+                required: [address, amount]
+            mode:
+              type: string
+              enum: [vest, unlock, vault]
+            durationSeconds:
+              type: integer
+              minimum: 0
+            cliffDurationSeconds:
+              type: integer
+              minimum: 0
+      required: [totalSupply]
+    FeeBeneficiary:
+      type: object
+      properties:
+        address:
+          $ref: '#/components/schemas/HexAddress'
+        sharesWad:
+          type: string
+          pattern: '^\d+$'
+      required: [address, sharesWad]
+    GovernanceObject:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        mode:
+          type: string
+          enum: [noOp, default, custom]
+      required: [enabled]
+    GovernanceInput:
+      oneOf:
+        - type: boolean
+        - $ref: '#/components/schemas/GovernanceObject'
+    MigrationConfig:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [noOp, uniswapV2, uniswapV4]
+      required: [type]
+    PairingConfig:
+      type: object
+      properties:
+        numeraireAddress:
+          $ref: '#/components/schemas/HexAddress'
+    PricingConfig:
+      type: object
+      properties:
+        numerairePriceUsd:
+          type: number
+          exclusiveMinimum: 0
+    PresetCurveConfig:
+      type: object
+      properties:
+        type:
+          type: string
+          const: preset
+        presets:
+          type: array
+          items:
+            type: string
+            enum: [low, medium, high]
+        fee:
+          type: integer
+          minimum: 1
+        tickSpacing:
+          type: integer
+          minimum: 1
+      required: [type]
+    RangesCurve:
+      type: object
+      properties:
+        marketCapStartUsd:
+          type: number
+          exclusiveMinimum: 0
+        marketCapEndUsd:
+          oneOf:
+            - type: number
+              exclusiveMinimum: 0
+            - type: string
+              const: max
+        numPositions:
+          type: integer
+          minimum: 1
+        sharesWad:
+          type: string
+          pattern: '^\d+$'
+      required: [marketCapStartUsd, marketCapEndUsd, numPositions, sharesWad]
+    RangesCurveConfig:
+      type: object
+      properties:
+        type:
+          type: string
+          const: ranges
+        fee:
+          type: integer
+          minimum: 1
+        tickSpacing:
+          type: integer
+          minimum: 1
+        curves:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/RangesCurve'
+      required: [type, curves]
+    MulticurveAuction:
+      type: object
+      properties:
+        type:
+          type: string
+          const: multicurve
+        curveConfig:
+          oneOf:
+            - $ref: '#/components/schemas/PresetCurveConfig'
+            - $ref: '#/components/schemas/RangesCurveConfig'
+      required: [type, curveConfig]
+    StaticAuction:
+      type: object
+      properties:
+        type:
+          type: string
+          const: static
+      required: [type]
+    DynamicAuction:
+      type: object
+      properties:
+        type:
+          type: string
+          const: dynamic
+      required: [type]
+    AuctionConfig:
+      oneOf:
+        - $ref: '#/components/schemas/MulticurveAuction'
+        - $ref: '#/components/schemas/StaticAuction'
+        - $ref: '#/components/schemas/DynamicAuction'
+    CreateLaunchRequest:
+      type: object
+      properties:
+        chainId:
+          type: integer
+          minimum: 1
+        userAddress:
+          $ref: '#/components/schemas/HexAddress'
+        integrationAddress:
+          $ref: '#/components/schemas/HexAddress'
+        tokenMetadata:
+          $ref: '#/components/schemas/TokenMetadata'
+        tokenomics:
+          $ref: '#/components/schemas/Tokenomics'
+        pairing:
+          $ref: '#/components/schemas/PairingConfig'
+        pricing:
+          $ref: '#/components/schemas/PricingConfig'
+        feeBeneficiaries:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeeBeneficiary'
+        governance:
+          $ref: '#/components/schemas/GovernanceInput'
+          description: >
+            Only no-op governance is currently supported. governance=true or custom/default modes
+            return 501 GOVERNANCE_NOT_IMPLEMENTED.
+        migration:
+          $ref: '#/components/schemas/MigrationConfig'
+        auction:
+          $ref: '#/components/schemas/AuctionConfig'
+      required: [userAddress, tokenMetadata, tokenomics, migration, auction]
+    CreateLaunchResponse:
+      type: object
+      properties:
+        launchId:
+          type: string
+        chainId:
+          type: integer
+        txHash:
+          $ref: '#/components/schemas/HexHash'
+        statusUrl:
+          type: string
+        predicted:
+          type: object
+          properties:
+            tokenAddress:
+              $ref: '#/components/schemas/HexAddress'
+            poolId:
+              $ref: '#/components/schemas/HexHash'
+            gasEstimate:
+              type: string
+          required: [tokenAddress, poolId]
+        effectiveConfig:
+          type: object
+          properties:
+            tokensForSale:
+              type: string
+            allocationAmount:
+              type: string
+            allocationRecipient:
+              $ref: '#/components/schemas/HexAddress'
+            allocationRecipients:
+              type: array
+              items:
+                type: object
+                properties:
+                  address:
+                    $ref: '#/components/schemas/HexAddress'
+                  amount:
+                    type: string
+                    pattern: '^\d+$'
+                required: [address, amount]
+            allocationLockMode:
+              type: string
+              enum: [none, vest, unlock, vault]
+            allocationLockDurationSeconds:
+              type: integer
+              minimum: 0
+            numeraireAddress:
+              $ref: '#/components/schemas/HexAddress'
+            numerairePriceUsd:
+              type: number
+            feeBeneficiariesSource:
+              type: string
+              enum: [default, request]
+          required:
+            [
+              tokensForSale,
+              allocationAmount,
+              allocationRecipient,
+              allocationLockMode,
+              allocationLockDurationSeconds,
+              numeraireAddress,
+              numerairePriceUsd,
+              feeBeneficiariesSource,
+            ]
+      required: [launchId, chainId, txHash, statusUrl, predicted, effectiveConfig]
+    LaunchStatusResult:
+      type: object
+      properties:
+        tokenAddress:
+          $ref: '#/components/schemas/HexAddress'
+        poolOrHookAddress:
+          $ref: '#/components/schemas/HexAddress'
+        poolId:
+          $ref: '#/components/schemas/HexHash'
+        blockNumber:
+          type: string
+      required: [tokenAddress, poolOrHookAddress, poolId, blockNumber]
+    LaunchStatusResponse:
+      type: object
+      properties:
+        launchId:
+          type: string
+        chainId:
+          type: integer
+        txHash:
+          $ref: '#/components/schemas/HexHash'
+        status:
+          type: string
+          enum: [pending, confirmed, reverted, not_found]
+        confirmations:
+          type: integer
+        result:
+          $ref: '#/components/schemas/LaunchStatusResult'
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+          required: [code, message]
+      required: [launchId, chainId, txHash, status, confirmations]
+    CapabilitiesResponse:
+      type: object
+      properties:
+        defaultChainId:
+          type: integer
+        pricing:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            provider:
+              type: string
+          required: [enabled, provider]
+        chains:
+          type: array
+          items:
+            type: object
+            properties:
+              chainId:
+                type: integer
+              auctionTypes:
+                type: array
+                items:
+                  type: string
+              migrationModes:
+                type: array
+                items:
+                  type: string
+              governanceModes:
+                type: array
+                items:
+                  type: string
+              governanceEnabled:
+                type: boolean
+            required: [chainId, auctionTypes, migrationModes, governanceModes, governanceEnabled]
+      required: [defaultChainId, pricing, chains]
+    ReadyCheck:
+      type: object
+      properties:
+        chainId:
+          type: integer
+        ok:
+          type: boolean
+        latestBlock:
+          type: string
+        error:
+          type: string
+      required: [chainId, ok]
+    ReadyResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ready, degraded]
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReadyCheck'
+      required: [status, checks]
+    MetricsResponse:
+      type: object
+      properties:
+        startedAt:
+          type: string
+        uptimeSec:
+          type: integer
+        http:
+          type: object
+          properties:
+            totalRequests:
+              type: integer
+            byStatusClass:
+              type: object
+              additionalProperties:
+                type: integer
+            avgDurationMs:
+              type: number
+          required: [totalRequests, byStatusClass, avgDurationMs]
+      required: [startedAt, uptimeSec, http]
