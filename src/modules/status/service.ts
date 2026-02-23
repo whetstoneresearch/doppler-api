@@ -13,6 +13,7 @@ import type { ChainContext } from '../../infra/chain/registry';
 import type { DopplerSdkRegistry } from '../../infra/doppler/sdk-client';
 import { decodeCreateEvent, type DecodedCreateEvent } from '../../infra/chain/receipt-decoder';
 import { parseLaunchId, poolOrHookAddressToPoolId } from '../launches/mapper';
+import type { HexAddress } from '../../core/types';
 
 interface StatusServiceDeps {
   chainRegistry: ChainRegistry;
@@ -91,11 +92,55 @@ export class StatusService {
     const initializerAddress = createArg.poolInitializer.toLowerCase();
     const v3InitializerAddress = chain.addresses.v3Initializer.toLowerCase();
     const lockableV3InitializerAddress = chain.addresses.lockableV3Initializer?.toLowerCase();
+    const v4InitializerAddress = chain.addresses.v4Initializer.toLowerCase();
     if (
       initializerAddress === v3InitializerAddress ||
       (lockableV3InitializerAddress && initializerAddress === lockableV3InitializerAddress)
     ) {
       return poolOrHookAddressToPoolId(args.created.poolOrHookAddress);
+    }
+
+    if (initializerAddress === v4InitializerAddress) {
+      const token = args.created.tokenAddress.toLowerCase() as `0x${string}`;
+      const numeraire = createArg.numeraire.toLowerCase() as `0x${string}`;
+      const [currency0, currency1] = token < numeraire ? [token, numeraire] : [numeraire, token];
+
+      try {
+        const decoded = decodeAbiParameters(
+          [
+            { name: 'minimumProceeds', type: 'uint256' },
+            { name: 'maximumProceeds', type: 'uint256' },
+            { name: 'startingTime', type: 'uint256' },
+            { name: 'endingTime', type: 'uint256' },
+            { name: 'startingTick', type: 'int24' },
+            { name: 'endingTick', type: 'int24' },
+            { name: 'epochLength', type: 'uint256' },
+            { name: 'gamma', type: 'int24' },
+            { name: 'isToken0', type: 'bool' },
+            { name: 'numPDSlugs', type: 'uint256' },
+            { name: 'fee', type: 'uint24' },
+            { name: 'tickSpacing', type: 'int24' },
+          ],
+          createArg.poolInitializerData,
+        ) as readonly unknown[];
+
+        return computePoolId({
+          currency0,
+          currency1,
+          fee: Number(decoded[10]),
+          tickSpacing: Number(decoded[11]),
+          hooks: args.created.poolOrHookAddress.toLowerCase() as `0x${string}`,
+        }) as `0x${string}`;
+      } catch {
+        try {
+          const dynamicAuction = await this.sdkRegistry
+            .get(args.chainId)
+            .getDynamicAuction(args.created.poolOrHookAddress as HexAddress);
+          return (await dynamicAuction.getPoolId()) as `0x${string}`;
+        } catch {
+          return poolOrHookAddressToPoolId(args.created.poolOrHookAddress);
+        }
+      }
     }
 
     const poolConfig = await this.decodePoolConfigFromInitializerData({

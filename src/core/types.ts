@@ -2,7 +2,7 @@ export type HexAddress = `0x${string}`;
 export type HexHash = `0x${string}`;
 
 export type GovernanceMode = 'noOp' | 'default' | 'custom';
-export type MigrationType = 'noOp' | 'uniswapV2' | 'uniswapV4';
+export type MigrationType = 'noOp' | 'uniswapV2' | 'uniswapV3' | 'uniswapV4';
 export type AuctionType = 'multicurve' | 'static' | 'dynamic';
 
 export interface TokenMetadata {
@@ -140,9 +140,26 @@ export interface StaticAuctionConfig {
 
 export interface DynamicAuctionConfig {
   type: 'dynamic';
+  curveConfig: DynamicCurveConfig;
 }
 
 export type AuctionConfig = MulticurveAuctionConfig | StaticAuctionConfig | DynamicAuctionConfig;
+
+export interface DynamicRangeCurveConfig {
+  type: 'range';
+  marketCapStartUsd: number;
+  marketCapMinUsd: number;
+  minProceeds: string;
+  maxProceeds: string;
+  durationSeconds?: number;
+  epochLengthSeconds?: number;
+  fee?: number;
+  tickSpacing?: number;
+  gamma?: number;
+  numPdSlugs?: number;
+}
+
+export type DynamicCurveConfig = DynamicRangeCurveConfig;
 
 export interface CreateLaunchRequest {
   chainId?: number;

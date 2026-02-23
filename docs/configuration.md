@@ -47,8 +47,8 @@ Use `CHAIN_CONFIG_JSON` to define one or more chains and capabilities:
   "84532": {
     "rpcUrl": "https://your-base-sepolia-rpc",
     "defaultNumeraireAddress": "0x4200000000000000000000000000000000000006",
-    "auctionTypes": ["multicurve"],
-    "migrationModes": ["noOp"],
+    "auctionTypes": ["multicurve", "dynamic"],
+    "migrationModes": ["noOp", "uniswapV2"],
     "governanceModes": ["noOp"],
     "governanceEnabled": false
   },
@@ -69,5 +69,8 @@ Use `CHAIN_CONFIG_JSON` to define one or more chains and capabilities:
 - If default chain is not present in `CHAIN_CONFIG_JSON`, the API falls back to `RPC_URL`.
 - `launchId` is always `<chainId>:<txHash>` to preserve cross-chain identity.
 - `governance: true` is currently unsupported and returns `501 GOVERNANCE_NOT_IMPLEMENTED`.
-- Recommendation: configure `auctionTypes` as `["multicurve"]` for V4-capable chains and reserve `["static"]` for networks without Uniswap V4 support.
+- Recommendation: configure `auctionTypes` with `["multicurve"]` for stable V4-capable deployments and reserve `["static"]` for networks without Uniswap V4 support. Add `"dynamic"` only when intentionally testing the current work-in-progress preview mode.
+- Dynamic launches require `migrationModes` to include `"uniswapV2"` and are currently work in progress.
+- `uniswapV3` migration is not supported and returns `501 MIGRATION_NOT_IMPLEMENTED` if requested.
+- `uniswapV4` migration is planned and currently unsupported in this API profile.
 - If you intentionally want the V3 static path on Base Sepolia for testing, include `"static"` in that chain's `auctionTypes` list.

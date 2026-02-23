@@ -151,6 +151,64 @@ describe('create launch schema', () => {
     ).toThrow();
   });
 
+  it('accepts dynamic auction with explicit market-cap range and proceeds', () => {
+    const parsed = createLaunchRequestSchema.parse({
+      userAddress: '0x1111111111111111111111111111111111111111',
+      tokenMetadata: { name: 'Dynamic Token', symbol: 'DYN', tokenURI: 'ipfs://token' },
+      tokenomics: { totalSupply: '100' },
+      migration: { type: 'uniswapV2' },
+      auction: {
+        type: 'dynamic',
+        curveConfig: {
+          type: 'range',
+          marketCapStartUsd: 100,
+          marketCapMinUsd: 50,
+          minProceeds: '0.01',
+          maxProceeds: '0.1',
+          durationSeconds: 86_400,
+        },
+      },
+    });
+
+    expect(parsed.auction.type).toBe('dynamic');
+    const dynamicAuction = parsed.auction as Extract<typeof parsed.auction, { type: 'dynamic' }>;
+    expect(dynamicAuction.curveConfig.type).toBe('range');
+    expect(dynamicAuction.curveConfig.marketCapStartUsd).toBe(100);
+    expect(dynamicAuction.curveConfig.marketCapMinUsd).toBe(50);
+  });
+
+  it('rejects dynamic auction when minimum market cap is not below starting market cap', () => {
+    expect(() =>
+      createLaunchRequestSchema.parse({
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Dynamic Token', symbol: 'DYN', tokenURI: 'ipfs://token' },
+        tokenomics: { totalSupply: '100' },
+        migration: { type: 'uniswapV2' },
+        auction: {
+          type: 'dynamic',
+          curveConfig: {
+            type: 'range',
+            marketCapStartUsd: 100,
+            marketCapMinUsd: 100,
+            minProceeds: '0.01',
+            maxProceeds: '0.1',
+          },
+        },
+      }),
+    ).toThrow(/marketCapMinUsd must be less than marketCapStartUsd/i);
+  });
+
+  it('accepts migration.type=uniswapV3 at schema boundary for explicit 501 handling', () => {
+    const parsed = createLaunchRequestSchema.parse({
+      userAddress: '0x1111111111111111111111111111111111111111',
+      tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+      tokenomics: { totalSupply: '100' },
+      migration: { type: 'uniswapV3' },
+      auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
+    });
+    expect(parsed.migration.type).toBe('uniswapV3');
+  });
+
   it('accepts governance=true and omitted governance', () => {
     const withBoolean = createLaunchRequestSchema.parse({
       userAddress: '0x1111111111111111111111111111111111111111',

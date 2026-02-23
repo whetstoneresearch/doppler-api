@@ -1,13 +1,11 @@
 import { z } from 'zod';
 
+import { dynamicAuctionSchema } from '../auctions/dynamic/schema';
 import { multicurveAuctionSchema } from '../auctions/multicurve/schema';
 import { staticAuctionSchema } from '../auctions/static/schema';
 
 const addressSchema = z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'must be a valid EVM address');
 const bigintStringSchema = z.string().regex(/^\d+$/, 'must be a positive integer string');
-const dynamicAuctionSchema = z.object({
-  type: z.literal('dynamic'),
-});
 const auctionSchema = z.discriminatedUnion('type', [
   multicurveAuctionSchema,
   staticAuctionSchema,
@@ -79,7 +77,7 @@ export const createLaunchRequestSchema = z.object({
     ])
     .optional(),
   migration: z.object({
-    type: z.enum(['noOp', 'uniswapV2', 'uniswapV4']),
+    type: z.enum(['noOp', 'uniswapV2', 'uniswapV3', 'uniswapV4']),
   }),
   auction: auctionSchema,
 });
@@ -94,4 +92,7 @@ export type CreateMulticurveLaunchRequestInput = CreateLaunchRequestInput & {
 };
 export type CreateStaticLaunchRequestInput = CreateLaunchRequestInput & {
   auction: z.infer<typeof staticAuctionSchema>;
+};
+export type CreateDynamicLaunchRequestInput = CreateLaunchRequestInput & {
+  auction: z.infer<typeof dynamicAuctionSchema>;
 };

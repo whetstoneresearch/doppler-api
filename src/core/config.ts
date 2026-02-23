@@ -75,7 +75,7 @@ const chainConfigSchema = z.object({
   rpcUrl: z.string().min(1),
   defaultNumeraireAddress: z.string().startsWith('0x').optional(),
   auctionTypes: z.array(z.enum(['multicurve', 'static', 'dynamic'])).optional(),
-  migrationModes: z.array(z.enum(['noOp', 'uniswapV2', 'uniswapV4'])).optional(),
+  migrationModes: z.array(z.enum(['noOp', 'uniswapV2', 'uniswapV3', 'uniswapV4'])).optional(),
   governanceModes: z.array(z.enum(['noOp', 'default', 'custom'])).optional(),
   governanceEnabled: z.boolean().optional(),
 });

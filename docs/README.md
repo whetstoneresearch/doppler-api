@@ -39,6 +39,7 @@ Project-level reference files:
   - `src/app/routes/*`
   - `src/modules/launches/schema.ts`
   - `src/modules/auctions/multicurve/schema.ts`
+  - `src/modules/auctions/dynamic/schema.ts`
   - `src/modules/auctions/static/schema.ts`
   - `src/modules/*/service.ts`
 

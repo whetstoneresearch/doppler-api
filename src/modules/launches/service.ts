@@ -7,10 +7,12 @@ import type { TxSubmitter } from '../../infra/tx/submitter';
 import type { PricingService } from '../pricing/service';
 import { ensureAuctionSupported } from './policies';
 import type {
+  CreateDynamicLaunchRequestInput,
   CreateLaunchRequestInput,
   CreateMulticurveLaunchRequestInput,
   CreateStaticLaunchRequestInput,
 } from './schema';
+import { createDynamicLaunch } from '../auctions/dynamic/service';
 import { createMulticurveLaunch } from '../auctions/multicurve/service';
 import { createStaticLaunch } from '../auctions/static/service';
 
@@ -45,15 +47,17 @@ export class LaunchService {
   ): Promise<CreateLaunchResponse> {
     const chain = this.chainRegistry.get(input.chainId);
 
-    if (input.auction.type === 'dynamic') {
-      throw new AppError(
-        501,
-        'AUCTION_NOT_IMPLEMENTED',
-        'dynamic launches are not implemented yet and are coming soon',
-      );
-    }
-
     ensureAuctionSupported(input.auction.type, chain.config);
+
+    if (input.auction.type === 'dynamic') {
+      return createDynamicLaunch({
+        input: input as CreateDynamicLaunchRequestInput,
+        chain,
+        sdkRegistry: this.sdkRegistry,
+        pricingService: this.pricingService,
+        txSubmitter: this.txSubmitter,
+      });
+    }
 
     if (input.auction.type === 'multicurve') {
       return createMulticurveLaunch({

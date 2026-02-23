@@ -26,8 +26,10 @@ Use Node version from `.nvmrc` for local runs.
 ```bash
 npm test
 npm run test:static
+npm run test:dynamic
 npm run test:live
 npm run test:live:static
+npm run test:live:dynamic
 npm run test:live:multicurve
 npm run test:live:multicurve:defaults
 npm run test:live -- --verbose
@@ -54,6 +56,7 @@ Include API key header on launch/status routes:
 Auction selection guidance:
 
 - Default to `auction.type="multicurve"` whenever the target chain supports Uniswap V4.
+- Use `auction.type="dynamic"` only as a work-in-progress preview mode for well-known-value assets that need maximally capital-efficient V4 Dutch price discovery and should migrate to Uniswap V2 on success.
 - Use `auction.type="static"` only for networks that do not support Uniswap V4.
 
 Use `Idempotency-Key` on create requests in production integrations.
@@ -293,6 +296,46 @@ For V4-capable networks, use the multicurve templates above.
 }
 ```
 
+## 4g. Dynamic (V4) explicit range template (starts at $100)
+
+Use this for the MVP dynamic flow on Base Sepolia with Uniswap V2 migration.
+Dynamic pools migrate immediately when `maxProceeds` is reached, or at auction end when `minProceeds` is reached.
+This mode is intended for assets with well-known value and maximally capital-efficient price discovery goals.
+Dynamic creation is currently work in progress and should be treated as preview behavior.
+
+```json
+{
+  "chainId": 84532,
+  "userAddress": "0x1111111111111111111111111111111111111111",
+  "tokenMetadata": {
+    "name": "Dynamic Token",
+    "symbol": "DYN",
+    "tokenURI": "ipfs://dynamic-token"
+  },
+  "tokenomics": {
+    "totalSupply": "1000000000000000000000000"
+  },
+  "pricing": {
+    "numerairePriceUsd": 3000
+  },
+  "governance": false,
+  "migration": {
+    "type": "uniswapV2"
+  },
+  "auction": {
+    "type": "dynamic",
+    "curveConfig": {
+      "type": "range",
+      "marketCapStartUsd": 100,
+      "marketCapMinUsd": 50,
+      "minProceeds": "0.01",
+      "maxProceeds": "0.1",
+      "durationSeconds": 86400
+    }
+  }
+}
+```
+
 Custom-curve rules agents should enforce before submit:
 
 - Use 3-4 curves for most launches.
@@ -328,6 +371,13 @@ Custom-curve rules agents should enforce before submit:
   - `type: "preset"` with `preset: "low" | "medium" | "high"`
   - or `type: "range"` with explicit `marketCapStartUsd` and `marketCapEndUsd`
 - Static launches use lockable beneficiaries and `migration.type="noOp"` only in this API profile.
+- Dynamic launches require:
+  - dynamic creation is currently work in progress (preview) and may change
+  - `auction.curveConfig.type = "range"`
+  - `marketCapStartUsd`, `marketCapMinUsd`, `minProceeds`, `maxProceeds`
+  - `migration.type="uniswapV2"` (required in this API profile)
+- `migration.type="uniswapV3"` is not supported and currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
+- `migration.type="uniswapV4"` is planned and currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
 - Agent policy: multicurve is the default and preferred auction type. Choose static only as a compatibility fallback for non-V4 networks.
 - Prefer multicurve `curveConfig.type="ranges"` when you need specific market-cap behavior; do not default to presets unless generic tiers are acceptable.
 - Non-market allocation is computed automatically:

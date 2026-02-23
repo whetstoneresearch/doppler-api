@@ -5,7 +5,7 @@ import {
   decayMulticurveInitializerHookAbi,
   v4MulticurveInitializerAbi,
 } from '@whetstone-research/doppler-sdk';
-import { decodeAbiParameters, decodeFunctionData, zeroAddress } from 'viem';
+import { decodeAbiParameters, decodeFunctionData, parseEther, zeroAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { randomBytes } from 'node:crypto';
 
@@ -19,13 +19,14 @@ const runLive = process.env.LIVE_TEST_ENABLE === 'true';
 const liveVerbose = process.env.LIVE_TEST_VERBOSE === 'true';
 const liveFilter = (process.env.LIVE_TEST_FILTER ?? 'all').toLowerCase();
 
-type LiveScenarioGroup = 'static' | 'multicurve' | 'multicurve-defaults' | 'negative';
+type LiveScenarioGroup = 'static' | 'dynamic' | 'multicurve' | 'multicurve-defaults' | 'negative';
 
 const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
   if (!runLive) return false;
 
   if (liveFilter === 'all') return true;
   if (liveFilter === 'static') return groups.includes('static');
+  if (liveFilter === 'dynamic') return groups.includes('dynamic');
   if (liveFilter === 'multicurve') {
     return groups.includes('multicurve') || groups.includes('multicurve-defaults');
   }
@@ -329,6 +330,44 @@ interface DecodedInitializerPoolConfig {
   onInitializationDopplerHookCalldata?: `0x${string}`;
 }
 
+interface DecodedDynamicPoolConfig {
+  minimumProceeds: bigint;
+  maximumProceeds: bigint;
+  startingTime: bigint;
+  endingTime: bigint;
+  fee: number;
+  tickSpacing: number;
+}
+
+const decodeDynamicPoolConfig = (poolInitializerData: `0x${string}`): DecodedDynamicPoolConfig => {
+  const decoded = decodeAbiParameters(
+    [
+      { name: 'minimumProceeds', type: 'uint256' },
+      { name: 'maximumProceeds', type: 'uint256' },
+      { name: 'startingTime', type: 'uint256' },
+      { name: 'endingTime', type: 'uint256' },
+      { name: 'startingTick', type: 'int24' },
+      { name: 'endingTick', type: 'int24' },
+      { name: 'epochLength', type: 'uint256' },
+      { name: 'gamma', type: 'int24' },
+      { name: 'isToken0', type: 'bool' },
+      { name: 'numPDSlugs', type: 'uint256' },
+      { name: 'fee', type: 'uint24' },
+      { name: 'tickSpacing', type: 'int24' },
+    ],
+    poolInitializerData,
+  );
+
+  return {
+    minimumProceeds: decoded[0],
+    maximumProceeds: decoded[1],
+    startingTime: decoded[2],
+    endingTime: decoded[3],
+    fee: Number(decoded[10]),
+    tickSpacing: Number(decoded[11]),
+  };
+};
+
 const decodeInitializerPoolConfig = (
   mode: InitializerMode,
   poolInitializerData: `0x${string}`,
@@ -588,10 +627,7 @@ const waitForTransactionByHash = async (args: {
 
 const assertNotImplementedError = async (
   task: Promise<unknown>,
-  expectedCode:
-    | 'AUCTION_NOT_IMPLEMENTED'
-    | 'MIGRATION_NOT_IMPLEMENTED'
-    | 'GOVERNANCE_NOT_IMPLEMENTED',
+  expectedCode: 'MIGRATION_NOT_IMPLEMENTED' | 'GOVERNANCE_NOT_IMPLEMENTED',
 ): Promise<void> => {
   try {
     await task;
@@ -1288,6 +1324,230 @@ const runStaticLaunchAndVerify = async (args?: {
   }
 };
 
+const runDynamicLaunchAndVerify = async (args?: {
+  configLabel?: string;
+  marketCapStartUsd?: number;
+  marketCapMinUsd?: number;
+  minProceeds?: string;
+  maxProceeds?: string;
+  durationSeconds?: number;
+}) => {
+  const config = loadConfig();
+  const services = buildServices(config);
+  const chain = services.chainRegistry.get(config.defaultChainId);
+  const userAddress = privateKeyToAccount(config.privateKey).address;
+  const runId = Date.now().toString();
+  const symbol = `D${runId.slice(-4)}`;
+  const tokenName = `Live DYNAMIC ${runId.slice(-6)}`;
+  const tokenUri = `ipfs://live-dynamic-token/${runId}`;
+  const totalSupply = DEFAULT_LIVE_TOTAL_SUPPLY;
+  const explorerBase = getBaseScanUrl(chain.chainId);
+  const numerairePriceUsd = Number(process.env.LIVE_NUMERAIRE_PRICE_USD || '3000');
+  const marketCapStartUsd = args?.marketCapStartUsd ?? 100;
+  const marketCapMinUsd = args?.marketCapMinUsd ?? 50;
+  const minProceeds = args?.minProceeds ?? '0.01';
+  const maxProceeds = args?.maxProceeds ?? '0.1';
+  const durationSeconds = args?.durationSeconds ?? 24 * 60 * 60;
+  const configLabel =
+    args?.configLabel ??
+    `DYNAMIC V4 (start $${marketCapStartUsd}, minProceeds ${minProceeds}, maxProceeds ${maxProceeds}, ${durationSeconds}s)`;
+  const summary: LaunchSummaryRow = {
+    config: configLabel,
+    status: 'failed',
+    salePercent: '100% (default)',
+    allocationAmount: '0 (default)',
+    allocationRecipients: '0 (default)',
+    vestMode: 'none (default)',
+    vestDuration: '0 (default)',
+  };
+  let submittedTxHash: `0x${string}` | undefined;
+  launchSummaries.push(summary);
+
+  if (chain.chainId !== 84532) {
+    throw new Error(
+      `Dynamic live MVP test is restricted to Base Sepolia (84532); current chain is ${chain.chainId}`,
+    );
+  }
+
+  if (!chain.config.auctionTypes.includes('dynamic')) {
+    chain.config.auctionTypes = [...chain.config.auctionTypes, 'dynamic'];
+    verboseLog(
+      `[live] chain ${chain.chainId} missing dynamic in auctionTypes; enabling dynamic for this test run`,
+    );
+  }
+
+  if (!chain.config.migrationModes.includes('uniswapV2')) {
+    chain.config.migrationModes = [...chain.config.migrationModes, 'uniswapV2'];
+    verboseLog(
+      `[live] chain ${chain.chainId} missing uniswapV2 in migrationModes; enabling uniswapV2 for this test run`,
+    );
+  }
+
+  const expectedMinProceeds = parseEther(minProceeds);
+  const expectedMaxProceeds = parseEther(maxProceeds);
+
+  const createPayload: CreateLaunchRequestInput = {
+    chainId: chain.chainId,
+    userAddress,
+    integrationAddress: userAddress,
+    tokenMetadata: {
+      name: tokenName,
+      symbol,
+      tokenURI: tokenUri,
+    },
+    tokenomics: {
+      totalSupply: totalSupply.toString(),
+    },
+    pricing: {
+      numerairePriceUsd,
+    },
+    governance: false,
+    migration: {
+      type: 'uniswapV2',
+    },
+    auction: {
+      type: 'dynamic',
+      curveConfig: {
+        type: 'range',
+        marketCapStartUsd,
+        marketCapMinUsd,
+        minProceeds,
+        maxProceeds,
+        durationSeconds,
+      },
+    },
+  };
+
+  try {
+    verboseLog(liveDivider(`Creating Dynamic V4 Token (${configLabel})`));
+    if (liveVerbose) {
+      printLiveTable('Dynamic Launch Parameters', [
+        ['Chain ID', chain.chainId],
+        ['RPC URL', chain.config.rpcUrl],
+        ['User / Integrator', userAddress],
+        ['Token', `${tokenName} (${symbol})`],
+        ['Token URI', tokenUri],
+        ['Supply / For Sale', `${totalSupply.toString()} / ${totalSupply.toString()}`],
+        ['Market Cap Start / Min USD', `${marketCapStartUsd} / ${marketCapMinUsd}`],
+        ['Min / Max Proceeds', `${minProceeds} / ${maxProceeds}`],
+        ['Duration (sec)', durationSeconds],
+        ['Numeraire Price USD', numerairePriceUsd],
+        ['Launch Mode', 'dynamic + migration:uniswapV2 + governance:noOp'],
+      ]);
+    }
+
+    verboseLog('[live] checking RPC connectivity before dynamic submission');
+    try {
+      await chain.publicClient.getBlockNumber();
+    } catch (error) {
+      throw new Error(
+        `Live RPC is unreachable at ${chain.config.rpcUrl}. Set RPC_URL/CHAIN_CONFIG_JSON to a reachable endpoint before running live tests.`,
+        { cause: error as Error },
+      );
+    }
+
+    const createResponse = await services.launchService.createLaunch(createPayload);
+    expect(createResponse.txHash).toMatch(/^0x[a-fA-F0-9]{64}$/);
+    submittedTxHash = createResponse.txHash;
+    summary.txHash = createResponse.txHash;
+    const txUrl = explorerBase ? `${explorerBase}/tx/${createResponse.txHash}` : null;
+    if (liveVerbose) {
+      printLiveTable('Dynamic Submission Result', [
+        ['Launch ID', createResponse.launchId],
+        ['Tx', createResponse.txHash],
+        ['BaseScan Tx', txUrl],
+        ['Predicted Token', createResponse.predicted.tokenAddress],
+        ['Predicted Pool ID', createResponse.predicted.poolId],
+      ]);
+    }
+
+    const receipt = (await waitForReceipt(
+      chain.publicClient as { waitForTransactionReceipt: (...params: any[]) => Promise<unknown> },
+      createResponse.txHash,
+    )) as Awaited<ReturnType<typeof chain.publicClient.getTransactionReceipt>>;
+
+    if (receipt.status !== 'success') {
+      throw new Error(`Transaction reverted onchain: ${createResponse.txHash}`);
+    }
+
+    const created = decodeCreateEvent(receipt.logs);
+    expect(created).not.toBeNull();
+    const createdEvent = created!;
+    summary.tokenAddress = createdEvent.tokenAddress;
+    summary.pureUrl = getPureTokenUrl(chain.chainId, createdEvent.tokenAddress) ?? undefined;
+
+    const tx = (await waitForTransactionByHash({
+      publicClient: chain.publicClient as {
+        getTransaction: (...params: any[]) => Promise<unknown>;
+      },
+      txHash: createResponse.txHash,
+    })) as Awaited<ReturnType<typeof chain.publicClient.getTransaction>>;
+    const decoded = decodeFunctionData({
+      abi: airlockAbi,
+      data: tx.input,
+    });
+    expect(decoded.functionName).toBe('create');
+    const createArgs = (decoded.args ?? []) as readonly unknown[];
+    const createArg = createArgs[0] as {
+      initialSupply: bigint;
+      numeraire: `0x${string}`;
+      numTokensToSell: bigint;
+      integrator: `0x${string}`;
+      poolInitializer: `0x${string}`;
+      poolInitializerData: `0x${string}`;
+      liquidityMigrator: `0x${string}`;
+    };
+
+    expect(createArg.initialSupply.toString()).toBe(totalSupply.toString());
+    expect(createArg.numTokensToSell.toString()).toBe(totalSupply.toString());
+    expect(createArg.integrator.toLowerCase()).toBe(userAddress.toLowerCase());
+    expect(createArg.numeraire).not.toBe(zeroAddress);
+    expect(createArg.poolInitializer.toLowerCase()).toBe(
+      chain.addresses.v4Initializer.toLowerCase(),
+    );
+    expect(createArg.liquidityMigrator.toLowerCase()).toBe(
+      chain.addresses.v2Migrator.toLowerCase(),
+    );
+
+    const status = await services.statusService.getLaunchStatus(createResponse.launchId);
+    expect(status.status).toBe('confirmed');
+    expect(status.result?.tokenAddress.toLowerCase()).toBe(createdEvent.tokenAddress.toLowerCase());
+    expect(status.result?.poolOrHookAddress.toLowerCase()).toBe(
+      createdEvent.poolOrHookAddress.toLowerCase(),
+    );
+    expect(status.result?.poolId).toMatch(/^0x[a-fA-F0-9]{64}$/);
+    expect(createResponse.predicted.poolId).toMatch(/^0x[a-fA-F0-9]{64}$/);
+
+    const decodedDynamicConfig = decodeDynamicPoolConfig(createArg.poolInitializerData);
+    expect(decodedDynamicConfig.minimumProceeds).toBe(expectedMinProceeds);
+    expect(decodedDynamicConfig.maximumProceeds).toBe(expectedMaxProceeds);
+    expect(decodedDynamicConfig.endingTime - decodedDynamicConfig.startingTime).toBe(
+      BigInt(durationSeconds),
+    );
+    expect(decodedDynamicConfig.startingTime).toBeGreaterThan(0n);
+    expect(decodedDynamicConfig.endingTime).toBeGreaterThan(decodedDynamicConfig.startingTime);
+    summary.status = 'created';
+  } catch (error) {
+    summary.reason = toShortError(error);
+    if (liveVerbose && submittedTxHash) {
+      const txUrl = explorerBase ? `${explorerBase}/tx/${submittedTxHash}` : null;
+      printLiveTable('Failure Context', [
+        ['Configuration', configLabel],
+        ['Submitted Tx', submittedTxHash],
+        ['BaseScan Tx', txUrl],
+        ['Error', summary.reason],
+      ]);
+    } else if (liveVerbose) {
+      printLiveTable('Failure Context', [
+        ['Configuration', configLabel],
+        ['Submitted Tx', 'n/a (failed before tx submission)'],
+        ['Error', summary.reason],
+      ]);
+    }
+    throw error;
+  }
+};
+
 const runCustomCurveLaunchAndVerify = async () => {
   const config = loadConfig();
   const services = buildServices(config);
@@ -1820,6 +2080,21 @@ describe('live create verification', () => {
   );
 
   liveIt(
+    'DYNAMIC V4 (Range $100->$50, min 0.01, max 0.1, 24h)',
+    ['dynamic'],
+    async () => {
+      await runDynamicLaunchAndVerify({
+        marketCapStartUsd: 100,
+        marketCapMinUsd: 50,
+        minProceeds: '0.01',
+        maxProceeds: '0.1',
+        durationSeconds: 24 * 60 * 60,
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
     'MEDIUM 20% Sale / 80% Allocation (Default Lock)',
     ['multicurve'],
     async () => {
@@ -1955,58 +2230,6 @@ describe('live create verification', () => {
   );
 
   liveIt(
-    'rejects dynamic launch type as not implemented',
-    ['negative'],
-    async () => {
-      const config = loadConfig();
-      const services = buildServices(config);
-      const chain = services.chainRegistry.get(config.defaultChainId);
-      const userAddress = privateKeyToAccount(config.privateKey).address;
-
-      const basePayload = {
-        chainId: chain.chainId,
-        userAddress,
-        tokenMetadata: {
-          name: `Live Unsupported ${Date.now()}`,
-          symbol: `U${Date.now().toString().slice(-4)}`,
-          tokenURI: 'ipfs://live-unsupported',
-        },
-        tokenomics: {
-          totalSupply: (1_000_000n * 10n ** 18n).toString(),
-        },
-        governance: {
-          enabled: false as const,
-          mode: 'noOp' as const,
-        },
-        migration: {
-          type: 'noOp' as const,
-        },
-        pricing: {
-          numerairePriceUsd: Number(process.env.LIVE_NUMERAIRE_PRICE_USD || '3000'),
-        },
-      };
-
-      if (liveVerbose) {
-        // eslint-disable-next-line no-console
-        console.log(liveDivider('Validating unsupported auction types'));
-        printLiveTable('Expected Response', [['dynamic auction', '501 AUCTION_NOT_IMPLEMENTED']]);
-      }
-
-      await assertNotImplementedError(
-        services.launchService.createLaunch({
-          ...basePayload,
-          auction: {
-            type: 'dynamic',
-          },
-        }),
-        'AUCTION_NOT_IMPLEMENTED',
-      );
-      verboseLog('[live] unsupported auction checks passed');
-    },
-    120_000,
-  );
-
-  liveIt(
     'rejects unsupported governance and migration modes as not implemented',
     ['negative'],
     async () => {
@@ -2044,7 +2267,7 @@ describe('live create verification', () => {
         printLiveTable('Expected Responses', [
           ['governance enabled=true', '501 GOVERNANCE_NOT_IMPLEMENTED'],
           ['governance custom', '501 GOVERNANCE_NOT_IMPLEMENTED'],
-          ['migration uniswapV2/uniswapV4', '501 MIGRATION_NOT_IMPLEMENTED'],
+          ['migration uniswapV2/uniswapV3/uniswapV4', '501 MIGRATION_NOT_IMPLEMENTED'],
         ]);
       }
 
@@ -2064,6 +2287,15 @@ describe('live create verification', () => {
           migration: { type: 'noOp' },
         }),
         'GOVERNANCE_NOT_IMPLEMENTED',
+      );
+
+      await assertNotImplementedError(
+        services.launchService.createLaunch({
+          ...basePayload,
+          governance: { enabled: false, mode: 'noOp' },
+          migration: { type: 'uniswapV3' },
+        }),
+        'MIGRATION_NOT_IMPLEMENTED',
       );
 
       await assertNotImplementedError(

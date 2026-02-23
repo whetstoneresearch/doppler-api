@@ -13,7 +13,7 @@ export const resolveMigration = (
 ): ResolvedMigration => {
   const mode: MigrationType = migration.type;
 
-  if (mode === 'uniswapV2' || mode === 'uniswapV4') {
+  if (mode === 'uniswapV2' || mode === 'uniswapV3' || mode === 'uniswapV4') {
     throw new AppError(
       501,
       'MIGRATION_NOT_IMPLEMENTED',
@@ -45,5 +45,46 @@ export const resolveMigration = (
     501,
     'MIGRATION_NOT_IMPLEMENTED',
     'uniswapV4 migration is not implemented yet',
+  );
+};
+
+export const resolveDynamicMigration = (
+  migration: MigrationConfigInput,
+  chainConfig: ChainRuntimeConfig,
+): ResolvedMigration => {
+  const mode: MigrationType = migration.type;
+
+  if (mode === 'uniswapV3') {
+    throw new AppError(
+      501,
+      'MIGRATION_NOT_IMPLEMENTED',
+      'uniswapV3 migration is not implemented; dynamic launches currently support uniswapV2 only',
+    );
+  }
+
+  if (!chainConfig.migrationModes.includes(mode)) {
+    throw new AppError(
+      422,
+      'MIGRATION_MODE_UNSUPPORTED',
+      `Migration mode ${mode} is not enabled for chain ${chainConfig.chainId}`,
+    );
+  }
+
+  if (mode === 'uniswapV2') {
+    return { type: 'uniswapV2' };
+  }
+
+  if (mode === 'uniswapV4') {
+    throw new AppError(
+      501,
+      'MIGRATION_NOT_IMPLEMENTED',
+      'uniswapV4 migration is coming soon; dynamic launches currently support uniswapV2 only',
+    );
+  }
+
+  throw new AppError(
+    422,
+    'MIGRATION_MODE_UNSUPPORTED',
+    'dynamic launches require migration.type="uniswapV2"',
   );
 };

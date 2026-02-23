@@ -33,8 +33,6 @@ All errors are returned as:
 
 ### Launch creation and policy
 
-- `AUCTION_NOT_IMPLEMENTED`
-  - currently returned for `auction.type="dynamic"`
 - `AUCTION_TYPE_UNSUPPORTED`
 - `MIGRATION_NOT_IMPLEMENTED`
 - `MIGRATION_MODE_UNSUPPORTED`
@@ -51,6 +49,13 @@ All errors are returned as:
 - `INVALID_FEE_BENEFICIARIES`
 - `IDEMPOTENCY_KEY_REQUIRED`
 - `IDEMPOTENCY_KEY_REUSE_MISMATCH`
+
+Dynamic-specific policy notes:
+
+- Dynamic creation is currently work in progress (preview).
+- Dynamic launches require `migration.type="uniswapV2"`.
+- `migration.type="uniswapV3"` currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
+- `migration.type="uniswapV4"` currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
 
 ### Pricing
 

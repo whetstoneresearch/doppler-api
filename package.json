@@ -20,8 +20,10 @@
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:static": "vitest run tests/integration/create-launch.test.ts --testNamePattern=\"static launch:\"",
+    "test:dynamic": "vitest run tests/integration/create-launch.test.ts --testNamePattern=\"dynamic launch:\"",
     "test:live": "node scripts/test-runner.mjs --live-only",
     "test:live:static": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=static vitest run tests/live/create-and-verify.test.ts",
+    "test:live:dynamic": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=dynamic vitest run tests/live/create-and-verify.test.ts",
     "test:live:multicurve": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=multicurve vitest run tests/live/create-and-verify.test.ts",
     "test:live:multicurve:defaults": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=multicurve-defaults vitest run tests/live/create-and-verify.test.ts",
     "test:all": "node scripts/test-runner.mjs --with-live"

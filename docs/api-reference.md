@@ -24,8 +24,11 @@ Generic launch creation endpoint (future-compatible).
 
 - v1 implementation supports:
   - `auction.type = "multicurve"` (preferred on V4-capable networks)
+  - `auction.type = "dynamic"` (work-in-progress preview V4 Dutch auction for well-known-value assets requiring maximally capital-efficient price discovery)
   - `auction.type = "static"` (Uniswap V3 static launch; fallback for networks without Uniswap V4 support)
-  - `migration.type = "noOp"`
+  - `migration.type = "noOp"` for multicurve/static
+  - `migration.type = "uniswapV2"` for dynamic
+  - `migration.type = "uniswapV3"` is explicitly unsupported (returns `501 MIGRATION_NOT_IMPLEMENTED`)
   - `governance: false` (or omitted) for no-op governance
   - non-no-op governance is not implemented in this deployment
 
@@ -90,7 +93,21 @@ Generic launch creation endpoint (future-compatible).
     - static launches are configured with lockable beneficiaries (request values or default split)
     - static is intended for chains that do not support Uniswap V4 multicurve paths
   - `type: "dynamic"`:
-    - accepted by schema but currently unimplemented
+    - dynamic creation is currently work in progress (preview) and may change
+    - intended for assets with well-known value that need maximally capital-efficient price discovery
+    - `curveConfig.type = "range"`:
+      - `marketCapStartUsd: number` (starting market cap in USD)
+      - `marketCapMinUsd: number` (minimum market cap floor in USD, must be lower than start)
+      - `minProceeds: string` (decimal string in numeraire units, e.g. `"0.01"`)
+      - `maxProceeds: string` (decimal string in numeraire units, e.g. `"0.1"`)
+      - optional: `durationSeconds`, `epochLengthSeconds`, `fee`, `tickSpacing`, `gamma`, `numPdSlugs`
+    - migration policy:
+      - dynamic requires `migration.type = "uniswapV2"`
+      - `migration.type = "uniswapV3"` is reserved and currently returns `501 MIGRATION_NOT_IMPLEMENTED`
+      - `migration.type = "uniswapV4"` is reserved and currently returns `501 MIGRATION_NOT_IMPLEMENTED`
+    - exit/migration behavior:
+      - migrate immediately when `maxProceeds` is reached
+      - otherwise migrate at auction maturity only if `minProceeds` is reached
 
 #### Response `200`
 
@@ -109,8 +126,7 @@ Generic launch creation endpoint (future-compatible).
 
 - `401 UNAUTHORIZED`
 - `422 INVALID_REQUEST` (schema validation) and domain-specific validation errors
-- `501 AUCTION_NOT_IMPLEMENTED` for `dynamic`
-- `501 MIGRATION_NOT_IMPLEMENTED` for `uniswapV2`/`uniswapV4`
+- `501 MIGRATION_NOT_IMPLEMENTED` for unsupported migration modes (for example `uniswapV3` and `uniswapV4`)
 - `501 GOVERNANCE_NOT_IMPLEMENTED` for non-no-op governance (`governance: true` or `governance.mode != "noOp"`)
 
 ---
