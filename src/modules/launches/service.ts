@@ -6,8 +6,13 @@ import type { IdempotencyStore } from '../../infra/idempotency/store';
 import type { TxSubmitter } from '../../infra/tx/submitter';
 import type { PricingService } from '../pricing/service';
 import { ensureAuctionSupported } from './policies';
-import type { CreateLaunchRequestInput, CreateMulticurveLaunchRequestInput } from './schema';
+import type {
+  CreateLaunchRequestInput,
+  CreateMulticurveLaunchRequestInput,
+  CreateStaticLaunchRequestInput,
+} from './schema';
 import { createMulticurveLaunch } from '../auctions/multicurve/service';
+import { createStaticLaunch } from '../auctions/static/service';
 
 interface LaunchServiceDeps {
   chainRegistry: ChainRegistry;
@@ -40,11 +45,11 @@ export class LaunchService {
   ): Promise<CreateLaunchResponse> {
     const chain = this.chainRegistry.get(input.chainId);
 
-    if (input.auction.type === 'static' || input.auction.type === 'dynamic') {
+    if (input.auction.type === 'dynamic') {
       throw new AppError(
         501,
         'AUCTION_NOT_IMPLEMENTED',
-        `${input.auction.type} launches are not implemented yet and are coming soon`,
+        'dynamic launches are not implemented yet and are coming soon',
       );
     }
 
@@ -53,6 +58,16 @@ export class LaunchService {
     if (input.auction.type === 'multicurve') {
       return createMulticurveLaunch({
         input: input as CreateMulticurveLaunchRequestInput,
+        chain,
+        sdkRegistry: this.sdkRegistry,
+        pricingService: this.pricingService,
+        txSubmitter: this.txSubmitter,
+      });
+    }
+
+    if (input.auction.type === 'static') {
+      return createStaticLaunch({
+        input: input as CreateStaticLaunchRequestInput,
         chain,
         sdkRegistry: this.sdkRegistry,
         pricingService: this.pricingService,

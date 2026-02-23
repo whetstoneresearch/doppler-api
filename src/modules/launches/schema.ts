@@ -1,12 +1,10 @@
 import { z } from 'zod';
 
 import { multicurveAuctionSchema } from '../auctions/multicurve/schema';
+import { staticAuctionSchema } from '../auctions/static/schema';
 
 const addressSchema = z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'must be a valid EVM address');
 const bigintStringSchema = z.string().regex(/^\d+$/, 'must be a positive integer string');
-const staticAuctionSchema = z.object({
-  type: z.literal('static'),
-});
 const dynamicAuctionSchema = z.object({
   type: z.literal('dynamic'),
 });
@@ -93,4 +91,7 @@ export const launchIdSchema = z
 export type CreateLaunchRequestInput = z.infer<typeof createLaunchRequestSchema>;
 export type CreateMulticurveLaunchRequestInput = CreateLaunchRequestInput & {
   auction: z.infer<typeof multicurveAuctionSchema>;
+};
+export type CreateStaticLaunchRequestInput = CreateLaunchRequestInput & {
+  auction: z.infer<typeof staticAuctionSchema>;
 };

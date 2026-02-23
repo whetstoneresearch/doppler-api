@@ -25,7 +25,9 @@ npm run dev
 
 ## Current target feature set
 
-- Auction type: `multicurve`
+- Auction types:
+  - `multicurve` (recommended default on V4-capable networks)
+  - `static` (Uniswap V3 static launch with lockable beneficiaries; compatibility fallback for networks without Uniswap V4 support)
 - Multicurve initializer modes:
   - `standard` (implemented via scheduled initializer with `startTime=0`)
   - `scheduled` (`startTime` required)
@@ -40,11 +42,11 @@ npm run dev
   - Optional: set `tokenomics.allocations.recipients` (max 10 unique recipients) to split the non-market remainder.
   - Backward compatible alias: `tokenomics.allocations.allocations`.
 - Multicurve design reference: [Doppler Multicurve whitepaper](https://doppler.lol/multicurve.pdf).
+- Guidance: prefer `multicurve` whenever the target chain has Uniswap V4 support. Use `static` only when V4 is unavailable.
 
 ## Scope and roadmap
 
 - Support for the rest of Doppler is coming soon
-  - Static price discovery auctions
   - Dynamic price discovery auctions
   - Various other custom market dynamics
 
@@ -111,6 +113,62 @@ content-type: application/json
     },
     "initializer": {
       "type": "standard"
+    }
+  }
+}
+```
+
+## Curve configuration examples
+
+### Multicurve explicit ranges (non-preset)
+
+Use this when you want deterministic, non-default market-cap bands instead of presets.
+
+```json
+{
+  "auction": {
+    "type": "multicurve",
+    "curveConfig": {
+      "type": "ranges",
+      "fee": 15000,
+      "tickSpacing": 300,
+      "curves": [
+        {
+          "marketCapStartUsd": 100,
+          "marketCapEndUsd": 10000,
+          "numPositions": 11,
+          "sharesWad": "200000000000000000"
+        },
+        {
+          "marketCapStartUsd": 10000,
+          "marketCapEndUsd": 100000,
+          "numPositions": 11,
+          "sharesWad": "300000000000000000"
+        },
+        {
+          "marketCapStartUsd": 100000,
+          "marketCapEndUsd": "max",
+          "numPositions": 11,
+          "sharesWad": "500000000000000000"
+        }
+      ]
+    }
+  }
+}
+```
+
+### Static explicit range (starts at $100)
+
+Use this only for the static fallback path.
+
+```json
+{
+  "auction": {
+    "type": "static",
+    "curveConfig": {
+      "type": "range",
+      "marketCapStartUsd": 100,
+      "marketCapEndUsd": 100000
     }
   }
 }
@@ -257,6 +315,15 @@ Example `GET /health`:
   - `scheduled` requires `auction.initializer.startTime`.
   - `decay` requires `startFee` and `durationSeconds` (optional `startTime`).
   - `rehype` requires hook config and percent wad fields that sum to `1e18`.
+- Multicurve curve selection:
+  - presets are convenient defaults.
+  - explicit `ranges` are recommended when you need intentional market-cap bands instead of default tiers.
+- Static launch curve config:
+  - `auction.type="static"` requires `auction.curveConfig`.
+  - `curveConfig.type="preset"` supports `preset: "low" | "medium" | "high"`.
+  - `curveConfig.type="range"` supports explicit `marketCapStartUsd` and `marketCapEndUsd`.
+  - static launches always use lockable beneficiaries (request values or default 95% user / 5% protocol owner).
+  - use static only as a fallback when the target chain does not support Uniswap V4/multicurve.
 - Percentage-based allocation is supported by converting percent to amount:
   - `tokensForSale = totalSupply * salePercent / 100`
   - Example: 20% sale means 80% non-market allocation.
@@ -273,7 +340,11 @@ See `docs/mvp-launch.md` for a concise MVP launch example and a full defaults-re
 
 ```bash
 npm test
+npm run test:static
 npm run test:live
+npm run test:live:static
+npm run test:live:multicurve
+npm run test:live:multicurve:defaults
 npm run test:live --verbose
 ```
 

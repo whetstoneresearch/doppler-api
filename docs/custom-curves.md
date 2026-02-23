@@ -5,6 +5,11 @@ This API supports multicurve launch configuration in two modes:
 1. Preset curves (`curveConfig.type = "preset"`)
 2. Explicit ranges (`curveConfig.type = "ranges"`)
 
+Recommendation:
+
+- Use `ranges` for production launches when you need explicit market-cap behavior.
+- Use `preset` only when the default low/medium/high tiers are intentionally acceptable.
+
 Initializer modes are configured separately at `auction.initializer`:
 
 - `standard` (default; implemented via scheduled initializer with `startTime=0`)

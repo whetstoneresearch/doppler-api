@@ -75,6 +75,27 @@ export interface RangesCurveConfig {
 
 export type CurveConfig = PresetCurveConfig | RangesCurveConfig;
 
+export type MarketCapPreset = 'low' | 'medium' | 'high';
+
+export interface StaticPresetCurveConfig {
+  type: 'preset';
+  preset: MarketCapPreset;
+  fee?: number;
+  numPositions?: number;
+  maxShareToBeSoldWad?: string;
+}
+
+export interface StaticRangeCurveConfig {
+  type: 'range';
+  marketCapStartUsd: number;
+  marketCapEndUsd: number;
+  fee?: number;
+  numPositions?: number;
+  maxShareToBeSoldWad?: string;
+}
+
+export type StaticCurveConfig = StaticPresetCurveConfig | StaticRangeCurveConfig;
+
 export type MulticurveInitializerConfig =
   | {
       type: 'standard';
@@ -106,11 +127,22 @@ export type MulticurveInitializerConfig =
       };
     };
 
-export interface AuctionConfig {
-  type: AuctionType;
+export interface MulticurveAuctionConfig {
+  type: 'multicurve';
   curveConfig: CurveConfig;
   initializer?: MulticurveInitializerConfig;
 }
+
+export interface StaticAuctionConfig {
+  type: 'static';
+  curveConfig: StaticCurveConfig;
+}
+
+export interface DynamicAuctionConfig {
+  type: 'dynamic';
+}
+
+export type AuctionConfig = MulticurveAuctionConfig | StaticAuctionConfig | DynamicAuctionConfig;
 
 export interface CreateLaunchRequest {
   chainId?: number;

@@ -12,7 +12,7 @@ import type { ChainRegistry } from '../../infra/chain/registry';
 import type { ChainContext } from '../../infra/chain/registry';
 import type { DopplerSdkRegistry } from '../../infra/doppler/sdk-client';
 import { decodeCreateEvent, type DecodedCreateEvent } from '../../infra/chain/receipt-decoder';
-import { parseLaunchId } from '../launches/mapper';
+import { parseLaunchId, poolOrHookAddressToPoolId } from '../launches/mapper';
 
 interface StatusServiceDeps {
   chainRegistry: ChainRegistry;
@@ -87,6 +87,16 @@ export class StatusService {
       poolInitializer: `0x${string}`;
       poolInitializerData: `0x${string}`;
     };
+
+    const initializerAddress = createArg.poolInitializer.toLowerCase();
+    const v3InitializerAddress = chain.addresses.v3Initializer.toLowerCase();
+    const lockableV3InitializerAddress = chain.addresses.lockableV3Initializer?.toLowerCase();
+    if (
+      initializerAddress === v3InitializerAddress ||
+      (lockableV3InitializerAddress && initializerAddress === lockableV3InitializerAddress)
+    ) {
+      return poolOrHookAddressToPoolId(args.created.poolOrHookAddress);
+    }
 
     const poolConfig = await this.decodePoolConfigFromInitializerData({
       chain,

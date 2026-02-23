@@ -113,6 +113,44 @@ describe('create launch schema', () => {
     ).toBe('rehype');
   });
 
+  it('accepts static auction market cap presets', () => {
+    const parsed = createLaunchRequestSchema.parse({
+      userAddress: '0x1111111111111111111111111111111111111111',
+      tokenMetadata: { name: 'Static Token', symbol: 'STK', tokenURI: 'ipfs://token' },
+      tokenomics: { totalSupply: '100' },
+      migration: { type: 'noOp' },
+      auction: {
+        type: 'static',
+        curveConfig: {
+          type: 'preset',
+          preset: 'medium',
+        },
+      },
+    });
+
+    expect(parsed.auction.type).toBe('static');
+    const staticAuction = parsed.auction as Extract<typeof parsed.auction, { type: 'static' }>;
+    expect(staticAuction.curveConfig.type).toBe('preset');
+    expect(
+      (staticAuction.curveConfig as Extract<typeof staticAuction.curveConfig, { type: 'preset' }>)
+        .preset,
+    ).toBe('medium');
+  });
+
+  it('rejects static auction without curve config', () => {
+    expect(() =>
+      createLaunchRequestSchema.parse({
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Static Token', symbol: 'STK', tokenURI: 'ipfs://token' },
+        tokenomics: { totalSupply: '100' },
+        migration: { type: 'noOp' },
+        auction: {
+          type: 'static',
+        },
+      }),
+    ).toThrow();
+  });
+
   it('accepts governance=true and omitted governance', () => {
     const withBoolean = createLaunchRequestSchema.parse({
       userAddress: '0x1111111111111111111111111111111111111111',

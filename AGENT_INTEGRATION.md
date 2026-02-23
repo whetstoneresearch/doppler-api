@@ -25,7 +25,11 @@ Use Node version from `.nvmrc` for local runs.
 
 ```bash
 npm test
+npm run test:static
 npm run test:live
+npm run test:live:static
+npm run test:live:multicurve
+npm run test:live:multicurve:defaults
 npm run test:live -- --verbose
 npm run test:live --verbose
 ```
@@ -46,6 +50,11 @@ Include API key header on launch/status routes:
 2. Save `launchId` from response.
 3. Poll `GET /v1/launches/:launchId` every 3-5 seconds.
 4. Stop when status is `confirmed` or `reverted`.
+
+Auction selection guidance:
+
+- Default to `auction.type="multicurve"` whenever the target chain supports Uniswap V4.
+- Use `auction.type="static"` only for networks that do not support Uniswap V4.
 
 Use `Idempotency-Key` on create requests in production integrations.
 
@@ -84,6 +93,8 @@ Use `Idempotency-Key` on create requests in production integrations.
 ```
 
 ## 4b. Custom curve (ranges) template
+
+Use this when you want intentional market-cap bands and allocation shares instead of preset tiers.
 
 ```json
 {
@@ -216,6 +227,72 @@ Use `Idempotency-Key` on create requests in production integrations.
 }
 ```
 
+## 4e. Static (V3) launch template
+
+Use this only when the target network does not support Uniswap V4/multicurve.
+For V4-capable networks, use the multicurve templates above.
+
+```json
+{
+  "chainId": 84532,
+  "userAddress": "0x1111111111111111111111111111111111111111",
+  "tokenMetadata": {
+    "name": "Static Token",
+    "symbol": "STC",
+    "tokenURI": "ipfs://static-token"
+  },
+  "tokenomics": {
+    "totalSupply": "1000000000000000000000000"
+  },
+  "pricing": {
+    "numerairePriceUsd": 3000
+  },
+  "governance": false,
+  "migration": {
+    "type": "noOp"
+  },
+  "auction": {
+    "type": "static",
+    "curveConfig": {
+      "type": "preset",
+      "preset": "medium"
+    }
+  }
+}
+```
+
+## 4f. Static (V3) explicit range template (starts at $100)
+
+```json
+{
+  "chainId": 84532,
+  "userAddress": "0x1111111111111111111111111111111111111111",
+  "tokenMetadata": {
+    "name": "Static Range Token",
+    "symbol": "SRT",
+    "tokenURI": "ipfs://static-range-token"
+  },
+  "tokenomics": {
+    "totalSupply": "1000000000000000000000000"
+  },
+  "pricing": {
+    "numerairePriceUsd": 3000
+  },
+  "governance": false,
+  "migration": {
+    "type": "noOp"
+  },
+  "auction": {
+    "type": "static",
+    "curveConfig": {
+      "type": "range",
+      "marketCapStartUsd": 100,
+      "marketCapEndUsd": 100000
+    }
+  }
+}
+```
+
 Custom-curve rules agents should enforce before submit:
 
 - Use 3-4 curves for most launches.
@@ -247,6 +324,12 @@ Custom-curve rules agents should enforce before submit:
   - `scheduled` with required `startTime`
   - `decay` with `startFee`, `durationSeconds`, optional `startTime`
   - `rehype` with hook config and wad distribution fields
+- Static launches require `auction.curveConfig`:
+  - `type: "preset"` with `preset: "low" | "medium" | "high"`
+  - or `type: "range"` with explicit `marketCapStartUsd` and `marketCapEndUsd`
+- Static launches use lockable beneficiaries and `migration.type="noOp"` only in this API profile.
+- Agent policy: multicurve is the default and preferred auction type. Choose static only as a compatibility fallback for non-V4 networks.
+- Prefer multicurve `curveConfig.type="ranges"` when you need specific market-cap behavior; do not default to presets unless generic tiers are acceptable.
 - Non-market allocation is computed automatically:
   - `allocationAmount = totalSupply - tokensForSale`
   - default recipient is `userAddress`

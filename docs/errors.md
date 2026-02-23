@@ -34,6 +34,7 @@ All errors are returned as:
 ### Launch creation and policy
 
 - `AUCTION_NOT_IMPLEMENTED`
+  - currently returned for `auction.type="dynamic"`
 - `AUCTION_TYPE_UNSUPPORTED`
 - `MIGRATION_NOT_IMPLEMENTED`
 - `MIGRATION_MODE_UNSUPPORTED`

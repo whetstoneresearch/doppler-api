@@ -69,3 +69,5 @@ Use `CHAIN_CONFIG_JSON` to define one or more chains and capabilities:
 - If default chain is not present in `CHAIN_CONFIG_JSON`, the API falls back to `RPC_URL`.
 - `launchId` is always `<chainId>:<txHash>` to preserve cross-chain identity.
 - `governance: true` is currently unsupported and returns `501 GOVERNANCE_NOT_IMPLEMENTED`.
+- Recommendation: configure `auctionTypes` as `["multicurve"]` for V4-capable chains and reserve `["static"]` for networks without Uniswap V4 support.
+- If you intentionally want the V3 static path on Base Sepolia for testing, include `"static"` in that chain's `auctionTypes` list.

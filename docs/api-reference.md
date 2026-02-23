@@ -23,7 +23,8 @@ Base URL (local): `http://localhost:3000`
 Generic launch creation endpoint (future-compatible).
 
 - v1 implementation supports:
-  - `auction.type = "multicurve"`
+  - `auction.type = "multicurve"` (preferred on V4-capable networks)
+  - `auction.type = "static"` (Uniswap V3 static launch; fallback for networks without Uniswap V4 support)
   - `migration.type = "noOp"`
   - `governance: false` (or omitted) for no-op governance
   - non-no-op governance is not implemented in this deployment
@@ -67,11 +68,29 @@ Generic launch creation endpoint (future-compatible).
       - `tickSpacing?: number`
       - `curves: [{ marketCapStartUsd, marketCapEndUsd, numPositions, sharesWad }]`
       - `marketCapEndUsd` accepts positive number or `"max"` in API payloads
+      - example explicit first band: `marketCapStartUsd: 100`
     - `initializer?`:
       - `{ type: "standard" }` (implemented via scheduled initializer at startTime `0`)
       - `{ type: "scheduled", startTime }`
       - `{ type: "decay", startFee, durationSeconds, startTime? }`
       - `{ type: "rehype", config: { hookAddress, buybackDestination, customFee, assetBuybackPercentWad, numeraireBuybackPercentWad, beneficiaryPercentWad, lpPercentWad, graduationCalldata?, graduationMarketCap?, numerairePrice?, farTick? } }`
+  - `type: "static"`:
+    - `curveConfig.type = "preset"`:
+      - `preset: ("low"|"medium"|"high")`
+      - `fee?: number`
+      - `numPositions?: number`
+      - `maxShareToBeSoldWad?: string`
+    - `curveConfig.type = "range"`:
+      - `marketCapStartUsd: number`
+      - `marketCapEndUsd: number`
+      - `fee?: number`
+      - `numPositions?: number`
+      - `maxShareToBeSoldWad?: string`
+      - example range start: `marketCapStartUsd: 100`
+    - static launches are configured with lockable beneficiaries (request values or default split)
+    - static is intended for chains that do not support Uniswap V4 multicurve paths
+  - `type: "dynamic"`:
+    - accepted by schema but currently unimplemented
 
 #### Response `200`
 
@@ -90,7 +109,7 @@ Generic launch creation endpoint (future-compatible).
 
 - `401 UNAUTHORIZED`
 - `422 INVALID_REQUEST` (schema validation) and domain-specific validation errors
-- `501 AUCTION_NOT_IMPLEMENTED` for `static`/`dynamic`
+- `501 AUCTION_NOT_IMPLEMENTED` for `dynamic`
 - `501 MIGRATION_NOT_IMPLEMENTED` for `uniswapV2`/`uniswapV4`
 - `501 GOVERNANCE_NOT_IMPLEMENTED` for non-no-op governance (`governance: true` or `governance.mode != "noOp"`)
 

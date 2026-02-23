@@ -3,8 +3,9 @@ info:
   title: Doppler Launch API
   version: 0.1.0
   description: |
-    REST API for creating Doppler launches with multicurve support.
-    v1 deployment profile supports multicurve + noOp migration + no-op governance only.
+    REST API for creating Doppler launches with multicurve and static support.
+    v1 deployment profile supports multicurve/static + noOp migration + no-op governance only.
+    Prefer multicurve on V4-capable chains; static is a compatibility path.
     Multicurve initializer modes: standard, scheduled, decay, rehype.
     tokensForSale is configurable; when omitted it defaults to totalSupply (100% market allocation).
     Any remainder (totalSupply - tokensForSale) is non-market allocation and uses vesting defaults.
@@ -379,6 +380,47 @@ components:
           items:
             $ref: '#/components/schemas/RangesCurve'
       required: [type, curves]
+    StaticPresetCurveConfig:
+      type: object
+      properties:
+        type:
+          type: string
+          const: preset
+        preset:
+          type: string
+          enum: [low, medium, high]
+        fee:
+          type: integer
+          minimum: 1
+        numPositions:
+          type: integer
+          minimum: 1
+        maxShareToBeSoldWad:
+          type: string
+          pattern: '^\d+$'
+      required: [type, preset]
+    StaticRangeCurveConfig:
+      type: object
+      properties:
+        type:
+          type: string
+          const: range
+        marketCapStartUsd:
+          type: number
+          exclusiveMinimum: 0
+        marketCapEndUsd:
+          type: number
+          exclusiveMinimum: 0
+        fee:
+          type: integer
+          minimum: 1
+        numPositions:
+          type: integer
+          minimum: 1
+        maxShareToBeSoldWad:
+          type: string
+          pattern: '^\d+$'
+      required: [type, marketCapStartUsd, marketCapEndUsd]
     MulticurveInitializerStandard:
       type: object
       properties:
@@ -481,11 +523,17 @@ components:
       required: [type, curveConfig]
     StaticAuction:
       type: object
+      description: >
+        Static Uniswap V3 launch configuration. Prefer multicurve on V4-capable chains.
       properties:
         type:
           type: string
           const: static
-      required: [type]
+        curveConfig:
+          oneOf:
+            - $ref: '#/components/schemas/StaticPresetCurveConfig'
+            - $ref: '#/components/schemas/StaticRangeCurveConfig'
+      required: [type, curveConfig]
     DynamicAuction:
       type: object
       properties:

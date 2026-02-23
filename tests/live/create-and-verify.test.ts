@@ -17,7 +17,38 @@ import { buildRandomCustomCurvePlan } from '../fixtures/random-custom-curves';
 
 const runLive = process.env.LIVE_TEST_ENABLE === 'true';
 const liveVerbose = process.env.LIVE_TEST_VERBOSE === 'true';
-const liveIt = runLive ? it : it.skip;
+const liveFilter = (process.env.LIVE_TEST_FILTER ?? 'all').toLowerCase();
+
+type LiveScenarioGroup = 'static' | 'multicurve' | 'multicurve-defaults' | 'negative';
+
+const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
+  if (!runLive) return false;
+
+  if (liveFilter === 'all') return true;
+  if (liveFilter === 'static') return groups.includes('static');
+  if (liveFilter === 'multicurve') {
+    return groups.includes('multicurve') || groups.includes('multicurve-defaults');
+  }
+  if (liveFilter === 'multicurve-defaults') {
+    return groups.includes('multicurve-defaults');
+  }
+  if (liveFilter === 'negative') return groups.includes('negative');
+  return true;
+};
+
+const liveIt = (
+  title: string,
+  groups: LiveScenarioGroup[],
+  fn: () => Promise<void> | void,
+  timeout?: number,
+) => {
+  const runner = shouldRunScenario(groups) ? it : it.skip;
+  if (timeout === undefined) {
+    (runner as any)(title, fn);
+    return;
+  }
+  (runner as any)(title, fn, timeout);
+};
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -1032,6 +1063,231 @@ const runMulticurveLaunchAndVerify = async (
   }
 };
 
+const runStaticLaunchAndVerify = async (args?: {
+  curveConfig?:
+    | {
+        type: 'preset';
+        preset: 'low' | 'medium' | 'high';
+      }
+    | {
+        type: 'range';
+        marketCapStartUsd: number;
+        marketCapEndUsd: number;
+      };
+  configLabel?: string;
+}) => {
+  const config = loadConfig();
+  const services = buildServices(config);
+  const chain = services.chainRegistry.get(config.defaultChainId);
+  const userAddress = privateKeyToAccount(config.privateKey).address;
+  const runId = Date.now().toString();
+  const symbol = `S${runId.slice(-4)}`;
+  const tokenName = `Live STATIC ${runId.slice(-6)}`;
+  const tokenUri = `ipfs://live-static-token/${runId}`;
+  const totalSupply = DEFAULT_LIVE_TOTAL_SUPPLY;
+  const explorerBase = getBaseScanUrl(chain.chainId);
+  const numerairePriceUsd = Number(process.env.LIVE_NUMERAIRE_PRICE_USD || '3000');
+  const curveConfig = args?.curveConfig ?? ({ type: 'preset', preset: 'medium' } as const);
+  const curveLabel =
+    curveConfig.type === 'preset'
+      ? `${curveConfig.preset.toUpperCase()} preset`
+      : `range $${curveConfig.marketCapStartUsd}-$${curveConfig.marketCapEndUsd}`;
+  const configLabel = args?.configLabel ?? `STATIC V3 Lockable (${curveLabel})`;
+  const summary: LaunchSummaryRow = {
+    config: configLabel,
+    status: 'failed',
+    salePercent: '100% (default)',
+    allocationAmount: '0 (default)',
+    allocationRecipients: '0 (default)',
+    vestMode: 'none (default)',
+    vestDuration: '0 (default)',
+  };
+  let submittedTxHash: `0x${string}` | undefined;
+  launchSummaries.push(summary);
+
+  if (!chain.config.auctionTypes.includes('static')) {
+    chain.config.auctionTypes = [...chain.config.auctionTypes, 'static'];
+    verboseLog(
+      `[live] chain ${chain.chainId} missing static in auctionTypes; enabling static for this test run`,
+    );
+  }
+
+  const lockableV3Initializer = chain.addresses.lockableV3Initializer as `0x${string}` | undefined;
+  if (!lockableV3Initializer || lockableV3Initializer === zeroAddress) {
+    throw new Error(
+      `Chain ${chain.chainId} has no lockableV3Initializer configured; static lockable test cannot run.`,
+    );
+  }
+
+  const createPayload: CreateLaunchRequestInput = {
+    chainId: chain.chainId,
+    userAddress,
+    integrationAddress: userAddress,
+    tokenMetadata: {
+      name: tokenName,
+      symbol,
+      tokenURI: tokenUri,
+    },
+    tokenomics: {
+      totalSupply: totalSupply.toString(),
+    },
+    pricing: {
+      numerairePriceUsd,
+    },
+    governance: false,
+    migration: {
+      type: 'noOp',
+    },
+    auction: {
+      type: 'static',
+      curveConfig,
+    },
+  };
+
+  try {
+    verboseLog(liveDivider(`Creating Static V3 Token (${configLabel})`));
+    if (liveVerbose) {
+      printLiveTable('Static Launch Parameters', [
+        [
+          'Curve Config',
+          curveConfig.type === 'preset'
+            ? `preset:${curveConfig.preset}`
+            : `range:${curveConfig.marketCapStartUsd}-${curveConfig.marketCapEndUsd}`,
+        ],
+        ['Chain ID', chain.chainId],
+        ['RPC URL', chain.config.rpcUrl],
+        ['User / Integrator', userAddress],
+        ['Token', `${tokenName} (${symbol})`],
+        ['Token URI', tokenUri],
+        ['Supply / For Sale', `${totalSupply.toString()} / ${totalSupply.toString()}`],
+        ['Sale Percent', '100% (default)'],
+        ['Allocation Amount', '0 (default)'],
+        ['Numeraire Price USD', numerairePriceUsd],
+        ['Expected Initializer', lockableV3Initializer],
+        ['Launch Mode', 'static + migration:noOp + governance:noOp'],
+      ]);
+    }
+
+    verboseLog('[live] checking RPC connectivity before static submission');
+    try {
+      await chain.publicClient.getBlockNumber();
+    } catch (error) {
+      throw new Error(
+        `Live RPC is unreachable at ${chain.config.rpcUrl}. Set RPC_URL/CHAIN_CONFIG_JSON to a reachable endpoint before running live tests.`,
+        { cause: error as Error },
+      );
+    }
+
+    const createResponse = await services.launchService.createLaunch(createPayload);
+    expect(createResponse.txHash).toMatch(/^0x[a-fA-F0-9]{64}$/);
+    submittedTxHash = createResponse.txHash;
+    summary.txHash = createResponse.txHash;
+    const txUrl = explorerBase ? `${explorerBase}/tx/${createResponse.txHash}` : null;
+    if (liveVerbose) {
+      printLiveTable('Static Submission Result', [
+        ['Launch ID', createResponse.launchId],
+        ['Tx', createResponse.txHash],
+        ['BaseScan Tx', txUrl],
+        ['Predicted Token', createResponse.predicted.tokenAddress],
+        ['Predicted Pool ID', createResponse.predicted.poolId],
+      ]);
+    }
+
+    const receipt = (await waitForReceipt(
+      chain.publicClient as { waitForTransactionReceipt: (...params: any[]) => Promise<unknown> },
+      createResponse.txHash,
+    )) as Awaited<ReturnType<typeof chain.publicClient.getTransactionReceipt>>;
+
+    if (receipt.status !== 'success') {
+      throw new Error(`Transaction reverted onchain: ${createResponse.txHash}`);
+    }
+
+    const created = decodeCreateEvent(receipt.logs);
+    expect(created).not.toBeNull();
+    const createdEvent = created!;
+    summary.tokenAddress = createdEvent.tokenAddress;
+    summary.pureUrl = getPureTokenUrl(chain.chainId, createdEvent.tokenAddress) ?? undefined;
+
+    const tx = (await waitForTransactionByHash({
+      publicClient: chain.publicClient as {
+        getTransaction: (...params: any[]) => Promise<unknown>;
+      },
+      txHash: createResponse.txHash,
+    })) as Awaited<ReturnType<typeof chain.publicClient.getTransaction>>;
+    const decoded = decodeFunctionData({
+      abi: airlockAbi,
+      data: tx.input,
+    });
+    expect(decoded.functionName).toBe('create');
+    const createArgs = (decoded.args ?? []) as readonly unknown[];
+    const createArg = createArgs[0] as {
+      initialSupply: bigint;
+      numeraire: `0x${string}`;
+      numTokensToSell: bigint;
+      integrator: `0x${string}`;
+      poolInitializer: `0x${string}`;
+    };
+
+    expect(createArg.initialSupply.toString()).toBe(totalSupply.toString());
+    expect(createArg.numTokensToSell.toString()).toBe(totalSupply.toString());
+    expect(createArg.integrator.toLowerCase()).toBe(userAddress.toLowerCase());
+    expect(createArg.numeraire).not.toBe(zeroAddress);
+    expect(createArg.poolInitializer.toLowerCase()).toBe(lockableV3Initializer.toLowerCase());
+    expect(createResponse.effectiveConfig.tokensForSale).toBe(totalSupply.toString());
+    expect(createResponse.effectiveConfig.allocationAmount).toBe('0');
+    expect(createResponse.effectiveConfig.allocationLockMode).toBe('none');
+    expect(createResponse.effectiveConfig.feeBeneficiariesSource).toBe('default');
+
+    const expectedPoolId =
+      `0x${createdEvent.poolOrHookAddress.slice(2).padStart(64, '0')}`.toLowerCase();
+    expect(createResponse.predicted.poolId.toLowerCase()).toBe(expectedPoolId);
+
+    const status = await services.statusService.getLaunchStatus(createResponse.launchId);
+    expect(status.status).toBe('confirmed');
+    expect(status.result?.tokenAddress.toLowerCase()).toBe(createdEvent.tokenAddress.toLowerCase());
+    expect(status.result?.poolOrHookAddress.toLowerCase()).toBe(
+      createdEvent.poolOrHookAddress.toLowerCase(),
+    );
+    expect(status.result?.poolId.toLowerCase()).toBe(expectedPoolId);
+
+    if (liveVerbose) {
+      const tokenUrl = explorerBase ? `${explorerBase}/token/${createdEvent.tokenAddress}` : null;
+      const poolUrl = explorerBase
+        ? `${explorerBase}/address/${createdEvent.poolOrHookAddress}`
+        : null;
+      printLiveTable('Static Onchain Verification', [
+        ['Tx Status / Block', `${receipt.status} / ${receipt.blockNumber.toString()}`],
+        ['Token Address', createdEvent.tokenAddress],
+        ['Pool Address', createdEvent.poolOrHookAddress],
+        ['Status Pool ID', status.result?.poolId ?? 'n/a'],
+        ['Expected Lockable Initializer', lockableV3Initializer],
+        ['BaseScan Token', tokenUrl],
+        ['BaseScan Pool', poolUrl],
+      ]);
+    }
+
+    summary.status = 'created';
+  } catch (error) {
+    summary.reason = toShortError(error);
+    if (liveVerbose && submittedTxHash) {
+      const txUrl = explorerBase ? `${explorerBase}/tx/${submittedTxHash}` : null;
+      printLiveTable('Failure Context', [
+        ['Configuration', configLabel],
+        ['Submitted Tx', submittedTxHash],
+        ['BaseScan Tx', txUrl],
+        ['Error', summary.reason],
+      ]);
+    } else if (liveVerbose) {
+      printLiveTable('Failure Context', [
+        ['Configuration', configLabel],
+        ['Submitted Tx', 'n/a (failed before tx submission)'],
+        ['Error', summary.reason],
+      ]);
+    }
+    throw error;
+  }
+};
+
 const runCustomCurveLaunchAndVerify = async () => {
   const config = loadConfig();
   const services = buildServices(config);
@@ -1512,6 +1768,7 @@ describe('live create verification', () => {
 
   liveIt(
     'LOW Default Configuration',
+    ['multicurve', 'multicurve-defaults'],
     async () => {
       await runMulticurveLaunchAndVerify('low');
     },
@@ -1520,6 +1777,7 @@ describe('live create verification', () => {
 
   liveIt(
     'MEDIUM Default Configuration',
+    ['multicurve', 'multicurve-defaults'],
     async () => {
       await runMulticurveLaunchAndVerify('medium');
     },
@@ -1528,6 +1786,7 @@ describe('live create verification', () => {
 
   liveIt(
     'HIGH Default Configuration',
+    ['multicurve', 'multicurve-defaults'],
     async () => {
       await runMulticurveLaunchAndVerify('high');
     },
@@ -1535,7 +1794,34 @@ describe('live create verification', () => {
   );
 
   liveIt(
+    'STATIC V3 Lockable (MEDIUM preset)',
+    ['static'],
+    async () => {
+      await runStaticLaunchAndVerify({
+        curveConfig: { type: 'preset', preset: 'medium' },
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
+    'STATIC V3 Lockable (Range $100-$100000)',
+    ['static'],
+    async () => {
+      await runStaticLaunchAndVerify({
+        curveConfig: {
+          type: 'range',
+          marketCapStartUsd: 100,
+          marketCapEndUsd: 100000,
+        },
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
     'MEDIUM 20% Sale / 80% Allocation (Default Lock)',
+    ['multicurve'],
     async () => {
       await runMulticurveLaunchAndVerify('medium', {
         configLabel: 'MEDIUM 20% Sale / 80% Allocation',
@@ -1547,6 +1833,7 @@ describe('live create verification', () => {
 
   liveIt(
     'MEDIUM Random 30-50% Sale / Allocation Remainder',
+    ['multicurve'],
     async () => {
       const randomSalePercent = 30 + Math.floor(Math.random() * 21);
       await runMulticurveLaunchAndVerify('medium', {
@@ -1563,6 +1850,7 @@ describe('live create verification', () => {
 
   liveIt(
     'MEDIUM Random 3-5 Address Allocation Split',
+    ['multicurve'],
     async () => {
       const randomSalePercent = 20 + Math.floor(Math.random() * 31);
       const tokensForSale = calculateSaleAmount(DEFAULT_LIVE_TOTAL_SUPPLY, randomSalePercent);
@@ -1585,6 +1873,7 @@ describe('live create verification', () => {
 
   liveIt(
     'Custom Curve Configuration',
+    ['multicurve'],
     async () => {
       await runCustomCurveLaunchAndVerify();
     },
@@ -1593,6 +1882,7 @@ describe('live create verification', () => {
 
   liveIt(
     'Custom Curve + Random Vesting (91-364d) + Random Allocations',
+    ['multicurve'],
     async () => {
       await runCustomCurveWithRandomVestingAndAllocations();
     },
@@ -1601,6 +1891,7 @@ describe('live create verification', () => {
 
   liveIt(
     'MEDIUM Scheduled Initializer (+360s, 80/20)',
+    ['multicurve'],
     async () => {
       const startTime = Math.floor(Date.now() / 1000) + 360;
       await runMulticurveLaunchAndVerify('medium', {
@@ -1617,6 +1908,7 @@ describe('live create verification', () => {
 
   liveIt(
     'HIGH Decay Initializer (Random 40-80% -> 1%, 30-90s, 80/20)',
+    ['multicurve'],
     async () => {
       const startFeePercent = 40 + Math.floor(Math.random() * 41);
       const startFee = percentToFeeUnits(startFeePercent);
@@ -1636,6 +1928,7 @@ describe('live create verification', () => {
 
   liveIt(
     'MEDIUM Rehype Initializer (Random Config, 100% Buyback/Burn to Dead, 80/20)',
+    ['multicurve'],
     async () => {
       const assetBuybackBps = 10_000;
       const assetBuybackPercentWad = ((WAD * BigInt(assetBuybackBps)) / 10_000n).toString();
@@ -1662,7 +1955,8 @@ describe('live create verification', () => {
   );
 
   liveIt(
-    'rejects static/dynamic launch types as not implemented',
+    'rejects dynamic launch type as not implemented',
+    ['negative'],
     async () => {
       const config = loadConfig();
       const services = buildServices(config);
@@ -1695,20 +1989,8 @@ describe('live create verification', () => {
       if (liveVerbose) {
         // eslint-disable-next-line no-console
         console.log(liveDivider('Validating unsupported auction types'));
-        printLiveTable('Expected Response', [
-          ['static,dynamic auctions', '501 AUCTION_NOT_IMPLEMENTED'],
-        ]);
+        printLiveTable('Expected Response', [['dynamic auction', '501 AUCTION_NOT_IMPLEMENTED']]);
       }
-
-      await assertNotImplementedError(
-        services.launchService.createLaunch({
-          ...basePayload,
-          auction: {
-            type: 'static',
-          },
-        }),
-        'AUCTION_NOT_IMPLEMENTED',
-      );
 
       await assertNotImplementedError(
         services.launchService.createLaunch({
@@ -1726,6 +2008,7 @@ describe('live create verification', () => {
 
   liveIt(
     'rejects unsupported governance and migration modes as not implemented',
+    ['negative'],
     async () => {
       const config = loadConfig();
       const services = buildServices(config);

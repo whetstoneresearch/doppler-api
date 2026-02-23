@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildLaunchId, parseLaunchId } from '../../src/modules/launches/mapper';
+import {
+  buildLaunchId,
+  parseLaunchId,
+  poolOrHookAddressToPoolId,
+} from '../../src/modules/launches/mapper';
 
 describe('launchId mapping', () => {
   it('builds and parses launchId', () => {
@@ -21,5 +25,11 @@ describe('launchId mapping', () => {
 
   it('throws on invalid launchId', () => {
     expect(() => parseLaunchId('abc')).toThrow();
+  });
+
+  it('derives deterministic poolId from pool or hook address', () => {
+    expect(poolOrHookAddressToPoolId('0x1111111111111111111111111111111111111111')).toBe(
+      '0x0000000000000000000000001111111111111111111111111111111111111111',
+    );
   });
 });

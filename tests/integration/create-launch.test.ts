@@ -42,6 +42,69 @@ describe('POST /v1/launches', () => {
     expect(body.effectiveConfig.allocationLockMode).toBe('none');
   });
 
+  it('static launch: low market cap preset', async () => {
+    app = await buildTestServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Static Token', symbol: 'STK', tokenURI: 'ipfs://token' },
+        tokenomics: { totalSupply: '1000' },
+        governance: { enabled: false, mode: 'noOp' },
+        migration: { type: 'noOp' },
+        auction: {
+          type: 'static',
+          curveConfig: {
+            type: 'preset',
+            preset: 'low',
+          },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.launchId).toContain('84532:0x');
+    expect(body.effectiveConfig.tokensForSale).toBe('1000');
+  });
+
+  it('static launch: explicit range starts at $100', async () => {
+    app = await buildTestServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Static Range Token', symbol: 'SRT', tokenURI: 'ipfs://token' },
+        tokenomics: { totalSupply: '1000' },
+        governance: { enabled: false, mode: 'noOp' },
+        migration: { type: 'noOp' },
+        auction: {
+          type: 'static',
+          curveConfig: {
+            type: 'range',
+            marketCapStartUsd: 100,
+            marketCapEndUsd: 100000,
+          },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.launchId).toContain('84532:0x');
+    expect(body.effectiveConfig.tokensForSale).toBe('1000');
+  });
+
   it('returns allocation defaults when sale is less than total supply', async () => {
     app = await buildTestServer();
 
