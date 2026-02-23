@@ -27,6 +27,9 @@ This file shows:
     "curveConfig": {
       "type": "preset",
       "presets": ["medium"]
+    },
+    "initializer": {
+      "type": "standard"
     }
   }
 }
@@ -86,6 +89,9 @@ Use this when you want non-market supply split across specific addresses.
     "curveConfig": {
       "type": "preset",
       "presets": ["medium"]
+    },
+    "initializer": {
+      "type": "standard"
     }
   }
 }

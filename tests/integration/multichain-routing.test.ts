@@ -120,6 +120,7 @@ describe('GET /v1/capabilities', () => {
         chainId: number;
         governanceEnabled: boolean;
         governanceModes: string[];
+        multicurveInitializers: string[];
       }>;
       pricing: { provider: string };
     };
@@ -128,7 +129,9 @@ describe('GET /v1/capabilities', () => {
     const byChain = new Map(body.chains.map((chain) => [chain.chainId, chain]));
     expect(byChain.get(84532)?.governanceEnabled).toBe(false);
     expect(byChain.get(84532)?.governanceModes).toEqual(['noOp']);
+    expect(byChain.get(84532)?.multicurveInitializers).toEqual(['standard']);
     expect(byChain.get(8453)?.governanceEnabled).toBe(false);
     expect(byChain.get(8453)?.governanceModes).toEqual(['noOp']);
+    expect(byChain.get(8453)?.multicurveInitializers).toEqual(['standard']);
   });
 });

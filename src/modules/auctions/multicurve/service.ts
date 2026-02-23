@@ -31,6 +31,21 @@ interface CreateMulticurveArgs {
   txSubmitter: TxSubmitter;
 }
 
+const parseNonNegativeBigInt = (value: string, field: string): bigint => {
+  let parsed: bigint;
+  try {
+    parsed = BigInt(value);
+  } catch (error) {
+    throw new AppError(422, 'INVALID_BIGINT', `${field} must be a valid bigint string`, error);
+  }
+
+  if (parsed < 0n) {
+    throw new AppError(422, 'INVALID_BIGINT', `${field} must be >= 0`);
+  }
+
+  return parsed;
+};
+
 export const createMulticurveLaunch = async ({
   input,
   chain,
@@ -144,11 +159,68 @@ export const createMulticurveLaunch = async ({
     });
   }
 
+  const requestedInitializer = input.auction.initializer ?? { type: 'standard' as const };
+  if (requestedInitializer.type === 'standard') {
+    // Standard mode is implemented via scheduled initializer with startTime=0.
+    builder.withSchedule({ startTime: 0 });
+  } else if (requestedInitializer.type === 'scheduled') {
+    builder.withSchedule({ startTime: requestedInitializer.startTime });
+  } else if (requestedInitializer.type === 'decay') {
+    builder.withDecay({
+      startTime: requestedInitializer.startTime,
+      startFee: requestedInitializer.startFee,
+      durationSeconds: requestedInitializer.durationSeconds,
+    });
+  } else {
+    builder.withRehypeDopplerHook({
+      hookAddress: requestedInitializer.config.hookAddress as HexAddress,
+      buybackDestination: requestedInitializer.config.buybackDestination as HexAddress,
+      customFee: requestedInitializer.config.customFee,
+      assetBuybackPercentWad: parseNonNegativeBigInt(
+        requestedInitializer.config.assetBuybackPercentWad,
+        'auction.initializer.config.assetBuybackPercentWad',
+      ),
+      numeraireBuybackPercentWad: parseNonNegativeBigInt(
+        requestedInitializer.config.numeraireBuybackPercentWad,
+        'auction.initializer.config.numeraireBuybackPercentWad',
+      ),
+      beneficiaryPercentWad: parseNonNegativeBigInt(
+        requestedInitializer.config.beneficiaryPercentWad,
+        'auction.initializer.config.beneficiaryPercentWad',
+      ),
+      lpPercentWad: parseNonNegativeBigInt(
+        requestedInitializer.config.lpPercentWad,
+        'auction.initializer.config.lpPercentWad',
+      ),
+      graduationCalldata: requestedInitializer.config.graduationCalldata as
+        | `0x${string}`
+        | undefined,
+      graduationMarketCap: requestedInitializer.config.graduationMarketCap,
+      numerairePrice: requestedInitializer.config.numerairePrice,
+      farTick: requestedInitializer.config.farTick,
+    });
+  }
+
   const params = builder
     .withGovernance(governance)
     .withMigration(migration)
     .withUserAddress(input.userAddress as HexAddress)
     .build();
+
+  const effectiveInitializer =
+    requestedInitializer.type === 'standard'
+      ? ({ type: 'standard' } as const)
+      : requestedInitializer.type === 'scheduled'
+        ? ({ type: 'scheduled', startTime: requestedInitializer.startTime } as const)
+        : requestedInitializer.type === 'decay'
+          ? ({
+              type: 'decay',
+              startTime: requestedInitializer.startTime ?? 0,
+              startFee: requestedInitializer.startFee,
+              endFee: Number((params as { pool: { fee: number } }).pool.fee),
+              durationSeconds: requestedInitializer.durationSeconds,
+            } as const)
+          : ({ type: 'rehype' } as const);
 
   const simulation = await sdk.factory.simulateCreateMulticurve(params as any);
 
@@ -191,6 +263,7 @@ export const createMulticurveLaunch = async ({
       numeraireAddress,
       numerairePriceUsd,
       feeBeneficiariesSource: source,
+      initializer: effectiveInitializer,
     },
   };
 };

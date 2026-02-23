@@ -5,6 +5,13 @@ This API supports multicurve launch configuration in two modes:
 1. Preset curves (`curveConfig.type = "preset"`)
 2. Explicit ranges (`curveConfig.type = "ranges"`)
 
+Initializer modes are configured separately at `auction.initializer`:
+
+- `standard` (default; implemented via scheduled initializer with `startTime=0`)
+- `scheduled` (requires `startTime`)
+- `decay` (requires `startFee`, `durationSeconds`; optional `startTime`)
+- `rehype` (hook-based config for buyback/distribution behavior)
+
 ## Preset mode
 
 Use curated tiers (`low`, `medium`, `high`) and optionally choose fee/tick spacing.

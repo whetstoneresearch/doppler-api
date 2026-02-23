@@ -75,6 +75,9 @@ Use `Idempotency-Key` on create requests in production integrations.
     "curveConfig": {
       "type": "preset",
       "presets": ["low", "medium", "high"]
+    },
+    "initializer": {
+      "type": "standard"
     }
   }
 }
@@ -238,6 +241,12 @@ Custom-curve rules agents should enforce before submit:
 
 - `tokenomics.tokensForSale` defaults to `totalSupply`.
 - if `tokensForSale < totalSupply`, market sale must be at least 20% of total supply.
+- Multicurve initializer defaults to `standard` (implemented as scheduled with `startTime=0`).
+- Supported multicurve initializer modes:
+  - `standard`
+  - `scheduled` with required `startTime`
+  - `decay` with `startFee`, `durationSeconds`, optional `startTime`
+  - `rehype` with hook config and wad distribution fields
 - Non-market allocation is computed automatically:
   - `allocationAmount = totalSupply - tokensForSale`
   - default recipient is `userAddress`

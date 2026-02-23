@@ -26,6 +26,11 @@ npm run dev
 ## Current target feature set
 
 - Auction type: `multicurve`
+- Multicurve initializer modes:
+  - `standard` (implemented via scheduled initializer with `startTime=0`)
+  - `scheduled` (`startTime` required)
+  - `decay` (`startFee`, `durationSeconds`, optional `startTime`)
+  - `rehype` (hook-based initializer config)
 - Migration mode: `noOp`
 - Governance: `enabled=false` is the active profile, eg. `noOp`
 - Token allocation profile:
@@ -103,6 +108,9 @@ content-type: application/json
     "curveConfig": {
       "type": "preset",
       "presets": ["low", "medium", "high"]
+    },
+    "initializer": {
+      "type": "standard"
     }
   }
 }
@@ -207,6 +215,7 @@ content-type: application/json
     {
       "chainId": 84532,
       "auctionTypes": ["multicurve"],
+      "multicurveInitializers": ["standard", "scheduled", "decay", "rehype"],
       "migrationModes": ["noOp"],
       "governanceModes": ["noOp"],
       "governanceEnabled": false
@@ -243,6 +252,11 @@ Example `GET /health`:
   - no duplicate addresses are allowed.
   - allocation amounts must sum exactly to `totalSupply - tokensForSale`.
   - if allocations are provided and `tokensForSale` is omitted, API derives `tokensForSale`.
+- Multicurve initializer:
+  - default is `standard` (implemented as scheduled with `startTime=0`).
+  - `scheduled` requires `auction.initializer.startTime`.
+  - `decay` requires `startFee` and `durationSeconds` (optional `startTime`).
+  - `rehype` requires hook config and percent wad fields that sum to `1e18`.
 - Percentage-based allocation is supported by converting percent to amount:
   - `tokensForSale = totalSupply * salePercent / 100`
   - Example: 20% sale means 80% non-market allocation.

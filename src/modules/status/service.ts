@@ -1,9 +1,15 @@
-import { airlockAbi, computePoolId } from '@whetstone-research/doppler-sdk';
+import {
+  DYNAMIC_FEE_FLAG,
+  airlockAbi,
+  computePoolId,
+  v4MulticurveInitializerAbi,
+} from '@whetstone-research/doppler-sdk';
 import { TransactionNotFoundError, decodeAbiParameters, decodeFunctionData } from 'viem';
 
 import { AppError } from '../../core/errors';
 import type { LaunchStatusResponse } from '../../core/types';
 import type { ChainRegistry } from '../../infra/chain/registry';
+import type { ChainContext } from '../../infra/chain/registry';
 import type { DopplerSdkRegistry } from '../../infra/doppler/sdk-client';
 import { decodeCreateEvent, type DecodedCreateEvent } from '../../infra/chain/receipt-decoder';
 import { parseLaunchId } from '../launches/mapper';
@@ -57,6 +63,7 @@ export class StatusService {
     txHash: `0x${string}`;
     created: DecodedCreateEvent;
   }): Promise<`0x${string}`> {
+    const chain = this.chainRegistry.get(args.chainId);
     const tx = await this.getTransactionWithRetry({
       chainId: args.chainId,
       txHash: args.txHash,
@@ -77,39 +84,15 @@ export class StatusService {
     const createArgs = (decoded.args ?? []) as readonly unknown[];
     const createArg = createArgs[0] as {
       numeraire: `0x${string}`;
+      poolInitializer: `0x${string}`;
       poolInitializerData: `0x${string}`;
     };
 
-    const [poolConfig] = decodeAbiParameters(
-      [
-        {
-          type: 'tuple',
-          components: [
-            { name: 'fee', type: 'uint24' },
-            { name: 'tickSpacing', type: 'int24' },
-            {
-              name: 'curves',
-              type: 'tuple[]',
-              components: [
-                { name: 'tickLower', type: 'int24' },
-                { name: 'tickUpper', type: 'int24' },
-                { name: 'numPositions', type: 'uint16' },
-                { name: 'shares', type: 'uint256' },
-              ],
-            },
-            {
-              name: 'beneficiaries',
-              type: 'tuple[]',
-              components: [
-                { name: 'beneficiary', type: 'address' },
-                { name: 'shares', type: 'uint96' },
-              ],
-            },
-          ],
-        },
-      ],
-      createArg.poolInitializerData,
-    ) as readonly [{ fee: number; tickSpacing: number }];
+    const poolConfig = await this.decodePoolConfigFromInitializerData({
+      chain,
+      poolInitializer: createArg.poolInitializer,
+      poolInitializerData: createArg.poolInitializerData,
+    });
 
     const token = args.created.tokenAddress.toLowerCase() as `0x${string}`;
     const numeraire = createArg.numeraire.toLowerCase() as `0x${string}`;
@@ -120,8 +103,110 @@ export class StatusService {
       currency1,
       fee: poolConfig.fee,
       tickSpacing: poolConfig.tickSpacing,
-      hooks: args.created.poolOrHookAddress,
+      hooks: poolConfig.hookAddress,
     }) as `0x${string}`;
+  }
+
+  private async decodePoolConfigFromInitializerData(args: {
+    chain: ChainContext;
+    poolInitializer: `0x${string}`;
+    poolInitializerData: `0x${string}`;
+  }): Promise<{ fee: number; tickSpacing: number; hookAddress: `0x${string}` }> {
+    const initializerAddress = args.poolInitializer.toLowerCase();
+    const decayInitializerAddress =
+      args.chain.addresses.v4DecayMulticurveInitializer?.toLowerCase();
+    const rehypeInitializerAddress = args.chain.addresses.dopplerHookInitializer?.toLowerCase();
+
+    if (rehypeInitializerAddress && initializerAddress === rehypeInitializerAddress) {
+      const [decoded] = decodeAbiParameters(
+        [
+          {
+            type: 'tuple',
+            components: [
+              { name: 'fee', type: 'uint24' },
+              { name: 'tickSpacing', type: 'int24' },
+              { name: 'farTick', type: 'int24' },
+              {
+                name: 'curves',
+                type: 'tuple[]',
+                components: [
+                  { name: 'tickLower', type: 'int24' },
+                  { name: 'tickUpper', type: 'int24' },
+                  { name: 'numPositions', type: 'uint16' },
+                  { name: 'shares', type: 'uint256' },
+                ],
+              },
+              {
+                name: 'beneficiaries',
+                type: 'tuple[]',
+                components: [
+                  { name: 'beneficiary', type: 'address' },
+                  { name: 'shares', type: 'uint96' },
+                ],
+              },
+              { name: 'dopplerHook', type: 'address' },
+              { name: 'onInitializationDopplerHookCalldata', type: 'bytes' },
+              { name: 'graduationDopplerHookCalldata', type: 'bytes' },
+            ],
+          },
+        ],
+        args.poolInitializerData,
+      ) as readonly [{ fee: number; tickSpacing: number; dopplerHook: `0x${string}` }];
+
+      return {
+        fee: decoded.fee,
+        tickSpacing: decoded.tickSpacing,
+        hookAddress: decoded.dopplerHook,
+      };
+    }
+
+    const hookAddress = (await args.chain.publicClient.readContract({
+      address: args.poolInitializer,
+      abi: v4MulticurveInitializerAbi,
+      functionName: 'HOOK',
+    } as const)) as `0x${string}`;
+
+    if (decayInitializerAddress && initializerAddress === decayInitializerAddress) {
+      const [decoded] = decodeAbiParameters(
+        [
+          {
+            type: 'tuple',
+            components: [
+              { name: 'startFee', type: 'uint24' },
+              { name: 'fee', type: 'uint24' },
+              { name: 'durationSeconds', type: 'uint32' },
+              { name: 'tickSpacing', type: 'int24' },
+            ],
+          },
+        ],
+        args.poolInitializerData,
+      ) as readonly [{ tickSpacing: number }];
+
+      return {
+        fee: DYNAMIC_FEE_FLAG,
+        tickSpacing: decoded.tickSpacing,
+        hookAddress,
+      };
+    }
+
+    const [decoded] = decodeAbiParameters(
+      [
+        {
+          type: 'tuple',
+          components: [
+            { name: 'fee', type: 'uint24' },
+            { name: 'tickSpacing', type: 'int24' },
+          ],
+        },
+      ],
+      args.poolInitializerData,
+    ) as readonly [{ fee: number; tickSpacing: number }];
+
+    return {
+      fee: decoded.fee,
+      tickSpacing: decoded.tickSpacing,
+      hookAddress,
+    };
   }
 
   async getLaunchStatus(launchId: string): Promise<LaunchStatusResponse> {

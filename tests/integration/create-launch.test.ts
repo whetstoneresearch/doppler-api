@@ -160,6 +160,80 @@ describe('POST /v1/launches', () => {
     ]);
   });
 
+  it('accepts scheduled, decay, and rehype initializers', async () => {
+    app = await buildTestServer();
+
+    const basePayload = {
+      userAddress: '0x1111111111111111111111111111111111111111',
+      tokenMetadata: { name: 'Init Token', symbol: 'INI', tokenURI: 'ipfs://init' },
+      tokenomics: {
+        totalSupply: '1000',
+        tokensForSale: '800',
+      },
+      governance: { enabled: false, mode: 'noOp' as const },
+      migration: { type: 'noOp' as const },
+      auction: {
+        type: 'multicurve' as const,
+        curveConfig: { type: 'preset' as const, presets: ['medium' as const], fee: 10_000 },
+      },
+    };
+
+    const payloads = [
+      {
+        ...basePayload,
+        auction: {
+          ...basePayload.auction,
+          initializer: {
+            type: 'scheduled' as const,
+            startTime: 1_735_689_600,
+          },
+        },
+      },
+      {
+        ...basePayload,
+        auction: {
+          ...basePayload.auction,
+          initializer: {
+            type: 'decay' as const,
+            startFee: 400_000,
+            durationSeconds: 45,
+            startTime: 1_735_689_600,
+          },
+        },
+      },
+      {
+        ...basePayload,
+        auction: {
+          ...basePayload.auction,
+          initializer: {
+            type: 'rehype' as const,
+            config: {
+              hookAddress: '0x2222222222222222222222222222222222222222',
+              buybackDestination: '0x000000000000000000000000000000000000dEaD',
+              customFee: 30_000,
+              assetBuybackPercentWad: '500000000000000000',
+              numeraireBuybackPercentWad: '500000000000000000',
+              beneficiaryPercentWad: '0',
+              lpPercentWad: '0',
+            },
+          },
+        },
+      },
+    ];
+
+    for (const payload of payloads) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/launches',
+        headers: {
+          'x-api-key': 'test-key',
+        },
+        payload,
+      });
+      expect(response.statusCode).toBe(200);
+    }
+  });
+
   it('rejects governance=true as not implemented', async () => {
     app = await buildTestServer();
 

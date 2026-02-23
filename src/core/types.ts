@@ -75,9 +75,41 @@ export interface RangesCurveConfig {
 
 export type CurveConfig = PresetCurveConfig | RangesCurveConfig;
 
+export type MulticurveInitializerConfig =
+  | {
+      type: 'standard';
+    }
+  | {
+      type: 'scheduled';
+      startTime: number;
+    }
+  | {
+      type: 'decay';
+      startFee: number;
+      durationSeconds: number;
+      startTime?: number;
+    }
+  | {
+      type: 'rehype';
+      config: {
+        hookAddress: HexAddress;
+        buybackDestination: HexAddress;
+        customFee: number;
+        assetBuybackPercentWad: string;
+        numeraireBuybackPercentWad: string;
+        beneficiaryPercentWad: string;
+        lpPercentWad: string;
+        graduationCalldata?: `0x${string}`;
+        graduationMarketCap?: number;
+        numerairePrice?: number;
+        farTick?: number;
+      };
+    };
+
 export interface AuctionConfig {
   type: AuctionType;
   curveConfig: CurveConfig;
+  initializer?: MulticurveInitializerConfig;
 }
 
 export interface CreateLaunchRequest {
@@ -113,6 +145,17 @@ export interface EffectiveLaunchConfig {
   numeraireAddress: HexAddress;
   numerairePriceUsd: number;
   feeBeneficiariesSource: 'default' | 'request';
+  initializer?:
+    | { type: 'standard' }
+    | { type: 'scheduled'; startTime: number }
+    | {
+        type: 'decay';
+        startTime: number;
+        startFee: number;
+        endFee: number;
+        durationSeconds: number;
+      }
+    | { type: 'rehype' };
 }
 
 export interface CreateLaunchResponse {
@@ -151,6 +194,7 @@ export interface LaunchStatusResponse {
 export interface ChainCapability {
   chainId: number;
   auctionTypes: AuctionType[];
+  multicurveInitializers?: Array<'standard' | 'scheduled' | 'decay' | 'rehype'>;
   migrationModes: MigrationType[];
   governanceModes: GovernanceMode[];
   governanceEnabled: boolean;

@@ -5,6 +5,7 @@ info:
   description: |
     REST API for creating Doppler launches with multicurve support.
     v1 deployment profile supports multicurve + noOp migration + no-op governance only.
+    Multicurve initializer modes: standard, scheduled, decay, rehype.
     tokensForSale is configurable; when omitted it defaults to totalSupply (100% market allocation).
     Any remainder (totalSupply - tokensForSale) is non-market allocation and uses vesting defaults.
 servers:
@@ -378,6 +379,89 @@ components:
           items:
             $ref: '#/components/schemas/RangesCurve'
       required: [type, curves]
+    MulticurveInitializerStandard:
+      type: object
+      properties:
+        type:
+          type: string
+          const: standard
+      required: [type]
+    MulticurveInitializerScheduled:
+      type: object
+      properties:
+        type:
+          type: string
+          const: scheduled
+        startTime:
+          type: integer
+          minimum: 1
+      required: [type, startTime]
+    MulticurveInitializerDecay:
+      type: object
+      properties:
+        type:
+          type: string
+          const: decay
+        startFee:
+          type: integer
+          minimum: 0
+        durationSeconds:
+          type: integer
+          minimum: 1
+        startTime:
+          type: integer
+          minimum: 0
+      required: [type, startFee, durationSeconds]
+    MulticurveInitializerRehype:
+      type: object
+      properties:
+        type:
+          type: string
+          const: rehype
+        config:
+          type: object
+          properties:
+            hookAddress:
+              $ref: '#/components/schemas/HexAddress'
+            buybackDestination:
+              $ref: '#/components/schemas/HexAddress'
+            customFee:
+              type: integer
+              minimum: 0
+            assetBuybackPercentWad:
+              type: string
+              pattern: '^\d+$'
+            numeraireBuybackPercentWad:
+              type: string
+              pattern: '^\d+$'
+            beneficiaryPercentWad:
+              type: string
+              pattern: '^\d+$'
+            lpPercentWad:
+              type: string
+              pattern: '^\d+$'
+            graduationCalldata:
+              type: string
+              pattern: '^0x[0-9a-fA-F]*$'
+            graduationMarketCap:
+              type: number
+              exclusiveMinimum: 0
+            numerairePrice:
+              type: number
+              exclusiveMinimum: 0
+            farTick:
+              type: integer
+          required:
+            [
+              hookAddress,
+              buybackDestination,
+              customFee,
+              assetBuybackPercentWad,
+              numeraireBuybackPercentWad,
+              beneficiaryPercentWad,
+              lpPercentWad,
+            ]
+      required: [type, config]
     MulticurveAuction:
       type: object
       properties:
@@ -388,6 +472,12 @@ components:
           oneOf:
             - $ref: '#/components/schemas/PresetCurveConfig'
             - $ref: '#/components/schemas/RangesCurveConfig'
+        initializer:
+          oneOf:
+            - $ref: '#/components/schemas/MulticurveInitializerStandard'
+            - $ref: '#/components/schemas/MulticurveInitializerScheduled'
+            - $ref: '#/components/schemas/MulticurveInitializerDecay'
+            - $ref: '#/components/schemas/MulticurveInitializerRehype'
       required: [type, curveConfig]
     StaticAuction:
       type: object
@@ -494,6 +584,47 @@ components:
             feeBeneficiariesSource:
               type: string
               enum: [default, request]
+            initializer:
+              oneOf:
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: standard
+                  required: [type]
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: scheduled
+                    startTime:
+                      type: integer
+                      minimum: 0
+                  required: [type, startTime]
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: decay
+                    startTime:
+                      type: integer
+                      minimum: 0
+                    startFee:
+                      type: integer
+                      minimum: 0
+                    endFee:
+                      type: integer
+                      minimum: 0
+                    durationSeconds:
+                      type: integer
+                      minimum: 0
+                  required: [type, startTime, startFee, endFee, durationSeconds]
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: rehype
+                  required: [type]
           required:
             [
               tokensForSale,
@@ -567,6 +698,11 @@ components:
                 type: array
                 items:
                   type: string
+              multicurveInitializers:
+                type: array
+                items:
+                  type: string
+                  enum: [standard, scheduled, decay, rehype]
               migrationModes:
                 type: array
                 items:
@@ -577,7 +713,15 @@ components:
                   type: string
               governanceEnabled:
                 type: boolean
-            required: [chainId, auctionTypes, migrationModes, governanceModes, governanceEnabled]
+            required:
+              [
+                chainId,
+                auctionTypes,
+                multicurveInitializers,
+                migrationModes,
+                governanceModes,
+                governanceEnabled,
+              ]
       required: [defaultChainId, pricing, chains]
     ReadyCheck:
       type: object

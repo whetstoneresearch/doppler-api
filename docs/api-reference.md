@@ -67,12 +67,17 @@ Generic launch creation endpoint (future-compatible).
       - `tickSpacing?: number`
       - `curves: [{ marketCapStartUsd, marketCapEndUsd, numPositions, sharesWad }]`
       - `marketCapEndUsd` accepts positive number or `"max"` in API payloads
+    - `initializer?`:
+      - `{ type: "standard" }` (implemented via scheduled initializer at startTime `0`)
+      - `{ type: "scheduled", startTime }`
+      - `{ type: "decay", startFee, durationSeconds, startTime? }`
+      - `{ type: "rehype", config: { hookAddress, buybackDestination, customFee, assetBuybackPercentWad, numeraireBuybackPercentWad, beneficiaryPercentWad, lpPercentWad, graduationCalldata?, graduationMarketCap?, numerairePrice?, farTick? } }`
 
 #### Response `200`
 
 - `launchId`, `chainId`, `txHash`, `statusUrl`
 - `predicted: { tokenAddress, poolId, gasEstimate? }`
-- `effectiveConfig: { tokensForSale, allocationAmount, allocationRecipient, allocationRecipients?, allocationLockMode, allocationLockDurationSeconds, numeraireAddress, numerairePriceUsd, feeBeneficiariesSource }`
+- `effectiveConfig: { tokensForSale, allocationAmount, allocationRecipient, allocationRecipients?, allocationLockMode, allocationLockDurationSeconds, numeraireAddress, numerairePriceUsd, feeBeneficiariesSource, initializer? }`
 
 #### Idempotency header
 
@@ -141,6 +146,7 @@ Current v1 governance capabilities are `governanceModes: ["noOp"]` and `governan
 - `chains[]`:
   - `chainId`
   - `auctionTypes`
+  - `multicurveInitializers`
   - `migrationModes`
   - `governanceModes`
   - `governanceEnabled`

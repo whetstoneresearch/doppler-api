@@ -1,5 +1,10 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { airlockAbi, v4MulticurveInitializerAbi } from '@whetstone-research/doppler-sdk';
+import {
+  airlockAbi,
+  computePoolId,
+  decayMulticurveInitializerHookAbi,
+  v4MulticurveInitializerAbi,
+} from '@whetstone-research/doppler-sdk';
 import { decodeAbiParameters, decodeFunctionData, zeroAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { randomBytes } from 'node:crypto';
@@ -38,10 +43,41 @@ interface MulticurveLiveOverrides {
   allocations?: {
     recipientAddress?: `0x${string}`;
     allocations?: Array<{ address: `0x${string}`; amount: string }>;
+    recipients?: Array<{ address: `0x${string}`; amount: string }>;
     mode?: 'vest' | 'unlock' | 'vault';
     durationSeconds?: number;
     cliffDurationSeconds?: number;
   };
+  initializer?:
+    | {
+        type: 'standard';
+      }
+    | {
+        type: 'scheduled';
+        startTime: number;
+      }
+    | {
+        type: 'decay';
+        startFee: number;
+        durationSeconds: number;
+        startTime?: number;
+      }
+    | {
+        type: 'rehype';
+        config: {
+          hookAddress?: `0x${string}`;
+          buybackDestination: `0x${string}`;
+          customFee: number;
+          assetBuybackPercentWad: string;
+          numeraireBuybackPercentWad: string;
+          beneficiaryPercentWad: string;
+          lpPercentWad: string;
+          graduationCalldata?: `0x${string}`;
+          graduationMarketCap?: number;
+          numerairePrice?: number;
+          farTick?: number;
+        };
+      };
 }
 
 type LiveRowValue = string | number | boolean | null | undefined;
@@ -155,6 +191,8 @@ const percentToFeeUnits = (percent: number): number => Math.round(percent * 1000
 
 const DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS = 90 * 24 * 60 * 60;
 const DEFAULT_LIVE_TOTAL_SUPPLY = 1_000_000n * 10n ** 18n;
+const WAD = 10n ** 18n;
+const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD' as const;
 
 const calculateSaleAmount = (totalSupply: bigint, salePercent: number): bigint => {
   return (totalSupply * BigInt(salePercent)) / 100n;
@@ -235,6 +273,191 @@ const decodeStandardTokenFactoryData = (
   };
 };
 
+type InitializerMode = 'standard' | 'scheduled' | 'decay' | 'rehype';
+
+const curveTupleComponents = [
+  { name: 'tickLower', type: 'int24' },
+  { name: 'tickUpper', type: 'int24' },
+  { name: 'numPositions', type: 'uint16' },
+  { name: 'shares', type: 'uint256' },
+] as const;
+
+const beneficiaryTupleComponents = [
+  { name: 'beneficiary', type: 'address' },
+  { name: 'shares', type: 'uint96' },
+] as const;
+
+interface DecodedInitializerPoolConfig {
+  fee: number;
+  tickSpacing: number;
+  curves: ReadonlyArray<{ shares: bigint }>;
+  startingTime?: number;
+  startFee?: number;
+  durationSeconds?: number;
+  dopplerHook?: `0x${string}`;
+  onInitializationDopplerHookCalldata?: `0x${string}`;
+}
+
+const decodeInitializerPoolConfig = (
+  mode: InitializerMode,
+  poolInitializerData: `0x${string}`,
+): DecodedInitializerPoolConfig => {
+  if (mode === 'decay') {
+    const [decoded] = decodeAbiParameters(
+      [
+        {
+          type: 'tuple',
+          components: [
+            { name: 'startFee', type: 'uint24' },
+            { name: 'fee', type: 'uint24' },
+            { name: 'durationSeconds', type: 'uint32' },
+            { name: 'tickSpacing', type: 'int24' },
+            { name: 'curves', type: 'tuple[]', components: curveTupleComponents },
+            {
+              name: 'beneficiaries',
+              type: 'tuple[]',
+              components: beneficiaryTupleComponents,
+            },
+            { name: 'startingTime', type: 'uint32' },
+          ],
+        },
+      ],
+      poolInitializerData,
+    ) as readonly [
+      {
+        startFee: number;
+        fee: number;
+        durationSeconds: number;
+        tickSpacing: number;
+        curves: ReadonlyArray<{ shares: bigint }>;
+        startingTime: number;
+      },
+    ];
+
+    return {
+      startFee: decoded.startFee,
+      fee: decoded.fee,
+      durationSeconds: decoded.durationSeconds,
+      tickSpacing: decoded.tickSpacing,
+      curves: decoded.curves,
+      startingTime: decoded.startingTime,
+    };
+  }
+
+  if (mode === 'rehype') {
+    const [decoded] = decodeAbiParameters(
+      [
+        {
+          type: 'tuple',
+          components: [
+            { name: 'fee', type: 'uint24' },
+            { name: 'tickSpacing', type: 'int24' },
+            { name: 'farTick', type: 'int24' },
+            { name: 'curves', type: 'tuple[]', components: curveTupleComponents },
+            {
+              name: 'beneficiaries',
+              type: 'tuple[]',
+              components: beneficiaryTupleComponents,
+            },
+            { name: 'dopplerHook', type: 'address' },
+            { name: 'onInitializationDopplerHookCalldata', type: 'bytes' },
+            { name: 'graduationDopplerHookCalldata', type: 'bytes' },
+          ],
+        },
+      ],
+      poolInitializerData,
+    ) as readonly [
+      {
+        fee: number;
+        tickSpacing: number;
+        curves: ReadonlyArray<{ shares: bigint }>;
+        dopplerHook: `0x${string}`;
+        onInitializationDopplerHookCalldata: `0x${string}`;
+      },
+    ];
+
+    return {
+      fee: decoded.fee,
+      tickSpacing: decoded.tickSpacing,
+      curves: decoded.curves,
+      dopplerHook: decoded.dopplerHook,
+      onInitializationDopplerHookCalldata: decoded.onInitializationDopplerHookCalldata,
+    };
+  }
+
+  const [decoded] = decodeAbiParameters(
+    [
+      {
+        type: 'tuple',
+        components: [
+          { name: 'fee', type: 'uint24' },
+          { name: 'tickSpacing', type: 'int24' },
+          { name: 'curves', type: 'tuple[]', components: curveTupleComponents },
+          {
+            name: 'beneficiaries',
+            type: 'tuple[]',
+            components: beneficiaryTupleComponents,
+          },
+          { name: 'startingTime', type: 'uint32' },
+        ],
+      },
+    ],
+    poolInitializerData,
+  ) as readonly [
+    {
+      fee: number;
+      tickSpacing: number;
+      curves: ReadonlyArray<{ shares: bigint }>;
+      startingTime: number;
+    },
+  ];
+
+  return {
+    fee: decoded.fee,
+    tickSpacing: decoded.tickSpacing,
+    curves: decoded.curves,
+    startingTime: decoded.startingTime,
+  };
+};
+
+const resolveExpectedMulticurveInitializer = (args: {
+  chainAddresses: Partial<{
+    v4ScheduledMulticurveInitializer: `0x${string}`;
+    v4DecayMulticurveInitializer: `0x${string}`;
+    dopplerHookInitializer: `0x${string}`;
+  }>;
+  initializerType: InitializerMode;
+}): `0x${string}` => {
+  const { chainAddresses, initializerType } = args;
+
+  const scheduledAddress = chainAddresses.v4ScheduledMulticurveInitializer as
+    | `0x${string}`
+    | undefined;
+  const decayAddress = chainAddresses.v4DecayMulticurveInitializer as `0x${string}` | undefined;
+  const rehypeAddress = chainAddresses.dopplerHookInitializer as `0x${string}` | undefined;
+
+  if (initializerType === 'decay') {
+    if (!decayAddress) {
+      throw new Error('v4DecayMulticurveInitializer address missing for decay initializer');
+    }
+    return decayAddress;
+  }
+
+  if (initializerType === 'rehype') {
+    if (!rehypeAddress) {
+      throw new Error('dopplerHookInitializer address missing for rehype initializer');
+    }
+    return rehypeAddress;
+  }
+
+  if (!scheduledAddress) {
+    throw new Error(
+      'v4ScheduledMulticurveInitializer address missing for standard/scheduled modes',
+    );
+  }
+  return scheduledAddress;
+};
+
 const readMulticurveStateWithRetry = async (args: {
   publicClient: { readContract: (...params: any[]) => Promise<unknown> };
   tokenAddress: `0x${string}`;
@@ -267,6 +490,8 @@ const readMulticurveStateWithRetry = async (args: {
         hooks?: `0x${string}`;
       };
       const poolState = {
+        currency0: (poolKeyStruct.currency0 ?? zeroAddress) as `0x${string}`,
+        currency1: (poolKeyStruct.currency1 ?? zeroAddress) as `0x${string}`,
         numeraire: numeraireRaw as `0x${string}`,
         fee: Number(poolKeyStruct.fee ?? 0),
         tickSpacing: Number(poolKeyStruct.tickSpacing ?? 0),
@@ -370,7 +595,8 @@ const runMulticurveLaunchAndVerify = async (
     throw new Error(`tokensForSale resolved to 0 for salePercent=${salePercent}`);
   }
   const allocationAmount = totalSupply - tokensForSale;
-  const explicitAllocations = overrides?.allocations?.allocations ?? [];
+  const explicitAllocations =
+    overrides?.allocations?.recipients ?? overrides?.allocations?.allocations ?? [];
   const explicitAllocationTotal = explicitAllocations.reduce(
     (sum, entry) => sum + BigInt(entry.amount),
     0n,
@@ -426,6 +652,33 @@ const runMulticurveLaunchAndVerify = async (
         : allocationDurationIsDefault
           ? `${allocationLockDurationSeconds} (default)`
           : String(allocationLockDurationSeconds);
+  const requestedInitializer =
+    overrides?.initializer?.type === 'rehype'
+      ? {
+          type: 'rehype' as const,
+          config: {
+            ...overrides.initializer.config,
+            hookAddress:
+              overrides.initializer.config.hookAddress ??
+              (chain.addresses.rehypeDopplerHook as `0x${string}` | undefined),
+          },
+        }
+      : (overrides?.initializer ?? ({ type: 'standard' } as const));
+  if (requestedInitializer.type === 'rehype' && !requestedInitializer.config.hookAddress) {
+    throw new Error(
+      'Rehype initializer requires a hookAddress; chain has no default rehypeDopplerHook address',
+    );
+  }
+  const initializerForPayload =
+    requestedInitializer.type === 'rehype'
+      ? {
+          type: 'rehype' as const,
+          config: {
+            ...requestedInitializer.config,
+            hookAddress: requestedInitializer.config.hookAddress!,
+          },
+        }
+      : requestedInitializer;
   const explorerBase = getBaseScanUrl(chain.chainId);
   const numerairePriceUsd = Number(process.env.LIVE_NUMERAIRE_PRICE_USD || '3000');
   const feeConfig = overrides?.feeConfigOverride ?? feeConfigByPreset[preset];
@@ -477,6 +730,7 @@ const runMulticurveLaunchAndVerify = async (
         presets: [preset],
         fee: feeConfig.fee,
       },
+      initializer: initializerForPayload,
     },
   };
 
@@ -500,6 +754,7 @@ const runMulticurveLaunchAndVerify = async (
         ['Numeraire Price USD', numerairePriceUsd],
         ['Configured Fee', `${feeConfig.feePercent} (${feeConfig.fee})`],
         ['Tick Spacing', 'default (API derives for custom fee tiers)'],
+        ['Initializer', requestedInitializer.type],
         ['Launch Mode', 'multicurve + migration:noOp + governance:noOp'],
       ]);
     }
@@ -588,6 +843,7 @@ const runMulticurveLaunchAndVerify = async (
     expect(createResponse.effectiveConfig.allocationLockDurationSeconds).toBe(
       allocationLockDurationSeconds,
     );
+    expect(createResponse.effectiveConfig.initializer?.type).toBe(requestedInitializer.type);
 
     let decodedTokenFactoryData: ReturnType<typeof decodeStandardTokenFactoryData> | null = null;
     if (allocationAmount > 0n) {
@@ -603,60 +859,113 @@ const runMulticurveLaunchAndVerify = async (
       );
     }
 
-    const [decodedPoolConfig] = decodeAbiParameters(
-      [
-        {
-          type: 'tuple',
-          components: [
-            { name: 'fee', type: 'uint24' },
-            { name: 'tickSpacing', type: 'int24' },
-            {
-              name: 'curves',
-              type: 'tuple[]',
-              components: [
-                { name: 'tickLower', type: 'int24' },
-                { name: 'tickUpper', type: 'int24' },
-                { name: 'numPositions', type: 'uint16' },
-                { name: 'shares', type: 'uint256' },
-              ],
-            },
-            {
-              name: 'beneficiaries',
-              type: 'tuple[]',
-              components: [
-                { name: 'beneficiary', type: 'address' },
-                { name: 'shares', type: 'uint96' },
-              ],
-            },
-          ],
-        },
-      ],
+    const expectedInitializerAddress = resolveExpectedMulticurveInitializer({
+      chainAddresses: chain.addresses,
+      initializerType: requestedInitializer.type,
+    });
+    expect(createArg.poolInitializer.toLowerCase()).toBe(expectedInitializerAddress.toLowerCase());
+
+    const decodedPoolConfig = decodeInitializerPoolConfig(
+      requestedInitializer.type,
       createArg.poolInitializerData,
-    ) as readonly [{ fee: number; tickSpacing: number }];
+    );
     expect(decodedPoolConfig.fee).toBe(feeConfig.fee);
     if (feeConfig.expectedTickSpacing > 0) {
       expect(decodedPoolConfig.tickSpacing).toBe(feeConfig.expectedTickSpacing);
+    }
+    if (requestedInitializer.type === 'standard') {
+      expect(decodedPoolConfig.startingTime).toBe(0);
+    } else if (requestedInitializer.type === 'scheduled') {
+      expect(decodedPoolConfig.startingTime).toBe(requestedInitializer.startTime);
+    } else if (requestedInitializer.type === 'decay') {
+      expect(decodedPoolConfig.startFee).toBe(requestedInitializer.startFee);
+      expect(decodedPoolConfig.durationSeconds).toBe(requestedInitializer.durationSeconds);
+      expect(decodedPoolConfig.startingTime).toBe(requestedInitializer.startTime ?? 0);
+    } else {
+      expect(decodedPoolConfig.dopplerHook?.toLowerCase()).toBe(
+        requestedInitializer.config.hookAddress!.toLowerCase(),
+      );
+      const rehypeInitCalldata = decodeAbiParameters(
+        [
+          { type: 'address' },
+          { type: 'address' },
+          { type: 'uint24' },
+          { type: 'uint256' },
+          { type: 'uint256' },
+          { type: 'uint256' },
+          { type: 'uint256' },
+        ],
+        decodedPoolConfig.onInitializationDopplerHookCalldata ?? '0x',
+      ) as readonly [`0x${string}`, `0x${string}`, number, bigint, bigint, bigint, bigint];
+
+      expect(rehypeInitCalldata[1].toLowerCase()).toBe(
+        requestedInitializer.config.buybackDestination.toLowerCase(),
+      );
+      expect(rehypeInitCalldata[2]).toBe(requestedInitializer.config.customFee);
+      expect(rehypeInitCalldata[3].toString()).toBe(
+        requestedInitializer.config.assetBuybackPercentWad,
+      );
+      expect(rehypeInitCalldata[4].toString()).toBe(
+        requestedInitializer.config.numeraireBuybackPercentWad,
+      );
+      expect(rehypeInitCalldata[5].toString()).toBe(
+        requestedInitializer.config.beneficiaryPercentWad,
+      );
+      expect(rehypeInitCalldata[6].toString()).toBe(requestedInitializer.config.lpPercentWad);
     }
 
     const status = await services.statusService.getLaunchStatus(createResponse.launchId);
     expect(status.status).toBe('confirmed');
     expect(status.result?.tokenAddress.toLowerCase()).toBe(createdEvent.tokenAddress.toLowerCase());
 
-    const poolState = await readMulticurveStateWithRetry({
-      publicClient: chain.publicClient,
-      tokenAddress: createdEvent.tokenAddress,
-      poolInitializer: createArg.poolInitializer,
-    });
-    const poolNumeraire = poolState.numeraire.toLowerCase();
     const requestedNumeraire = createArg.numeraire.toLowerCase();
-    const configuredWeth = (chain.addresses.weth as `0x${string}` | undefined)?.toLowerCase();
-    const isNativeAlias =
-      poolNumeraire === zeroAddress && !!configuredWeth && requestedNumeraire === configuredWeth;
+    let poolState: {
+      currency0: `0x${string}`;
+      currency1: `0x${string}`;
+      numeraire: `0x${string}`;
+      fee: number;
+      tickSpacing: number;
+      hooks: `0x${string}`;
+    } | null = null;
+    let poolNumeraire: string | null = null;
+    let isNativeAlias = false;
 
-    expect(poolNumeraire === requestedNumeraire || isNativeAlias).toBe(true);
-    expect(Number.isInteger(poolState.tickSpacing)).toBe(true);
-    expect(poolState.tickSpacing).toBeGreaterThanOrEqual(0);
-    expect(poolState.fee).toBeGreaterThanOrEqual(0);
+    // DopplerHookInitializer state decoding does not share the v4Multicurve ABI shape.
+    if (requestedInitializer.type !== 'rehype') {
+      poolState = await readMulticurveStateWithRetry({
+        publicClient: chain.publicClient,
+        tokenAddress: createdEvent.tokenAddress,
+        poolInitializer: createArg.poolInitializer,
+      });
+      poolNumeraire = poolState.numeraire.toLowerCase();
+      const configuredWeth = (chain.addresses.weth as `0x${string}` | undefined)?.toLowerCase();
+      isNativeAlias =
+        poolNumeraire === zeroAddress && !!configuredWeth && requestedNumeraire === configuredWeth;
+
+      expect(poolNumeraire === requestedNumeraire || isNativeAlias).toBe(true);
+      expect(Number.isInteger(poolState.tickSpacing)).toBe(true);
+      expect(poolState.tickSpacing).toBeGreaterThanOrEqual(0);
+      expect(poolState.fee).toBeGreaterThanOrEqual(0);
+      if (requestedInitializer.type === 'decay') {
+        const poolId = computePoolId({
+          currency0: poolState.currency0,
+          currency1: poolState.currency1,
+          fee: poolState.fee,
+          tickSpacing: poolState.tickSpacing,
+          hooks: poolState.hooks,
+        }) as `0x${string}`;
+        const feeSchedule = (await chain.publicClient.readContract({
+          address: poolState.hooks,
+          abi: decayMulticurveInitializerHookAbi,
+          functionName: 'getFeeScheduleOf',
+          args: [poolId],
+        } as const)) as readonly [number, number, number, number, number];
+
+        expect(feeSchedule[1]).toBe(requestedInitializer.startFee);
+        expect(feeSchedule[2]).toBe(feeConfig.fee);
+        expect(feeSchedule[4]).toBe(requestedInitializer.durationSeconds);
+      }
+    }
 
     const tokenUrl = explorerBase ? `${explorerBase}/token/${createdEvent.tokenAddress}` : null;
     const poolOrHookAddress = status.result?.poolOrHookAddress ?? createdEvent.poolOrHookAddress;
@@ -677,11 +986,25 @@ const runMulticurveLaunchAndVerify = async (
             ? `${decodedTokenFactoryData.vestingDuration.toString()} / ${decodedTokenFactoryData.recipients[0] ?? 'none'} / ${decodedTokenFactoryData.amounts[0]?.toString() ?? '0'}`
             : 'n/a (no allocations)',
         ],
-        ['Numeraire requested -> pool', `${requestedNumeraire} -> ${poolNumeraire}`],
-        ['Numeraire Match', poolNumeraire === requestedNumeraire || isNativeAlias ? 'yes' : 'no'],
+        [
+          'Numeraire requested -> pool',
+          requestedInitializer.type === 'rehype'
+            ? `${requestedNumeraire} -> n/a (rehype initializer)`
+            : `${requestedNumeraire} -> ${poolNumeraire}`,
+        ],
+        [
+          'Numeraire Match',
+          requestedInitializer.type === 'rehype'
+            ? 'n/a (rehype initializer)'
+            : poolNumeraire === requestedNumeraire || isNativeAlias
+              ? 'yes'
+              : 'no',
+        ],
         [
           'TickSpacing / Fee (pool vs decoded)',
-          `${poolState.tickSpacing} / ${poolState.fee} (${decodedPoolConfig.tickSpacing} / ${decodedPoolConfig.fee})`,
+          requestedInitializer.type === 'rehype'
+            ? `n/a (${decodedPoolConfig.tickSpacing} / ${decodedPoolConfig.fee})`
+            : `${poolState!.tickSpacing} / ${poolState!.fee} (${decodedPoolConfig.tickSpacing} / ${decodedPoolConfig.fee})`,
         ],
         ['BaseScan Token', tokenUrl],
         ['BaseScan Pool/Hook', poolOrHookUrl],
@@ -883,39 +1206,14 @@ const runCustomCurveLaunchAndVerify = async () => {
     expect(createArg.integrator.toLowerCase()).toBe(userAddress.toLowerCase());
     expect(createArg.numeraire).not.toBe(zeroAddress);
 
-    const [decodedPoolConfig] = decodeAbiParameters(
-      [
-        {
-          type: 'tuple',
-          components: [
-            { name: 'fee', type: 'uint24' },
-            { name: 'tickSpacing', type: 'int24' },
-            {
-              name: 'curves',
-              type: 'tuple[]',
-              components: [
-                { name: 'tickLower', type: 'int24' },
-                { name: 'tickUpper', type: 'int24' },
-                { name: 'numPositions', type: 'uint16' },
-                { name: 'shares', type: 'uint256' },
-              ],
-            },
-            {
-              name: 'beneficiaries',
-              type: 'tuple[]',
-              components: [
-                { name: 'beneficiary', type: 'address' },
-                { name: 'shares', type: 'uint96' },
-              ],
-            },
-          ],
-        },
-      ],
+    const decodedPoolConfig = decodeInitializerPoolConfig(
+      'standard',
       createArg.poolInitializerData,
-    ) as readonly [{ fee: number; tickSpacing: number; curves: ReadonlyArray<{ shares: bigint }> }];
+    );
 
     expect(decodedPoolConfig.fee).toBe(randomFeeUnits);
     expect(decodedPoolConfig.tickSpacing).toBe(customTickSpacing);
+    expect(decodedPoolConfig.startingTime).toBe(0);
     expect(decodedPoolConfig.curves.length).toBe(customCurvePlan.curves.length);
     const shares = decodedPoolConfig.curves.map((curve) => curve.shares.toString());
     expect(shares).toEqual(expectedSharesWad);
@@ -1138,30 +1436,13 @@ const runCustomCurveWithRandomVestingAndAllocations = async () => {
       allocations.map((entry) => entry.amount),
     );
 
-    const [decodedPoolConfig] = decodeAbiParameters(
-      [
-        {
-          type: 'tuple',
-          components: [
-            { name: 'fee', type: 'uint24' },
-            { name: 'tickSpacing', type: 'int24' },
-            {
-              name: 'curves',
-              type: 'tuple[]',
-              components: [
-                { name: 'tickLower', type: 'int24' },
-                { name: 'tickUpper', type: 'int24' },
-                { name: 'numPositions', type: 'uint16' },
-                { name: 'shares', type: 'uint256' },
-              ],
-            },
-          ],
-        },
-      ],
+    const decodedPoolConfig = decodeInitializerPoolConfig(
+      'standard',
       createArg.poolInitializerData,
-    ) as readonly [{ fee: number; tickSpacing: number; curves: ReadonlyArray<{ shares: bigint }> }];
+    );
     expect(decodedPoolConfig.fee).toBe(randomFeeUnits);
     expect(decodedPoolConfig.tickSpacing).toBe(tickSpacing);
+    expect(decodedPoolConfig.startingTime).toBe(0);
     expect(decodedPoolConfig.curves.map((curve) => curve.shares.toString())).toEqual(
       expectedSharesWad,
     );
@@ -1314,6 +1595,68 @@ describe('live create verification', () => {
     'Custom Curve + Random Vesting (91-364d) + Random Allocations',
     async () => {
       await runCustomCurveWithRandomVestingAndAllocations();
+    },
+    240_000,
+  );
+
+  liveIt(
+    'MEDIUM Scheduled Initializer (+360s, 80/20)',
+    async () => {
+      const startTime = Math.floor(Date.now() / 1000) + 360;
+      await runMulticurveLaunchAndVerify('medium', {
+        configLabel: 'MEDIUM Scheduled Initializer (+360s, 80/20)',
+        salePercent: 80,
+        initializer: {
+          type: 'scheduled',
+          startTime,
+        },
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
+    'HIGH Decay Initializer (Random 40-80% -> 1%, 30-90s, 80/20)',
+    async () => {
+      const startFeePercent = 40 + Math.floor(Math.random() * 41);
+      const startFee = percentToFeeUnits(startFeePercent);
+      const durationSeconds = 30 + Math.floor(Math.random() * 61);
+      await runMulticurveLaunchAndVerify('high', {
+        configLabel: `HIGH Decay Initializer (${startFeePercent}% -> 1%, ${durationSeconds}s, 80/20)`,
+        salePercent: 80,
+        initializer: {
+          type: 'decay',
+          startFee,
+          durationSeconds,
+        },
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
+    'MEDIUM Rehype Initializer (Random Config, 100% Buyback/Burn to Dead, 80/20)',
+    async () => {
+      const assetBuybackBps = 10_000;
+      const assetBuybackPercentWad = ((WAD * BigInt(assetBuybackBps)) / 10_000n).toString();
+      const numeraireBuybackPercentWad = (WAD - BigInt(assetBuybackPercentWad)).toString();
+      const customFee = 500 + Math.floor(Math.random() * 50_001);
+
+      await runMulticurveLaunchAndVerify('medium', {
+        configLabel: `MEDIUM Rehype Initializer (asset buyback ${assetBuybackBps / 100}%, 80/20)`,
+        salePercent: 80,
+        initializer: {
+          type: 'rehype',
+          config: {
+            buybackDestination: DEAD_ADDRESS,
+            customFee,
+            assetBuybackPercentWad,
+            numeraireBuybackPercentWad,
+            beneficiaryPercentWad: '0',
+            lpPercentWad: '0',
+          },
+        },
+      });
     },
     240_000,
   );
