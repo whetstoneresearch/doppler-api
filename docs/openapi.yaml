@@ -240,13 +240,29 @@ components:
           type: object
           description: >
             Optional non-market allocation controls for the non-sale remainder.
-            allocations[] may be used to split remainder across up to 10 unique addresses.
-            allocations amounts must sum to totalSupply - tokensForSale.
+            Use recipients[] (preferred) or allocations[] (legacy alias) to split
+            remainder across up to 10 unique addresses.
+            Allocation amounts must sum to totalSupply - tokensForSale.
+            Do not send both recipients[] and allocations[] in the same request.
           properties:
             recipientAddress:
               $ref: '#/components/schemas/HexAddress'
+            recipients:
+              type: array
+              maxItems: 10
+              items:
+                type: object
+                properties:
+                  address:
+                    $ref: '#/components/schemas/HexAddress'
+                  amount:
+                    type: string
+                    pattern: '^\d+$'
+                required: [address, amount]
             allocations:
               type: array
+              deprecated: true
+              description: Legacy alias for recipients.
               maxItems: 10
               items:
                 type: object

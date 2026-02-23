@@ -64,7 +64,7 @@ Use this when you want non-market supply split across specific addresses.
   "tokenomics": {
     "totalSupply": "1000000000000000000000000",
     "allocations": {
-      "allocations": [
+      "recipients": [
         {
           "address": "0x2222222222222222222222222222222222222222",
           "amount": "300000000000000000000000"

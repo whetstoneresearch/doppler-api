@@ -20,6 +20,10 @@ export interface Tokenomics {
       address: HexAddress;
       amount: string;
     }>;
+    recipients?: Array<{
+      address: HexAddress;
+      amount: string;
+    }>;
     mode?: 'vest' | 'unlock' | 'vault';
     durationSeconds?: number;
     cliffDurationSeconds?: number;

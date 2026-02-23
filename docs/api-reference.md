@@ -39,12 +39,13 @@ Generic launch creation endpoint (future-compatible).
   - when `tokensForSale < totalSupply`, market allocation must be at least `20%` of `totalSupply`.
   - `allocations` is optional metadata for lock behavior when `tokensForSale < totalSupply`:
     - `recipientAddress?` (defaults to `userAddress`)
-    - `allocations?: [{ address, amount }]`
+    - `recipients?: [{ address, amount }]` (preferred)
+    - `allocations?: [{ address, amount }]` (legacy alias)
       - optional explicit recipient split for non-market allocation remainder
       - supports up to `10` unique addresses, no duplicates
       - must sum exactly to `totalSupply - tokensForSale`
       - if provided and `tokensForSale` is omitted, API derives `tokensForSale` from:
-        `totalSupply - sum(allocations[].amount)`
+        `totalSupply - sum(recipients[].amount)`
     - `mode?` (`vest` | `unlock` | `vault`, default `vest`)
     - `durationSeconds?` (default `7776000` for `vest`/`vault`)
     - `cliffDurationSeconds?` (must be `<= durationSeconds`)

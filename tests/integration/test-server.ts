@@ -61,13 +61,17 @@ export const buildTestServer = async () => {
       allocations?: {
         recipientAddress?: string;
         allocations?: Array<{ address: string; amount: string }>;
+        recipients?: Array<{ address: string; amount: string }>;
         mode?: 'vest' | 'unlock' | 'vault';
         durationSeconds?: number;
       };
     };
   }) => {
     const totalSupply = BigInt(payload?.tokenomics?.totalSupply ?? '1000');
-    const explicitAllocations = payload?.tokenomics?.allocations?.allocations ?? [];
+    const explicitAllocations =
+      payload?.tokenomics?.allocations?.recipients ??
+      payload?.tokenomics?.allocations?.allocations ??
+      [];
     const explicitAllocationTotal = explicitAllocations.reduce(
       (sum, entry) => sum + BigInt(entry.amount),
       0n,

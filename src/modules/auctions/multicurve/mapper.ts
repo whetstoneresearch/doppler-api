@@ -37,7 +37,8 @@ export const resolveSaleNumbers = (
   input: CreateLaunchRequestInput,
 ): { totalSupply: bigint; tokensForSale: bigint } => {
   const totalSupply = parsePositiveBigInt(input.tokenomics.totalSupply, 'tokenomics.totalSupply');
-  const explicitAllocations = parseExplicitAllocations(input);
+  const { entries: explicitAllocations, fieldPath: explicitAllocationsPath } =
+    parseExplicitAllocations(input);
   const explicitAllocationTotal = explicitAllocations.reduce(
     (sum, entry) => sum + entry.amount,
     0n,
@@ -79,7 +80,7 @@ export const resolveSaleNumbers = (
       throw new AppError(
         422,
         'INVALID_TOKENOMICS',
-        'tokenomics.allocations.allocations must sum exactly to totalSupply - tokensForSale',
+        `${explicitAllocationsPath} must sum exactly to totalSupply - tokensForSale`,
       );
     }
   }
@@ -92,38 +93,58 @@ interface ExplicitAllocationEntry {
   amount: bigint;
 }
 
-const parseExplicitAllocations = (input: CreateLaunchRequestInput): ExplicitAllocationEntry[] => {
-  const requested = input.tokenomics.allocations?.allocations ?? [];
-  if (requested.length === 0) return [];
+interface ParsedExplicitAllocations {
+  entries: ExplicitAllocationEntry[];
+  fieldPath: 'tokenomics.allocations.recipients' | 'tokenomics.allocations.allocations';
+}
+
+const parseExplicitAllocations = (input: CreateLaunchRequestInput): ParsedExplicitAllocations => {
+  const config = input.tokenomics.allocations;
+  const legacyAllocations = config?.allocations ?? [];
+  const recipients = config?.recipients ?? [];
+
+  if (legacyAllocations.length > 0 && recipients.length > 0) {
+    throw new AppError(
+      422,
+      'INVALID_TOKENOMICS',
+      'tokenomics.allocations.recipients cannot be used with tokenomics.allocations.allocations',
+    );
+  }
+
+  const fieldPath =
+    recipients.length > 0
+      ? 'tokenomics.allocations.recipients'
+      : 'tokenomics.allocations.allocations';
+  const requested = recipients.length > 0 ? recipients : legacyAllocations;
+  if (requested.length === 0) return { entries: [], fieldPath };
 
   if (requested.length > MAX_ALLOCATION_RECIPIENTS) {
     throw new AppError(
       422,
       'INVALID_TOKENOMICS',
-      `tokenomics.allocations.allocations supports up to ${MAX_ALLOCATION_RECIPIENTS} unique addresses`,
+      `${fieldPath} supports up to ${MAX_ALLOCATION_RECIPIENTS} unique addresses`,
     );
   }
 
   const seen = new Set<string>();
-  return requested.map((entry, index) => {
+  const entries = requested.map((entry, index) => {
     const normalized = entry.address.toLowerCase();
     if (seen.has(normalized)) {
       throw new AppError(
         422,
         'INVALID_TOKENOMICS',
-        `tokenomics.allocations.allocations has duplicate address at index ${index}`,
+        `${fieldPath} has duplicate address at index ${index}`,
       );
     }
     seen.add(normalized);
 
     return {
       address: entry.address as HexAddress,
-      amount: parsePositiveBigInt(
-        entry.amount,
-        `tokenomics.allocations.allocations[${index}].amount`,
-      ),
+      amount: parsePositiveBigInt(entry.amount, `${fieldPath}[${index}].amount`),
     };
   });
+
+  return { entries, fieldPath };
 };
 
 export const resolveAllocationPlan = (args: {
@@ -134,7 +155,7 @@ export const resolveAllocationPlan = (args: {
   const { input, totalSupply, tokensForSale } = args;
   const allocationAmount = totalSupply - tokensForSale;
   const config = input.tokenomics.allocations;
-  const explicitAllocations = parseExplicitAllocations(input);
+  const { entries: explicitAllocations } = parseExplicitAllocations(input);
 
   if (allocationAmount === 0n) {
     if (config) {
@@ -160,7 +181,7 @@ export const resolveAllocationPlan = (args: {
     throw new AppError(
       422,
       'INVALID_TOKENOMICS',
-      'tokenomics.allocations.recipientAddress cannot be used with tokenomics.allocations.allocations',
+      'tokenomics.allocations.recipientAddress cannot be used with explicit recipient splits',
     );
   }
 

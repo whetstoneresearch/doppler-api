@@ -182,7 +182,7 @@ Use `Idempotency-Key` on create requests in production integrations.
   "tokenomics": {
     "totalSupply": "1000000000000000000000000",
     "allocations": {
-      "allocations": [
+      "recipients": [
         {
           "address": "0x2222222222222222222222222222222222222222",
           "amount": "300000000000000000000000"
@@ -244,7 +244,8 @@ Custom-curve rules agents should enforce before submit:
   - default lock mode is `vest`
   - default lock duration is `7776000` seconds (90 days)
 - Explicit allocation split:
-  - use `tokenomics.allocations.allocations` for up to 10 unique addresses
+  - use `tokenomics.allocations.recipients` for up to 10 unique addresses
+  - legacy alias `tokenomics.allocations.allocations` is also accepted
   - no duplicate addresses
   - amounts must sum exactly to `totalSupply - tokensForSale`
   - if `tokensForSale` is omitted, API derives it from allocation amounts

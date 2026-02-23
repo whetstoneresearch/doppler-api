@@ -31,13 +31,13 @@ describe('sale number mapping', () => {
     expect(sale.tokensForSale).toBe(700n);
   });
 
-  it('derives tokensForSale from explicit allocations when tokensForSale is omitted', () => {
+  it('derives tokensForSale from recipients when tokensForSale is omitted', () => {
     const sale = resolveSaleNumbers({
       ...baseInput,
       tokenomics: {
         totalSupply: '1000',
         allocations: {
-          allocations: [
+          recipients: [
             { address: '0x2222222222222222222222222222222222222222', amount: '300' },
             { address: '0x3333333333333333333333333333333333333333', amount: '200' },
           ],
@@ -252,5 +252,20 @@ describe('sale number mapping', () => {
         },
       }),
     ).toThrow(/supports up to 10 unique addresses/i);
+  });
+
+  it('rejects mixing recipients and allocations aliases', () => {
+    expect(() =>
+      resolveSaleNumbers({
+        ...baseInput,
+        tokenomics: {
+          totalSupply: '1000',
+          allocations: {
+            recipients: [{ address: '0x2222222222222222222222222222222222222222', amount: '300' }],
+            allocations: [{ address: '0x3333333333333333333333333333333333333333', amount: '300' }],
+          },
+        },
+      }),
+    ).toThrow(/recipients cannot be used with tokenomics\.allocations\.allocations/i);
   });
 });

@@ -15,21 +15,29 @@ const auctionSchema = z.discriminatedUnion('type', [
   staticAuctionSchema,
   dynamicAuctionSchema,
 ]);
-const allocationConfigSchema = z.object({
-  recipientAddress: addressSchema.optional(),
-  allocations: z
-    .array(
-      z.object({
-        address: addressSchema,
-        amount: bigintStringSchema,
-      }),
-    )
-    .max(10)
-    .optional(),
-  mode: z.enum(['vest', 'unlock', 'vault']).optional(),
-  durationSeconds: z.number().int().nonnegative().optional(),
-  cliffDurationSeconds: z.number().int().nonnegative().optional(),
+const allocationRecipientSchema = z.object({
+  address: addressSchema,
+  amount: bigintStringSchema,
 });
+const allocationConfigSchema = z
+  .object({
+    recipientAddress: addressSchema.optional(),
+    allocations: z.array(allocationRecipientSchema).max(10).optional(),
+    recipients: z.array(allocationRecipientSchema).max(10).optional(),
+    mode: z.enum(['vest', 'unlock', 'vault']).optional(),
+    durationSeconds: z.number().int().nonnegative().optional(),
+    cliffDurationSeconds: z.number().int().nonnegative().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.allocations && value.recipients) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['recipients'],
+        message:
+          'tokenomics.allocations.recipients cannot be used with tokenomics.allocations.allocations',
+      });
+    }
+  });
 
 export const createLaunchRequestSchema = z.object({
   chainId: z.number().int().positive().optional(),

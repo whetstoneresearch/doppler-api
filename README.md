@@ -32,8 +32,8 @@ npm run dev
   - Default: 100% of `totalSupply` is allocated to the multicurve market.
   - Optional: set `tokenomics.tokensForSale` to allocate less to the market.
   - Remainder (`totalSupply - tokensForSale`) is allocated to non-market allocation recipients.
-  - Optional: provide `tokenomics.allocations.allocations` to split the remainder across up to 10 unique addresses.
-- This matches the majority of current Doppler integrations, including Zora and Bankr.
+  - Optional: set `tokenomics.allocations.recipients` (max 10 unique recipients) to split the non-market remainder.
+  - Backward compatible alias: `tokenomics.allocations.allocations`.
 - Multicurve design reference: [Doppler Multicurve whitepaper](https://doppler.lol/multicurve.pdf).
 
 ## Scope and roadmap
@@ -74,7 +74,7 @@ content-type: application/json
     "totalSupply": "1000000000000000000000000",
     "tokensForSale": "800000000000000000000000",
     "allocations": {
-      "allocations": [
+      "recipients": [
         {
           "address": "0x1111111111111111111111111111111111111111",
           "amount": "100000000000000000000000"
@@ -238,7 +238,8 @@ Example `GET /health`:
   - default lock mode is `vest` for `90` days when non-market allocation exists.
   - lock modes: `vest`, `unlock`, `vault`.
 - Optional explicit split across recipients:
-  - `tokenomics.allocations.allocations` supports up to `10` unique addresses.
+  - `tokenomics.allocations.recipients` supports up to `10` unique allocation recipients.
+  - legacy alias `tokenomics.allocations.allocations` is also accepted.
   - no duplicate addresses are allowed.
   - allocation amounts must sum exactly to `totalSupply - tokensForSale`.
   - if allocations are provided and `tokensForSale` is omitted, API derives `tokensForSale`.
@@ -252,7 +253,7 @@ Example `GET /health`:
   - `userAddress`: 95%
   - protocol owner: 5%
 
-See `/Users/coop/Documents/New project/docs/mvp-launch.md` for a concise MVP launch example and a full defaults-resolution table.
+See `docs/mvp-launch.md` for a concise MVP launch example and a full defaults-resolution table.
 
 ## Tests
 
