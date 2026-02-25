@@ -131,8 +131,10 @@ interface MulticurveLiveOverrides {
           numerairePrice?: number;
           farTick?: number;
         };
-      };
+  };
 }
+
+type LiveAllocationsConfig = NonNullable<MulticurveLiveOverrides['allocations']>;
 
 type LiveRowValue = string | number | boolean | null | undefined;
 type LaunchSummaryRow = {
@@ -1188,6 +1190,8 @@ const runStaticLaunchAndVerify = async (args?: {
   curveConfig?: StaticLiveCurveConfig;
   configLabel?: string;
   feeBeneficiaries?: CreateLaunchRequestInput['feeBeneficiaries'];
+  salePercent?: number;
+  allocations?: LiveAllocationsConfig;
 }) => {
   const config = loadConfig();
   const services = buildServices(config);
@@ -1198,6 +1202,66 @@ const runStaticLaunchAndVerify = async (args?: {
   const tokenName = `Live STATIC ${runId.slice(-6)}`;
   const tokenUri = `ipfs://live-static-token/${runId}`;
   const totalSupply = DEFAULT_LIVE_TOTAL_SUPPLY;
+  const salePercent = Math.trunc(args?.salePercent ?? 100);
+  if (salePercent <= 0 || salePercent > 100) {
+    throw new Error(`salePercent must be in the range 1-100 (received ${salePercent})`);
+  }
+  const tokensForSale = calculateSaleAmount(totalSupply, salePercent);
+  if (tokensForSale <= 0n) {
+    throw new Error(`tokensForSale resolved to 0 for salePercent=${salePercent}`);
+  }
+  const allocationAmount = totalSupply - tokensForSale;
+  const explicitAllocations = args?.allocations?.recipients ?? args?.allocations?.allocations ?? [];
+  const explicitAllocationTotal = explicitAllocations.reduce(
+    (sum, entry) => sum + BigInt(entry.amount),
+    0n,
+  );
+  if (explicitAllocations.length > 0 && explicitAllocationTotal !== allocationAmount) {
+    throw new Error(
+      `explicit allocation sum mismatch: expected ${allocationAmount}, got ${explicitAllocationTotal}`,
+    );
+  }
+  const requestedAllocationMode = allocationAmount > 0n ? (args?.allocations?.mode ?? 'vest') : 'none';
+  const allocationRecipientAddress =
+    explicitAllocations[0]?.address ?? args?.allocations?.recipientAddress ?? userAddress;
+  const expectedVestingRecipients =
+    explicitAllocations.length > 0
+      ? explicitAllocations.map((allocation) => allocation.address)
+      : allocationAmount > 0n
+        ? [allocationRecipientAddress]
+        : [];
+  const expectedVestingAmounts =
+    explicitAllocations.length > 0
+      ? explicitAllocations.map((allocation) => BigInt(allocation.amount))
+      : allocationAmount > 0n
+        ? [allocationAmount]
+        : [];
+  const allocationLockDurationSeconds =
+    requestedAllocationMode === 'none' || requestedAllocationMode === 'unlock'
+      ? 0
+      : (args?.allocations?.durationSeconds ?? DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS);
+  const salePercentIsDefault = args?.salePercent === undefined;
+  const allocationRecipientIsDefault = explicitAllocations.length === 0 && !args?.allocations?.recipientAddress;
+  const allocationModeIsDefault = allocationAmount > 0n && !args?.allocations?.mode;
+  const allocationDurationIsDefault =
+    allocationAmount > 0n &&
+    requestedAllocationMode === 'vest' &&
+    !args?.allocations?.durationSeconds;
+  const salePercentDisplay = salePercentIsDefault ? `${salePercent}% (default)` : `${salePercent}%`;
+  const allocationModeDisplay =
+    requestedAllocationMode === 'none'
+      ? 'none (default)'
+      : allocationModeIsDefault
+        ? `${requestedAllocationMode} (default)`
+        : requestedAllocationMode;
+  const allocationDurationDisplay =
+    requestedAllocationMode === 'none'
+      ? '0 (default)'
+      : requestedAllocationMode === 'unlock'
+        ? '0 (unlock)'
+        : allocationDurationIsDefault
+          ? `${allocationLockDurationSeconds} (default)`
+          : String(allocationLockDurationSeconds);
   const explorerBase = getBaseScanUrl(chain.chainId);
   const numerairePriceUsd = Number(process.env.LIVE_NUMERAIRE_PRICE_USD || '3000');
   const curveConfig: StaticLiveCurveConfig = args?.curveConfig ?? {
@@ -1212,11 +1276,16 @@ const runStaticLaunchAndVerify = async (args?: {
   const summary: LaunchSummaryRow = {
     config: configLabel,
     status: 'failed',
-    salePercent: '100% (default)',
-    allocationAmount: '0 (default)',
-    allocationRecipients: '0 (default)',
-    vestMode: 'none (default)',
-    vestDuration: '0 (default)',
+    salePercent: salePercentDisplay,
+    allocationAmount: allocationAmount === 0n ? '0 (default)' : allocationAmount.toString(),
+    allocationRecipients:
+      allocationAmount === 0n
+        ? '0 (default)'
+        : allocationRecipientIsDefault && expectedVestingRecipients.length === 1
+          ? '1 (default)'
+          : String(expectedVestingRecipients.length),
+    vestMode: allocationModeDisplay,
+    vestDuration: allocationDurationDisplay,
   };
   let submittedTxHash: `0x${string}` | undefined;
   launchSummaries.push(summary);
@@ -1247,6 +1316,8 @@ const runStaticLaunchAndVerify = async (args?: {
     },
     tokenomics: {
       totalSupply: totalSupply.toString(),
+      ...(tokensForSale !== totalSupply ? { tokensForSale: tokensForSale.toString() } : {}),
+      ...(allocationAmount > 0n && args?.allocations ? { allocations: args.allocations } : {}),
     },
     pricing: {
       numerairePriceUsd,
@@ -1277,9 +1348,12 @@ const runStaticLaunchAndVerify = async (args?: {
         ['User / Integrator', userAddress],
         ['Token', `${tokenName} (${symbol})`],
         ['Token URI', tokenUri],
-        ['Supply / For Sale', `${totalSupply.toString()} / ${totalSupply.toString()}`],
-        ['Sale Percent', '100% (default)'],
-        ['Allocation Amount', '0 (default)'],
+        ['Supply / For Sale', `${totalSupply.toString()} / ${tokensForSale.toString()}`],
+        ['Sale Percent', summary.salePercent],
+        ['Allocation Amount', summary.allocationAmount],
+        ['Allocation Split Count', summary.allocationRecipients],
+        ['Allocation Lock Mode', summary.vestMode],
+        ['Allocation Lock Duration (sec)', summary.vestDuration],
         ['Numeraire Price USD', numerairePriceUsd],
         ['Fee Beneficiaries', args?.feeBeneficiaries?.length ?? 'default'],
         ['Expected Initializer', lockableV3Initializer],
@@ -1347,20 +1421,45 @@ const runStaticLaunchAndVerify = async (args?: {
       numeraire: `0x${string}`;
       numTokensToSell: bigint;
       integrator: `0x${string}`;
+      tokenFactoryData: `0x${string}`;
       poolInitializer: `0x${string}`;
     };
 
     expect(createArg.initialSupply.toString()).toBe(totalSupply.toString());
-    expect(createArg.numTokensToSell.toString()).toBe(totalSupply.toString());
+    expect(createArg.numTokensToSell.toString()).toBe(tokensForSale.toString());
     expect(createArg.integrator.toLowerCase()).toBe(userAddress.toLowerCase());
     expect(createArg.numeraire).not.toBe(zeroAddress);
     expect(createArg.poolInitializer.toLowerCase()).toBe(lockableV3Initializer.toLowerCase());
-    expect(createResponse.effectiveConfig.tokensForSale).toBe(totalSupply.toString());
-    expect(createResponse.effectiveConfig.allocationAmount).toBe('0');
-    expect(createResponse.effectiveConfig.allocationLockMode).toBe('none');
+    expect(createResponse.effectiveConfig.tokensForSale).toBe(tokensForSale.toString());
+    expect(createResponse.effectiveConfig.allocationAmount).toBe(allocationAmount.toString());
+    expect(createResponse.effectiveConfig.allocationRecipient.toLowerCase()).toBe(
+      allocationRecipientAddress.toLowerCase(),
+    );
+    const effectiveRecipients = createResponse.effectiveConfig.allocationRecipients ?? [];
+    expect(effectiveRecipients.length).toBe(expectedVestingRecipients.length);
+    expect(effectiveRecipients.map((entry) => entry.address.toLowerCase())).toEqual(
+      expectedVestingRecipients.map((entry) => entry.toLowerCase()),
+    );
+    expect(effectiveRecipients.map((entry) => entry.amount)).toEqual(
+      expectedVestingAmounts.map((entry) => entry.toString()),
+    );
+    expect(createResponse.effectiveConfig.allocationLockMode).toBe(requestedAllocationMode);
+    expect(createResponse.effectiveConfig.allocationLockDurationSeconds).toBe(
+      allocationLockDurationSeconds,
+    );
     expect(createResponse.effectiveConfig.feeBeneficiariesSource).toBe(
       expectedFeeBeneficiariesSource,
     );
+    if (allocationAmount > 0n) {
+      const decodedTokenFactoryData = decodeStandardTokenFactoryData(createArg.tokenFactoryData);
+      expect(decodedTokenFactoryData.vestingDuration).toBe(BigInt(allocationLockDurationSeconds));
+      expect(decodedTokenFactoryData.recipients.map((recipient) => recipient.toLowerCase())).toEqual(
+        expectedVestingRecipients.map((recipient) => recipient.toLowerCase()),
+      );
+      expect(decodedTokenFactoryData.amounts.map((amount) => amount.toString())).toEqual(
+        expectedVestingAmounts.map((amount) => amount.toString()),
+      );
+    }
 
     const expectedPoolId =
       `0x${createdEvent.poolOrHookAddress.slice(2).padStart(64, '0')}`.toLowerCase();
@@ -1427,6 +1526,8 @@ const runDynamicLaunchAndVerify = async (args?: {
   migrationType?: 'uniswapV2' | 'uniswapV4';
   migrationFee?: number;
   migrationTickSpacing?: number;
+  salePercent?: number;
+  allocations?: LiveAllocationsConfig;
 }) => {
   const config = loadConfig();
   const services = buildServices(config);
@@ -1437,6 +1538,66 @@ const runDynamicLaunchAndVerify = async (args?: {
   const tokenName = `Live DYNAMIC ${runId.slice(-6)}`;
   const tokenUri = `ipfs://live-dynamic-token/${runId}`;
   const totalSupply = DEFAULT_LIVE_TOTAL_SUPPLY;
+  const salePercent = Math.trunc(args?.salePercent ?? 100);
+  if (salePercent <= 0 || salePercent > 100) {
+    throw new Error(`salePercent must be in the range 1-100 (received ${salePercent})`);
+  }
+  const tokensForSale = calculateSaleAmount(totalSupply, salePercent);
+  if (tokensForSale <= 0n) {
+    throw new Error(`tokensForSale resolved to 0 for salePercent=${salePercent}`);
+  }
+  const allocationAmount = totalSupply - tokensForSale;
+  const explicitAllocations = args?.allocations?.recipients ?? args?.allocations?.allocations ?? [];
+  const explicitAllocationTotal = explicitAllocations.reduce(
+    (sum, entry) => sum + BigInt(entry.amount),
+    0n,
+  );
+  if (explicitAllocations.length > 0 && explicitAllocationTotal !== allocationAmount) {
+    throw new Error(
+      `explicit allocation sum mismatch: expected ${allocationAmount}, got ${explicitAllocationTotal}`,
+    );
+  }
+  const requestedAllocationMode = allocationAmount > 0n ? (args?.allocations?.mode ?? 'vest') : 'none';
+  const allocationRecipientAddress =
+    explicitAllocations[0]?.address ?? args?.allocations?.recipientAddress ?? userAddress;
+  const expectedVestingRecipients =
+    explicitAllocations.length > 0
+      ? explicitAllocations.map((allocation) => allocation.address)
+      : allocationAmount > 0n
+        ? [allocationRecipientAddress]
+        : [];
+  const expectedVestingAmounts =
+    explicitAllocations.length > 0
+      ? explicitAllocations.map((allocation) => BigInt(allocation.amount))
+      : allocationAmount > 0n
+        ? [allocationAmount]
+        : [];
+  const allocationLockDurationSeconds =
+    requestedAllocationMode === 'none' || requestedAllocationMode === 'unlock'
+      ? 0
+      : (args?.allocations?.durationSeconds ?? DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS);
+  const salePercentIsDefault = args?.salePercent === undefined;
+  const allocationRecipientIsDefault = explicitAllocations.length === 0 && !args?.allocations?.recipientAddress;
+  const allocationModeIsDefault = allocationAmount > 0n && !args?.allocations?.mode;
+  const allocationDurationIsDefault =
+    allocationAmount > 0n &&
+    requestedAllocationMode === 'vest' &&
+    !args?.allocations?.durationSeconds;
+  const salePercentDisplay = salePercentIsDefault ? `${salePercent}% (default)` : `${salePercent}%`;
+  const allocationModeDisplay =
+    requestedAllocationMode === 'none'
+      ? 'none (default)'
+      : allocationModeIsDefault
+        ? `${requestedAllocationMode} (default)`
+        : requestedAllocationMode;
+  const allocationDurationDisplay =
+    requestedAllocationMode === 'none'
+      ? '0 (default)'
+      : requestedAllocationMode === 'unlock'
+        ? '0 (unlock)'
+        : allocationDurationIsDefault
+          ? `${allocationLockDurationSeconds} (default)`
+          : String(allocationLockDurationSeconds);
   const explorerBase = getBaseScanUrl(chain.chainId);
   const numerairePriceUsd = Number(process.env.LIVE_NUMERAIRE_PRICE_USD || '3000');
   const marketCapStartUsd = args?.marketCapStartUsd ?? 100;
@@ -1456,11 +1617,16 @@ const runDynamicLaunchAndVerify = async (args?: {
   const summary: LaunchSummaryRow = {
     config: configLabel,
     status: 'failed',
-    salePercent: '100% (default)',
-    allocationAmount: '0 (default)',
-    allocationRecipients: '0 (default)',
-    vestMode: 'none (default)',
-    vestDuration: '0 (default)',
+    salePercent: salePercentDisplay,
+    allocationAmount: allocationAmount === 0n ? '0 (default)' : allocationAmount.toString(),
+    allocationRecipients:
+      allocationAmount === 0n
+        ? '0 (default)'
+        : allocationRecipientIsDefault && expectedVestingRecipients.length === 1
+          ? '1 (default)'
+          : String(expectedVestingRecipients.length),
+    vestMode: allocationModeDisplay,
+    vestDuration: allocationDurationDisplay,
   };
   let submittedTxHash: `0x${string}` | undefined;
   launchSummaries.push(summary);
@@ -1500,6 +1666,8 @@ const runDynamicLaunchAndVerify = async (args?: {
     },
     tokenomics: {
       totalSupply: totalSupply.toString(),
+      ...(tokensForSale !== totalSupply ? { tokensForSale: tokensForSale.toString() } : {}),
+      ...(allocationAmount > 0n && args?.allocations ? { allocations: args.allocations } : {}),
     },
     pricing: {
       numerairePriceUsd,
@@ -1535,7 +1703,12 @@ const runDynamicLaunchAndVerify = async (args?: {
         ['User / Integrator', userAddress],
         ['Token', `${tokenName} (${symbol})`],
         ['Token URI', tokenUri],
-        ['Supply / For Sale', `${totalSupply.toString()} / ${totalSupply.toString()}`],
+        ['Supply / For Sale', `${totalSupply.toString()} / ${tokensForSale.toString()}`],
+        ['Sale Percent', summary.salePercent],
+        ['Allocation Amount', summary.allocationAmount],
+        ['Allocation Split Count', summary.allocationRecipients],
+        ['Allocation Lock Mode', summary.vestMode],
+        ['Allocation Lock Duration (sec)', summary.vestDuration],
         ['Market Cap Start / Min USD', `${marketCapStartUsd} / ${marketCapMinUsd}`],
         ['Min / Max Proceeds', `${minProceeds} / ${maxProceeds}`],
         ['Duration (sec)', durationSeconds],
@@ -1613,13 +1786,14 @@ const runDynamicLaunchAndVerify = async (args?: {
       numeraire: `0x${string}`;
       numTokensToSell: bigint;
       integrator: `0x${string}`;
+      tokenFactoryData: `0x${string}`;
       poolInitializer: `0x${string}`;
       poolInitializerData: `0x${string}`;
       liquidityMigrator: `0x${string}`;
     };
 
     expect(createArg.initialSupply.toString()).toBe(totalSupply.toString());
-    expect(createArg.numTokensToSell.toString()).toBe(totalSupply.toString());
+    expect(createArg.numTokensToSell.toString()).toBe(tokensForSale.toString());
     expect(createArg.integrator.toLowerCase()).toBe(userAddress.toLowerCase());
     expect(createArg.numeraire).not.toBe(zeroAddress);
     expect(createArg.poolInitializer.toLowerCase()).toBe(
@@ -1633,9 +1807,36 @@ const runDynamicLaunchAndVerify = async (args?: {
       );
     }
     expect(createArg.liquidityMigrator.toLowerCase()).toBe(expectedMigratorAddress.toLowerCase());
+    expect(createResponse.effectiveConfig.tokensForSale).toBe(tokensForSale.toString());
+    expect(createResponse.effectiveConfig.allocationAmount).toBe(allocationAmount.toString());
+    expect(createResponse.effectiveConfig.allocationRecipient.toLowerCase()).toBe(
+      allocationRecipientAddress.toLowerCase(),
+    );
+    const effectiveRecipients = createResponse.effectiveConfig.allocationRecipients ?? [];
+    expect(effectiveRecipients.length).toBe(expectedVestingRecipients.length);
+    expect(effectiveRecipients.map((entry) => entry.address.toLowerCase())).toEqual(
+      expectedVestingRecipients.map((entry) => entry.toLowerCase()),
+    );
+    expect(effectiveRecipients.map((entry) => entry.amount)).toEqual(
+      expectedVestingAmounts.map((entry) => entry.toString()),
+    );
+    expect(createResponse.effectiveConfig.allocationLockMode).toBe(requestedAllocationMode);
+    expect(createResponse.effectiveConfig.allocationLockDurationSeconds).toBe(
+      allocationLockDurationSeconds,
+    );
     expect(createResponse.effectiveConfig.feeBeneficiariesSource).toBe(
       expectedFeeBeneficiariesSource,
     );
+    if (allocationAmount > 0n) {
+      const decodedTokenFactoryData = decodeStandardTokenFactoryData(createArg.tokenFactoryData);
+      expect(decodedTokenFactoryData.vestingDuration).toBe(BigInt(allocationLockDurationSeconds));
+      expect(decodedTokenFactoryData.recipients.map((recipient) => recipient.toLowerCase())).toEqual(
+        expectedVestingRecipients.map((recipient) => recipient.toLowerCase()),
+      );
+      expect(decodedTokenFactoryData.amounts.map((amount) => amount.toString())).toEqual(
+        expectedVestingAmounts.map((amount) => amount.toString()),
+      );
+    }
 
     const status = await services.statusService.getLaunchStatus(createResponse.launchId);
     expect(status.status).toBe('confirmed');
@@ -2279,6 +2480,30 @@ describe('live create verification', () => {
   );
 
   liveIt(
+    'STATIC V3 Random 30-50% Sale + Random 3-5 Address Allocation Split',
+    ['static'],
+    async () => {
+      const randomSalePercent = 30 + Math.floor(Math.random() * 21);
+      const tokensForSale = calculateSaleAmount(DEFAULT_LIVE_TOTAL_SUPPLY, randomSalePercent);
+      const allocationAmount = DEFAULT_LIVE_TOTAL_SUPPLY - tokensForSale;
+      const recipientCount = 3 + Math.floor(Math.random() * 3);
+      const allocations = buildRandomAddressAllocations(allocationAmount, recipientCount);
+
+      await runStaticLaunchAndVerify({
+        configLabel: `STATIC V3 Random Split (${recipientCount} recipients, ${randomSalePercent}% market)`,
+        salePercent: randomSalePercent,
+        allocations: {
+          mode: 'vest',
+          durationSeconds: 60 * 24 * 60 * 60,
+          recipients: allocations,
+        },
+        curveConfig: { type: 'preset', preset: 'medium' },
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
     'DYNAMIC V4 Custom Fee (Random 0.10%-10.00%)',
     ['dynamic', 'fees'],
     async () => {
@@ -2371,6 +2596,34 @@ describe('live create verification', () => {
     ['dynamic'],
     async () => {
       await runDynamicLaunchAndVerify({
+        marketCapStartUsd: 100,
+        marketCapMinUsd: 50,
+        minProceeds: '0.01',
+        maxProceeds: '0.1',
+        durationSeconds: 24 * 60 * 60,
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
+    'DYNAMIC V4 Random 30-50% Sale + Random 3-5 Address Allocation Split',
+    ['dynamic'],
+    async () => {
+      const randomSalePercent = 30 + Math.floor(Math.random() * 21);
+      const tokensForSale = calculateSaleAmount(DEFAULT_LIVE_TOTAL_SUPPLY, randomSalePercent);
+      const allocationAmount = DEFAULT_LIVE_TOTAL_SUPPLY - tokensForSale;
+      const recipientCount = 3 + Math.floor(Math.random() * 3);
+      const allocations = buildRandomAddressAllocations(allocationAmount, recipientCount);
+
+      await runDynamicLaunchAndVerify({
+        configLabel: `DYNAMIC V4 Random Split (${recipientCount} recipients, ${randomSalePercent}% market)`,
+        salePercent: randomSalePercent,
+        allocations: {
+          mode: 'vest',
+          durationSeconds: 60 * 24 * 60 * 60,
+          recipients: allocations,
+        },
         marketCapStartUsd: 100,
         marketCapMinUsd: 50,
         minProceeds: '0.01',
