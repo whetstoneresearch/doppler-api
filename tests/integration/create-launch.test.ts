@@ -227,6 +227,31 @@ describe('POST /v1/launches', () => {
     expect(response.statusCode).toBe(422);
   });
 
+  it('dynamic alias rejects non-dynamic auction payloads', async () => {
+    app = await buildTestServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches/dynamic',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Wrong Dynamic Alias', symbol: 'WDA', tokenURI: 'ipfs://token' },
+        tokenomics: { totalSupply: '1000' },
+        governance: { enabled: false, mode: 'noOp' },
+        migration: { type: 'noOp' },
+        auction: {
+          type: 'multicurve',
+          curveConfig: { type: 'preset', presets: ['low'] },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(422);
+  });
+
   it('returns allocation defaults when sale is less than total supply', async () => {
     app = await buildTestServer();
 
