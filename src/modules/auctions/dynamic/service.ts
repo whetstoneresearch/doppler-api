@@ -1,4 +1,4 @@
-import { airlockAbi } from '@whetstone-research/doppler-sdk';
+import { airlockAbi, type MigrationConfig } from '@whetstone-research/doppler-sdk';
 import { parseUnits } from 'viem';
 
 import { AppError } from '../../../core/errors';
@@ -24,6 +24,8 @@ interface CreateDynamicArgs {
   pricingService: PricingService;
   txSubmitter: TxSubmitter;
 }
+
+const DEFAULT_V4_STREAMABLE_FEES_LOCK_DURATION_SECONDS = 90 * 24 * 60 * 60;
 
 const parseProceedsUnits = (value: string, field: string): bigint => {
   try {
@@ -79,7 +81,7 @@ export const createDynamicLaunch = async ({
     overrideUsd: input.pricing?.numerairePriceUsd,
   });
 
-  const { source } = await normalizeFeeBeneficiaries({
+  const { beneficiaries, source } = await normalizeFeeBeneficiaries({
     input,
     protocolOwner,
   });
@@ -152,9 +154,20 @@ export const createDynamicLaunch = async ({
     });
   }
 
+  const migrationConfig: MigrationConfig =
+    migration.type === 'uniswapV4'
+      ? {
+          ...migration,
+          streamableFees: {
+            lockDuration: DEFAULT_V4_STREAMABLE_FEES_LOCK_DURATION_SECONDS,
+            beneficiaries,
+          },
+        }
+      : migration;
+
   const params = builder
     .withGovernance(governance)
-    .withMigration(migration)
+    .withMigration(migrationConfig)
     .withUserAddress(input.userAddress as HexAddress)
     .build();
 

@@ -7,7 +7,7 @@ This file shows:
 3. An optional explicit allocation split request.
 4. A minimal static (V3) launch request (fallback only for non-V4 networks).
 5. A static explicit-range request (starting at $100).
-6. A minimal dynamic (V4) launch request with Uniswap V2 migration (work in progress preview).
+6. A minimal dynamic (V4) launch request with Uniswap V2 migration.
 
 ## 1) Minimal MVP launch request
 
@@ -174,7 +174,7 @@ Static request notes:
 
 If you need explicit market-cap shaping on multicurve, use `auction.curveConfig.type = "ranges"` with contiguous bands instead of presets.
 
-## 6) Dynamic (V4) MVP request (WIP preview, starts at $100)
+## 6) Dynamic (V4) request (starts at $100)
 
 ```json
 {
@@ -206,11 +206,10 @@ If you need explicit market-cap shaping on multicurve, use `auction.curveConfig.
 
 Dynamic request notes:
 
-- Dynamic creation is currently work in progress and should be treated as preview behavior.
-- Dynamic launches in this API profile require `migration.type="uniswapV2"`.
+- Dynamic launches in this API profile require `migration.type="uniswapV2"` or `migration.type="uniswapV4"`.
+- When using `migration.type="uniswapV4"`, include `migration.fee` and `migration.tickSpacing`.
 - Dynamic launches are intended for assets with well-known value and maximally capital-efficient price discovery goals.
 - Dynamic migration happens:
   - immediately when `maxProceeds` is reached, or
   - at auction expiry when `minProceeds` is reached.
 - `migration.type="uniswapV3"` is currently unsupported and returns `501 MIGRATION_NOT_IMPLEMENTED`.
-- `migration.type="uniswapV4"` is planned and currently unsupported.

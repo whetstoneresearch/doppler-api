@@ -48,9 +48,15 @@ export interface GovernanceConfig {
   mode?: GovernanceMode;
 }
 
-export interface MigrationConfigInput {
-  type: MigrationType;
-}
+export type MigrationConfigInput =
+  | {
+      type: 'noOp' | 'uniswapV2' | 'uniswapV3';
+    }
+  | {
+      type: 'uniswapV4';
+      fee: number;
+      tickSpacing: number;
+    };
 
 export interface PresetCurveConfig {
   type: 'preset';

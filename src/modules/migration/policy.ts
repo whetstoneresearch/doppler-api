@@ -58,7 +58,7 @@ export const resolveDynamicMigration = (
     throw new AppError(
       501,
       'MIGRATION_NOT_IMPLEMENTED',
-      'uniswapV3 migration is not implemented; dynamic launches currently support uniswapV2 only',
+      'uniswapV3 migration is not implemented; dynamic launches currently support uniswapV2 and uniswapV4',
     );
   }
 
@@ -74,17 +74,17 @@ export const resolveDynamicMigration = (
     return { type: 'uniswapV2' };
   }
 
-  if (mode === 'uniswapV4') {
-    throw new AppError(
-      501,
-      'MIGRATION_NOT_IMPLEMENTED',
-      'uniswapV4 migration is coming soon; dynamic launches currently support uniswapV2 only',
-    );
+  if (migration.type === 'uniswapV4') {
+    return {
+      type: 'uniswapV4',
+      fee: migration.fee,
+      tickSpacing: migration.tickSpacing,
+    };
   }
 
   throw new AppError(
     422,
     'MIGRATION_MODE_UNSUPPORTED',
-    'dynamic launches require migration.type="uniswapV2"',
+    'dynamic launches require migration.type="uniswapV2" or "uniswapV4"',
   );
 };

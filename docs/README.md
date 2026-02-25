@@ -25,7 +25,7 @@ This folder contains the complete API and operations reference for the Doppler L
 Project-level reference files:
 
 - `CHANGELOG.md`
-  - Release history and known MVP limitations.
+  - Release history and known compatibility notes.
 - `SECURITY.md`
   - Vulnerability disclosure and supported version policy.
 - `LICENSE`

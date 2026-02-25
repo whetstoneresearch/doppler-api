@@ -29,7 +29,7 @@ npm run dev
 
 - Auction types:
   - `multicurve` (recommended default on V4-capable networks)
-  - `dynamic` (work-in-progress preview for higher-value assets that need maximally capital-efficient price discovery; currently requires `migration.type="uniswapV2"` and may change)
+  - `dynamic` (for higher-value assets that need maximally capital-efficient price discovery; supports `migration.type="uniswapV2"` or `migration.type="uniswapV4"` in this API profile)
   - `static` (Uniswap V3 static launch with lockable beneficiaries; compatibility fallback for networks without Uniswap V4 support)
 - Multicurve initializer modes:
   - `standard` (implemented via scheduled initializer with `startTime=0`)
@@ -38,9 +38,8 @@ npm run dev
   - `rehype` (hook-based initializer config)
 - Migration modes:
   - `noOp` for multicurve/static
-  - `uniswapV2` for dynamic
+  - `uniswapV2` and `uniswapV4` for dynamic
   - `uniswapV3` is not supported and returns `501 MIGRATION_NOT_IMPLEMENTED`
-  - `uniswapV4` is planned and not yet supported in this API profile
 - Governance: `enabled=false` is the active profile, eg. `noOp`
 - Token allocation profile:
   - Default: 100% of `totalSupply` is allocated to the multicurve market.
@@ -49,13 +48,11 @@ npm run dev
   - Optional: set `tokenomics.allocations.recipients` (max 10 unique recipients) to split the non-market remainder.
   - Backward compatible alias: `tokenomics.allocations.allocations`.
 - Multicurve design reference: [Doppler Multicurve whitepaper](https://doppler.lol/multicurve.pdf).
-- Guidance: prefer `multicurve` whenever the target chain has Uniswap V4 support. Use `static` only when V4 is unavailable. Dynamic creation is currently a work-in-progress preview mode.
+- Guidance: prefer `multicurve` whenever the target chain has Uniswap V4 support. Use `static` only when V4 is unavailable.
 
 ## Scope and roadmap
 
-- Support for the rest of Doppler is coming soon
-  - Additional migration paths (including uniswapV4)
-  - Various other custom market dynamics
+- This API profile is at feature parity with the other Doppler launch APIs for the supported launch flows.
 
 ## Launch ID format
 
@@ -181,11 +178,10 @@ Use this only for the static fallback path.
 }
 ```
 
-### Dynamic explicit range (WIP preview, starts at $100, uniswapV2 migration)
+### Dynamic explicit range (starts at $100, uniswapV2 migration)
 
-Use this for the MVP V4 dynamic flow. Dynamic exits/migrates when `maxProceeds` is reached, or at auction end when `minProceeds` is satisfied.
+Use this for the V4 dynamic flow. Dynamic exits/migrates when `maxProceeds` is reached, or at auction end when `minProceeds` is satisfied.
 Dynamic is intended for assets with well-known value that benefit from maximally capital-efficient price discovery.
-Dynamic creation is currently work in progress and should be treated as preview behavior.
 
 ```json
 {
@@ -360,7 +356,6 @@ Example `GET /health`:
   - use static only as a fallback when the target chain does not support Uniswap V4/multicurve.
 - Dynamic launch curve config:
   - `auction.type="dynamic"` requires `auction.curveConfig`.
-  - dynamic creation is currently work in progress (preview) and may change.
   - `curveConfig.type="range"` requires:
     - `marketCapStartUsd`
     - `marketCapMinUsd`
@@ -368,9 +363,10 @@ Example `GET /health`:
     - `maxProceeds` (decimal string in numeraire units)
   - optional: `durationSeconds`, `epochLengthSeconds`, `fee`, `tickSpacing`, `gamma`, `numPdSlugs`
   - custom dynamic fees are supported via `curveConfig.fee`.
-  - dynamic launches require `migration.type="uniswapV2"` in this API profile.
+  - dynamic launches require `migration.type="uniswapV2"` or `migration.type="uniswapV4"` in this API profile.
+  - for `migration.type="uniswapV4"`, request `migration.fee` and `migration.tickSpacing`.
+  - for `migration.type="uniswapV4"`, streamable fee beneficiaries are derived from `feeBeneficiaries` (or the default 95/5 split).
   - `migration.type="uniswapV3"` is reserved and currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
-  - `migration.type="uniswapV4"` is reserved and currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
 - Percentage-based allocation is supported by converting percent to amount:
   - `tokensForSale = totalSupply * salePercent / 100`
   - Example: 20% sale means 80% non-market allocation.
@@ -400,6 +396,8 @@ npm run test:dynamic
 npm run test:live
 npm run test:live:static
 npm run test:live:dynamic
+npm run test:live:v2migration
+npm run test:live:v4migration
 npm run test:live:multicurve
 npm run test:live:multicurve:defaults
 npm run test:live:fees

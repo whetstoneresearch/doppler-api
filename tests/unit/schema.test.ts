@@ -209,6 +209,47 @@ describe('create launch schema', () => {
     expect(parsed.migration.type).toBe('uniswapV3');
   });
 
+  it('accepts migration.type=uniswapV4 with fee and tickSpacing', () => {
+    const parsed = createLaunchRequestSchema.parse({
+      userAddress: '0x1111111111111111111111111111111111111111',
+      tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+      tokenomics: { totalSupply: '100' },
+      migration: { type: 'uniswapV4', fee: 10_000, tickSpacing: 100 },
+      auction: {
+        type: 'dynamic',
+        curveConfig: {
+          type: 'range',
+          marketCapStartUsd: 100,
+          marketCapMinUsd: 50,
+          minProceeds: '0.01',
+          maxProceeds: '0.1',
+        },
+      },
+    });
+    expect(parsed.migration.type).toBe('uniswapV4');
+  });
+
+  it('rejects migration.type=uniswapV4 when fee/tickSpacing are missing', () => {
+    expect(() =>
+      createLaunchRequestSchema.parse({
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+        tokenomics: { totalSupply: '100' },
+        migration: { type: 'uniswapV4' },
+        auction: {
+          type: 'dynamic',
+          curveConfig: {
+            type: 'range',
+            marketCapStartUsd: 100,
+            marketCapMinUsd: 50,
+            minProceeds: '0.01',
+            maxProceeds: '0.1',
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
   it('accepts governance=true and omitted governance', () => {
     const withBoolean = createLaunchRequestSchema.parse({
       userAddress: '0x1111111111111111111111111111111111111111',

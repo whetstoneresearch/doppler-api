@@ -6,7 +6,7 @@ info:
     REST API for creating Doppler launches with multicurve, dynamic, and static support.
     v1 deployment profile supports:
     - multicurve/static with noOp migration
-    - dynamic with uniswapV2 migration (work-in-progress preview)
+    - dynamic with uniswapV2 or uniswapV4 migration
     - binary governance toggle (no governance or default token-holder governance using OpenZeppelin Governor)
     Prefer multicurve on V4-capable chains; static is a compatibility path.
     Multicurve initializer modes: standard, scheduled, decay, rehype.
@@ -384,17 +384,31 @@ components:
         - type: boolean
         - $ref: '#/components/schemas/GovernanceObject'
     MigrationConfig:
-      type: object
       description: >
-        Dynamic launches require `uniswapV2` and are currently work in progress.
+        Dynamic launches require `uniswapV2` or `uniswapV4`.
         Multicurve and static launches use `noOp` in this API profile.
+        For `uniswapV4`, streamable fee beneficiaries are derived from `feeBeneficiaries`
+        (or the default 95/5 split).
         `uniswapV3` is reserved and currently returns MIGRATION_NOT_IMPLEMENTED.
-        `uniswapV4` is reserved and currently returns MIGRATION_NOT_IMPLEMENTED.
-      properties:
-        type:
-          type: string
-          enum: [noOp, uniswapV2, uniswapV3, uniswapV4]
-      required: [type]
+      oneOf:
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: [noOp, uniswapV2, uniswapV3]
+          required: [type]
+        - type: object
+          properties:
+            type:
+              type: string
+              const: uniswapV4
+            fee:
+              type: integer
+              minimum: 0
+            tickSpacing:
+              type: integer
+              minimum: 1
+          required: [type, fee, tickSpacing]
     PairingConfig:
       type: object
       properties:
@@ -657,9 +671,8 @@ components:
     DynamicAuction:
       type: object
       description: >
-        Dynamic V4 Dutch auction (work-in-progress preview).
-        Intended for assets with well-known value and maximally capital-efficient price discovery.
-        Requires migration.type="uniswapV2" in this API profile.
+        Dynamic auction for high value assets needing maximally capital-efficient price discovery.
+        Requires migration.type="uniswapV2" or migration.type="uniswapV4" in this API profile.
       properties:
         type:
           type: string

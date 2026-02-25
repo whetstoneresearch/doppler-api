@@ -140,6 +140,42 @@ describe('POST /v1/launches', () => {
     expect(body.effectiveConfig.tokensForSale).toBe('1000');
   });
 
+  it('dynamic launch: supports uniswapV4 migration config', async () => {
+    app = await buildTestServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: {
+          name: 'Dynamic V4 Migration Token',
+          symbol: 'DV4',
+          tokenURI: 'ipfs://token',
+        },
+        tokenomics: { totalSupply: '1000' },
+        governance: { enabled: false, mode: 'noOp' },
+        migration: { type: 'uniswapV4', fee: 20_000, tickSpacing: 100 },
+        auction: {
+          type: 'dynamic',
+          curveConfig: {
+            type: 'range',
+            marketCapStartUsd: 100,
+            marketCapMinUsd: 50,
+            minProceeds: '0.01',
+            maxProceeds: '0.1',
+          },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().launchId).toContain('84532:0x');
+  });
+
   it('static launch alias: /v1/launches/static', async () => {
     app = await buildTestServer();
 

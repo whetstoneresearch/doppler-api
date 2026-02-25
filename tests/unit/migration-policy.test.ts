@@ -8,7 +8,7 @@ const baseChain: ChainRuntimeConfig = {
   rpcUrl: 'https://example-rpc.local',
   defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
   auctionTypes: ['multicurve', 'dynamic'],
-  migrationModes: ['noOp', 'uniswapV2'],
+  migrationModes: ['noOp', 'uniswapV2', 'uniswapV4'],
   governanceModes: ['noOp'],
   governanceEnabled: false,
 };
@@ -24,9 +24,19 @@ describe('migration policy', () => {
     });
   });
 
+  it('enables uniswapV4 migration for dynamic flows', () => {
+    expect(
+      resolveDynamicMigration({ type: 'uniswapV4', fee: 10_000, tickSpacing: 200 }, baseChain),
+    ).toEqual({
+      type: 'uniswapV4',
+      fee: 10_000,
+      tickSpacing: 200,
+    });
+  });
+
   it('rejects dynamic noOp migration', () => {
     expect(() => resolveDynamicMigration({ type: 'noOp' }, baseChain)).toThrow(
-      /dynamic launches require migration\.type="uniswapV2"/i,
+      /dynamic launches require migration\.type="uniswapV2" or "uniswapV4"/i,
     );
   });
 

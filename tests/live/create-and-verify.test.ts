@@ -29,6 +29,8 @@ const liveFilter = (process.env.LIVE_TEST_FILTER ?? 'all').toLowerCase();
 type LiveScenarioGroup =
   | 'static'
   | 'dynamic'
+  | 'migration-v2'
+  | 'migration-v4'
   | 'multicurve'
   | 'multicurve-defaults'
   | 'fees'
@@ -41,6 +43,8 @@ const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
   if (liveFilter === 'all') return true;
   if (liveFilter === 'static') return groups.includes('static');
   if (liveFilter === 'dynamic') return groups.includes('dynamic');
+  if (liveFilter === 'migration-v2') return groups.includes('migration-v2');
+  if (liveFilter === 'migration-v4') return groups.includes('migration-v4');
   if (liveFilter === 'multicurve') {
     return groups.includes('multicurve') || groups.includes('multicurve-defaults');
   }
@@ -250,6 +254,19 @@ const calculateSaleAmount = (totalSupply: bigint, salePercent: number): bigint =
 
 const randomAddress = (): `0x${string}` => `0x${randomBytes(20).toString('hex')}`;
 
+const buildUniqueRandomAddresses = (count: number, seedAddresses: `0x${string}`[] = []) => {
+  if (count <= 0) {
+    throw new Error(`count must be > 0 (received ${count})`);
+  }
+
+  const addresses = new Set<string>(seedAddresses.map((address) => address.toLowerCase()));
+  while (addresses.size < count) {
+    addresses.add(randomAddress().toLowerCase());
+  }
+
+  return Array.from(addresses) as `0x${string}`[];
+};
+
 const buildRandomAddressAllocations = (
   totalAmount: bigint,
   recipientCount: number,
@@ -261,11 +278,7 @@ const buildRandomAddressAllocations = (
     throw new Error('totalAmount is too small for requested recipientCount');
   }
 
-  const addresses = new Set<string>();
-  while (addresses.size < recipientCount) {
-    addresses.add(randomAddress().toLowerCase());
-  }
-  const recipients = Array.from(addresses) as `0x${string}`[];
+  const recipients = buildUniqueRandomAddresses(recipientCount);
 
   const minimumPerRecipient = 1n;
   const base = Array.from({ length: recipientCount }, () => minimumPerRecipient);
@@ -290,11 +303,7 @@ const buildRandomFeeBeneficiaries = (
   userAddress: `0x${string}`,
 ): NonNullable<CreateLaunchRequestInput['feeBeneficiaries']> => {
   const beneficiaryCount = 2 + Math.floor(Math.random() * 8); // 2-9 (protocol owner auto-appended to reach at most 10)
-  const addresses = new Set<string>([userAddress.toLowerCase()]);
-  while (addresses.size < beneficiaryCount) {
-    addresses.add(randomAddress().toLowerCase());
-  }
-  const beneficiaries = Array.from(addresses) as `0x${string}`[];
+  const beneficiaries = buildUniqueRandomAddresses(beneficiaryCount, [userAddress]);
 
   const targetShares = (WAD * 95n) / 100n; // omit protocol owner; API appends protocol 5%
   const minimumPerBeneficiary = 1n;
@@ -1415,6 +1424,9 @@ const runDynamicLaunchAndVerify = async (args?: {
   fee?: number;
   tickSpacing?: number;
   feeBeneficiaries?: CreateLaunchRequestInput['feeBeneficiaries'];
+  migrationType?: 'uniswapV2' | 'uniswapV4';
+  migrationFee?: number;
+  migrationTickSpacing?: number;
 }) => {
   const config = loadConfig();
   const services = buildServices(config);
@@ -1435,6 +1447,9 @@ const runDynamicLaunchAndVerify = async (args?: {
   const epochLengthSeconds = args?.epochLengthSeconds;
   const fee = args?.fee;
   const tickSpacing = args?.tickSpacing;
+  const migrationType = args?.migrationType ?? 'uniswapV2';
+  const migrationFee = args?.migrationFee ?? 10_000;
+  const migrationTickSpacing = args?.migrationTickSpacing ?? 200;
   const configLabel =
     args?.configLabel ??
     `DYNAMIC V4 (start $${marketCapStartUsd}, minProceeds ${minProceeds}, maxProceeds ${maxProceeds}, ${durationSeconds}s, epoch ${epochLengthSeconds ?? 'default'})`;
@@ -1464,10 +1479,10 @@ const runDynamicLaunchAndVerify = async (args?: {
     );
   }
 
-  if (!chain.config.migrationModes.includes('uniswapV2')) {
-    chain.config.migrationModes = [...chain.config.migrationModes, 'uniswapV2'];
+  if (!chain.config.migrationModes.includes(migrationType)) {
+    chain.config.migrationModes = [...chain.config.migrationModes, migrationType];
     verboseLog(
-      `[live] chain ${chain.chainId} missing uniswapV2 in migrationModes; enabling uniswapV2 for this test run`,
+      `[live] chain ${chain.chainId} missing ${migrationType} in migrationModes; enabling ${migrationType} for this test run`,
     );
   }
 
@@ -1491,9 +1506,10 @@ const runDynamicLaunchAndVerify = async (args?: {
     },
     ...(args?.feeBeneficiaries ? { feeBeneficiaries: args.feeBeneficiaries } : {}),
     governance: args?.governance ?? false,
-    migration: {
-      type: 'uniswapV2',
-    },
+    migration:
+      migrationType === 'uniswapV4'
+        ? { type: 'uniswapV4', fee: migrationFee, tickSpacing: migrationTickSpacing }
+        : { type: 'uniswapV2' },
     auction: {
       type: 'dynamic',
       curveConfig: {
@@ -1525,11 +1541,17 @@ const runDynamicLaunchAndVerify = async (args?: {
         ['Duration (sec)', durationSeconds],
         ['Epoch Length (sec)', epochLengthSeconds ?? 'default (SDK)'],
         ['Fee / TickSpacing', `${fee ?? 'default'} / ${tickSpacing ?? 'default (SDK/API)'}`],
+        [
+          'Migration',
+          migrationType === 'uniswapV4'
+            ? `uniswapV4 (${migrationFee}/${migrationTickSpacing})`
+            : 'uniswapV2',
+        ],
         ['Fee Beneficiaries', args?.feeBeneficiaries?.length ?? 'default'],
         ['Numeraire Price USD', numerairePriceUsd],
         [
           'Launch Mode',
-          `dynamic + migration:uniswapV2 + governance:${args?.governance ? 'default' : 'none'}`,
+          `dynamic + migration:${migrationType} + governance:${args?.governance ? 'default' : 'none'}`,
         ],
       ]);
     }
@@ -1603,9 +1625,14 @@ const runDynamicLaunchAndVerify = async (args?: {
     expect(createArg.poolInitializer.toLowerCase()).toBe(
       chain.addresses.v4Initializer.toLowerCase(),
     );
-    expect(createArg.liquidityMigrator.toLowerCase()).toBe(
-      chain.addresses.v2Migrator.toLowerCase(),
-    );
+    const expectedMigratorAddress =
+      migrationType === 'uniswapV4' ? chain.addresses.v4Migrator : chain.addresses.v2Migrator;
+    if (!expectedMigratorAddress || expectedMigratorAddress === zeroAddress) {
+      throw new Error(
+        `Chain ${chain.chainId} has no ${migrationType} migrator configured; dynamic migration test cannot run.`,
+      );
+    }
+    expect(createArg.liquidityMigrator.toLowerCase()).toBe(expectedMigratorAddress.toLowerCase());
     expect(createResponse.effectiveConfig.feeBeneficiariesSource).toBe(
       expectedFeeBeneficiariesSource,
     );
@@ -2276,6 +2303,70 @@ describe('live create verification', () => {
   );
 
   liveIt(
+    'DYNAMIC V4 Random Fee + Beneficiaries ($12345->$123, min 1, max 10, 13m)',
+    ['dynamic', 'fees', 'migration-v4'],
+    async () => {
+      const randomFeePercent = randomFeePercentTwoDecimals();
+      const randomFeeUnits = percentToFeeUnits(randomFeePercent);
+      const feeBeneficiaries = buildRandomFeeBeneficiaries(
+        privateKeyToAccount(loadConfig().privateKey).address,
+      );
+      await runDynamicLaunchAndVerify({
+        configLabel: `DYNAMIC V4 Random Fee + Beneficiaries (${randomFeePercent.toFixed(2)}%, $12345->$123, 13m)`,
+        migrationType: 'uniswapV4',
+        migrationFee: 10_000,
+        migrationTickSpacing: 200,
+        marketCapStartUsd: 12_345,
+        marketCapMinUsd: 123,
+        minProceeds: '1',
+        maxProceeds: '10',
+        durationSeconds: 13 * 60,
+        epochLengthSeconds: 60,
+        fee: randomFeeUnits,
+        tickSpacing: 10,
+        feeBeneficiaries,
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
+    'DYNAMIC Migration via UniswapV2',
+    ['dynamic', 'migration-v2'],
+    async () => {
+      await runDynamicLaunchAndVerify({
+        configLabel: 'DYNAMIC V4 Migration (uniswapV2)',
+        migrationType: 'uniswapV2',
+        marketCapStartUsd: 100,
+        marketCapMinUsd: 50,
+        minProceeds: '0.01',
+        maxProceeds: '0.1',
+        durationSeconds: 24 * 60 * 60,
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
+    'DYNAMIC Migration via UniswapV4',
+    ['dynamic', 'migration-v4'],
+    async () => {
+      await runDynamicLaunchAndVerify({
+        configLabel: 'DYNAMIC V4 Migration (uniswapV4)',
+        migrationType: 'uniswapV4',
+        migrationFee: 10_000,
+        migrationTickSpacing: 200,
+        marketCapStartUsd: 100,
+        marketCapMinUsd: 50,
+        minProceeds: '0.01',
+        maxProceeds: '0.1',
+        durationSeconds: 24 * 60 * 60,
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
     'DYNAMIC V4 (Range $100->$50, min 0.01, max 0.1, 24h)',
     ['dynamic'],
     async () => {
@@ -2568,7 +2659,7 @@ describe('live create verification', () => {
         services.launchService.createLaunch({
           ...basePayload,
           governance: { enabled: false, mode: 'noOp' },
-          migration: { type: 'uniswapV4' },
+          migration: { type: 'uniswapV4', fee: 10_000, tickSpacing: 100 },
         }),
         'MIGRATION_NOT_IMPLEMENTED',
       );

@@ -48,7 +48,7 @@ Use `CHAIN_CONFIG_JSON` to define one or more chains and capabilities:
     "rpcUrl": "https://your-base-sepolia-rpc",
     "defaultNumeraireAddress": "0x4200000000000000000000000000000000000006",
     "auctionTypes": ["multicurve", "dynamic"],
-    "migrationModes": ["noOp", "uniswapV2"],
+    "migrationModes": ["noOp", "uniswapV2", "uniswapV4"],
     "governanceModes": ["noOp", "default"],
     "governanceEnabled": true
   },
@@ -71,8 +71,7 @@ Use `CHAIN_CONFIG_JSON` to define one or more chains and capabilities:
 - `governance` create behavior is binary:
   - `false` or omitted uses no governance
   - `true` uses default token-holder governance (OpenZeppelin Governor) via the governance factory when `governanceModes` includes `default` and `governanceEnabled=true`
-- Recommendation: configure `auctionTypes` with `["multicurve"]` for stable V4-capable deployments and reserve `["static"]` for networks without Uniswap V4 support. Add `"dynamic"` only when intentionally testing the current work-in-progress preview mode.
-- Dynamic launches require `migrationModes` to include `"uniswapV2"` and are currently work in progress.
+- Recommendation: configure `auctionTypes` with `["multicurve", "dynamic"]` for V4-capable deployments and reserve `["static"]` for networks without Uniswap V4 support.
+- Dynamic launches require `migrationModes` to include `"uniswapV2"` and/or `"uniswapV4"`.
 - `uniswapV3` migration is not supported and returns `501 MIGRATION_NOT_IMPLEMENTED` if requested.
-- `uniswapV4` migration is planned and currently unsupported in this API profile.
 - If you intentionally want the V3 static path on Base Sepolia for testing, include `"static"` in that chain's `auctionTypes` list.

@@ -24,6 +24,8 @@
     "test:live": "node scripts/test-runner.mjs --live-only",
     "test:live:static": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=static vitest run tests/live/create-and-verify.test.ts",
     "test:live:dynamic": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=dynamic vitest run tests/live/create-and-verify.test.ts",
+    "test:live:v2migration": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=migration-v2 vitest run tests/live/create-and-verify.test.ts",
+    "test:live:v4migration": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=migration-v4 vitest run tests/live/create-and-verify.test.ts",
     "test:live:multicurve": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=multicurve vitest run tests/live/create-and-verify.test.ts",
     "test:live:multicurve:defaults": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=multicurve-defaults vitest run tests/live/create-and-verify.test.ts",
     "test:live:fees": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=fees vitest run tests/live/create-and-verify.test.ts",

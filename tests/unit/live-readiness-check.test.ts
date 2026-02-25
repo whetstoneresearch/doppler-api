@@ -9,9 +9,11 @@ import {
 
 describe('live readiness check', () => {
   it('estimates launch counts by live filter', () => {
-    expect(estimateLiveLaunchCount('all')).toBe(17);
+    expect(estimateLiveLaunchCount('all')).toBe(19);
     expect(estimateLiveLaunchCount('static')).toBe(3);
-    expect(estimateLiveLaunchCount('dynamic')).toBe(2);
+    expect(estimateLiveLaunchCount('dynamic')).toBe(4);
+    expect(estimateLiveLaunchCount('migration-v2')).toBe(1);
+    expect(estimateLiveLaunchCount('migration-v4')).toBe(1);
     expect(estimateLiveLaunchCount('multicurve')).toBe(12);
     expect(estimateLiveLaunchCount('multicurve-defaults')).toBe(3);
     expect(estimateLiveLaunchCount('fees')).toBe(3);
@@ -20,7 +22,7 @@ describe('live readiness check', () => {
   });
 
   it('falls back to all estimate for unknown filters', () => {
-    expect(estimateLiveLaunchCount('unknown-filter')).toBe(17);
+    expect(estimateLiveLaunchCount('unknown-filter')).toBe(19);
   });
 
   it('computes estimated required wei using defaults', () => {

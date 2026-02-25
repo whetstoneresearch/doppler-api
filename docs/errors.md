@@ -51,10 +51,9 @@ All errors are returned as:
 
 Dynamic-specific policy notes:
 
-- Dynamic creation is currently work in progress (preview).
-- Dynamic launches require `migration.type="uniswapV2"`.
+- Dynamic launches require `migration.type="uniswapV2"` or `migration.type="uniswapV4"`.
+- `migration.type="uniswapV4"` requires `migration.fee` and `migration.tickSpacing`.
 - `migration.type="uniswapV3"` currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
-- `migration.type="uniswapV4"` currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
 
 ### Pricing
 

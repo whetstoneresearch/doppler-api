@@ -38,6 +38,16 @@ const allocationConfigSchema = z
       });
     }
   });
+const migrationSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.enum(['noOp', 'uniswapV2', 'uniswapV3']),
+  }),
+  z.object({
+    type: z.literal('uniswapV4'),
+    fee: z.number().int().nonnegative(),
+    tickSpacing: z.number().int().positive(),
+  }),
+]);
 
 export const createLaunchRequestSchema = z.object({
   chainId: z.number().int().positive().optional(),
@@ -91,9 +101,7 @@ export const createLaunchRequestSchema = z.object({
       }),
     ])
     .optional(),
-  migration: z.object({
-    type: z.enum(['noOp', 'uniswapV2', 'uniswapV3', 'uniswapV4']),
-  }),
+  migration: migrationSchema,
   auction: auctionSchema,
 });
 
