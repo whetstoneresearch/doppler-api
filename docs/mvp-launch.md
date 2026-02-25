@@ -141,6 +141,9 @@ Static request notes:
 - `preset` supports `low`, `medium`, `high`.
 - Static launches use lockable beneficiaries (request list or default 95% user / 5% protocol owner).
 - Use static only when the target chain does not support Uniswap V4 multicurve launches.
+- `feeBeneficiaries` supports up to 10 unique addresses.
+- If protocol owner is omitted, beneficiary shares must sum to 95% and API appends protocol owner at 5%.
+- If protocol owner is provided, total beneficiary shares must sum to 100% and protocol owner must have at least 5%.
 
 ## 5) Static explicit range request (starts at $100)
 

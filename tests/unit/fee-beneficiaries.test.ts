@@ -38,4 +38,48 @@ describe('fee beneficiary defaults', () => {
       }),
     ).rejects.toThrow(/sum/);
   });
+
+  it('auto-appends protocol owner 5% when omitted and remaining shares sum to 95%', async () => {
+    const result = await normalizeFeeBeneficiaries({
+      input: {
+        ...baseInput,
+        feeBeneficiaries: [
+          {
+            address: '0x1111111111111111111111111111111111111111',
+            sharesWad: '950000000000000000',
+          },
+        ],
+      },
+      protocolOwner: '0x2222222222222222222222222222222222222222',
+    });
+
+    expect(result.source).toBe('request');
+    expect(result.beneficiaries).toHaveLength(2);
+    const protocolEntry = result.beneficiaries.find(
+      (entry) => entry.beneficiary.toLowerCase() === '0x2222222222222222222222222222222222222222',
+    );
+    expect(protocolEntry?.shares).toBe(50_000_000_000_000_000n);
+    expect(result.beneficiaries[0]!.shares + result.beneficiaries[1]!.shares).toBe(WAD);
+  });
+
+  it('rejects duplicate beneficiary addresses', async () => {
+    await expect(
+      normalizeFeeBeneficiaries({
+        input: {
+          ...baseInput,
+          feeBeneficiaries: [
+            {
+              address: '0x1111111111111111111111111111111111111111',
+              sharesWad: '475000000000000000',
+            },
+            {
+              address: '0x1111111111111111111111111111111111111111',
+              sharesWad: '475000000000000000',
+            },
+          ],
+        },
+        protocolOwner: '0x2222222222222222222222222222222222222222',
+      }),
+    ).rejects.toThrow(/duplicate address/i);
+  });
 });

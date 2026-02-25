@@ -5,11 +5,12 @@ export const DEFAULT_LIVE_ESTIMATED_TX_COST_ETH = '0.000133333333333333';
 export const DEFAULT_LIVE_ESTIMATED_OVERHEAD_ETH = '0.000133333333333333';
 
 const estimatedLaunchesByFilter: Record<string, number> = {
-  all: 14,
-  static: 2,
-  dynamic: 1,
-  multicurve: 11,
+  all: 17,
+  static: 3,
+  dynamic: 2,
+  multicurve: 12,
   'multicurve-defaults': 3,
+  fees: 3,
   governance: 3,
   negative: 0,
 };

@@ -32,6 +32,7 @@ npm run test:live:static
 npm run test:live:dynamic
 npm run test:live:multicurve
 npm run test:live:multicurve:defaults
+npm run test:live:fees
 npm run test:live:governance
 npm run test:live --verbose
 ```
@@ -375,6 +376,7 @@ Custom-curve rules agents should enforce before submit:
   - dynamic creation is currently work in progress (preview) and may change
   - `auction.curveConfig.type = "range"`
   - `marketCapStartUsd`, `marketCapMinUsd`, `minProceeds`, `maxProceeds`
+  - custom dynamic fees are supported via `auction.curveConfig.fee` (with optional `tickSpacing`)
   - `migration.type="uniswapV2"` (required in this API profile)
 - `migration.type="uniswapV3"` is not supported and currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
 - `migration.type="uniswapV4"` is planned and currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
@@ -404,7 +406,12 @@ Custom-curve rules agents should enforce before submit:
   - `true` or `{ enabled: true }` => default token-holder governance (OpenZeppelin Governor via protocol governance factory)
 - `integrationAddress` is optional.
 - If `feeBeneficiaries` is omitted, API defaults to 95% user / 5% protocol owner.
+- `feeBeneficiaries` supports up to 10 unique addresses.
+- If protocol owner is omitted from `feeBeneficiaries`, provided shares must sum to 95% and API appends protocol owner at 5%.
+- If protocol owner is present in `feeBeneficiaries`, shares must sum to 100% and protocol owner must have at least 5%.
 - If no price provider is available, you must pass `pricing.numerairePriceUsd`.
+- Custom multicurve fees are supported via `auction.curveConfig.fee`.
+- Custom static fee input is supported via `auction.curveConfig.fee` (subject to Uniswap V3 fee tier constraints).
 - For custom multicurve fees with omitted `tickSpacing`, API derives fallback spacing.
 
 ## 8. Copy/paste curl

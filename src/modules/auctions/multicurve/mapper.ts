@@ -7,6 +7,8 @@ import type { HexAddress } from '../../../core/types';
 export const DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS = 90 * 24 * 60 * 60;
 export const MIN_MARKET_SALE_PERCENT = 20n;
 export const MAX_ALLOCATION_RECIPIENTS = 10;
+export const MAX_FEE_BENEFICIARIES = 10;
+const PROTOCOL_MIN_SHARE = WAD / 20n;
 
 export interface AllocationPlan {
   allocationAmount: bigint;
@@ -275,12 +277,67 @@ export const normalizeFeeBeneficiaries = async (args: {
     };
   }
 
-  const beneficiaries: BeneficiaryData[] = input.feeBeneficiaries.map((entry) => ({
-    beneficiary: entry.address as HexAddress,
-    shares: parsePositiveBigInt(entry.sharesWad, `feeBeneficiaries[${entry.address}].sharesWad`),
-  }));
+  if (input.feeBeneficiaries.length > MAX_FEE_BENEFICIARIES) {
+    throw new AppError(
+      422,
+      'INVALID_FEE_BENEFICIARIES',
+      `feeBeneficiaries supports up to ${MAX_FEE_BENEFICIARIES} unique addresses`,
+    );
+  }
+
+  const seen = new Set<string>();
+  const beneficiaries: BeneficiaryData[] = input.feeBeneficiaries.map((entry, index) => {
+    const normalized = entry.address.toLowerCase();
+    if (seen.has(normalized)) {
+      throw new AppError(
+        422,
+        'INVALID_FEE_BENEFICIARIES',
+        `feeBeneficiaries has duplicate address at index ${index}`,
+      );
+    }
+    seen.add(normalized);
+
+    return {
+      beneficiary: entry.address as HexAddress,
+      shares: parsePositiveBigInt(entry.sharesWad, `feeBeneficiaries[${entry.address}].sharesWad`),
+    };
+  });
 
   const totalShares = sumShares(beneficiaries);
+
+  const protocolBeneficiary = beneficiaries.find(
+    (entry) => entry.beneficiary.toLowerCase() === protocolOwner.toLowerCase(),
+  );
+
+  if (!protocolBeneficiary) {
+    const expectedWithoutProtocol = WAD - PROTOCOL_MIN_SHARE;
+    if (totalShares !== expectedWithoutProtocol) {
+      throw new AppError(
+        422,
+        'INVALID_FEE_BENEFICIARIES',
+        `feeBeneficiaries shares must sum to ${expectedWithoutProtocol.toString()} when protocol owner is omitted (API appends 5%)`,
+      );
+    }
+    if (beneficiaries.length + 1 > MAX_FEE_BENEFICIARIES) {
+      throw new AppError(
+        422,
+        'INVALID_FEE_BENEFICIARIES',
+        `feeBeneficiaries supports up to ${MAX_FEE_BENEFICIARIES} unique addresses including protocol owner`,
+      );
+    }
+
+    return {
+      beneficiaries: [
+        ...beneficiaries,
+        {
+          beneficiary: protocolOwner,
+          shares: PROTOCOL_MIN_SHARE,
+        },
+      ],
+      source: 'request',
+    };
+  }
+
   if (totalShares !== WAD) {
     throw new AppError(
       422,
@@ -289,19 +346,7 @@ export const normalizeFeeBeneficiaries = async (args: {
     );
   }
 
-  const protocolBeneficiary = beneficiaries.find(
-    (entry) => entry.beneficiary.toLowerCase() === protocolOwner.toLowerCase(),
-  );
-
-  if (!protocolBeneficiary) {
-    throw new AppError(
-      422,
-      'INVALID_FEE_BENEFICIARIES',
-      'feeBeneficiaries must include the protocol owner with at least 5% shares',
-    );
-  }
-
-  if (protocolBeneficiary.shares < WAD / 20n) {
+  if (protocolBeneficiary.shares < PROTOCOL_MIN_SHARE) {
     throw new AppError(
       422,
       'INVALID_FEE_BENEFICIARIES',

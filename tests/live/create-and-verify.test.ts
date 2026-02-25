@@ -31,6 +31,7 @@ type LiveScenarioGroup =
   | 'dynamic'
   | 'multicurve'
   | 'multicurve-defaults'
+  | 'fees'
   | 'negative'
   | 'governance';
 
@@ -46,6 +47,7 @@ const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
   if (liveFilter === 'multicurve-defaults') {
     return groups.includes('multicurve-defaults');
   }
+  if (liveFilter === 'fees') return groups.includes('fees');
   if (liveFilter === 'governance') return groups.includes('governance');
   if (liveFilter === 'negative') return groups.includes('negative');
   return true;
@@ -86,6 +88,7 @@ interface MulticurveLiveOverrides {
   governance?: boolean;
   feeConfigOverride?: { fee: number; expectedTickSpacing: number; feePercent: string };
   configLabel?: string;
+  feeBeneficiaries?: CreateLaunchRequestInput['feeBeneficiaries'];
   salePercent?: number;
   allocations?: {
     recipientAddress?: `0x${string}`;
@@ -229,8 +232,8 @@ const toShortError = (error: unknown): string => {
 };
 
 const randomFeePercentTwoDecimals = (): number => {
-  // 0.01% to 10.00% in 0.01% increments
-  const basisPoints = Math.floor(Math.random() * 1000) + 1;
+  // 0.10% to 10.00% in 0.01% increments
+  const basisPoints = Math.floor(Math.random() * 991) + 10;
   return basisPoints / 100;
 };
 
@@ -280,6 +283,41 @@ const buildRandomAddressAllocations = (
   return recipients.map((address, index) => ({
     address,
     amount: amounts[index]!.toString(),
+  }));
+};
+
+const buildRandomFeeBeneficiaries = (
+  userAddress: `0x${string}`,
+): NonNullable<CreateLaunchRequestInput['feeBeneficiaries']> => {
+  const beneficiaryCount = 2 + Math.floor(Math.random() * 8); // 2-9 (protocol owner auto-appended to reach at most 10)
+  const addresses = new Set<string>([userAddress.toLowerCase()]);
+  while (addresses.size < beneficiaryCount) {
+    addresses.add(randomAddress().toLowerCase());
+  }
+  const beneficiaries = Array.from(addresses) as `0x${string}`[];
+
+  const targetShares = (WAD * 95n) / 100n; // omit protocol owner; API appends protocol 5%
+  const minimumPerBeneficiary = 1n;
+  if (targetShares < BigInt(beneficiaryCount)) {
+    throw new Error('target fee shares are too small for beneficiary count');
+  }
+
+  const baseShares = Array.from({ length: beneficiaryCount }, () => minimumPerBeneficiary);
+  const remaining = targetShares - BigInt(beneficiaryCount) * minimumPerBeneficiary;
+  const weights = Array.from(
+    { length: beneficiaryCount },
+    () => BigInt(`0x${randomBytes(8).toString('hex')}`) + 1n,
+  );
+  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0n);
+  const shares = baseShares.map(
+    (value, index) => value + (remaining * weights[index]!) / weightTotal,
+  );
+  const distributed = shares.reduce((sum, share) => sum + share, 0n);
+  shares[beneficiaryCount - 1] = shares[beneficiaryCount - 1]! + (targetShares - distributed);
+
+  return beneficiaries.map((address, index) => ({
+    address,
+    sharesWad: shares[index]!.toString(),
   }));
 };
 
@@ -781,6 +819,7 @@ const runMulticurveLaunchAndVerify = async (
   };
   let submittedTxHash: `0x${string}` | undefined;
   launchSummaries.push(summary);
+  const expectedFeeBeneficiariesSource = overrides?.feeBeneficiaries ? 'request' : 'default';
 
   const createPayload: CreateLaunchRequestInput = {
     chainId: chain.chainId,
@@ -801,6 +840,7 @@ const runMulticurveLaunchAndVerify = async (
     pricing: {
       numerairePriceUsd,
     },
+    ...(overrides?.feeBeneficiaries ? { feeBeneficiaries: overrides.feeBeneficiaries } : {}),
     governance: overrides?.governance ?? false,
     migration: {
       type: 'noOp',
@@ -835,6 +875,7 @@ const runMulticurveLaunchAndVerify = async (
         ['Allocation Lock Duration (sec)', allocationDurationDisplay],
         ['Numeraire Price USD', numerairePriceUsd],
         ['Configured Fee', `${feeConfig.feePercent} (${feeConfig.fee})`],
+        ['Fee Beneficiaries', overrides?.feeBeneficiaries?.length ?? 'default'],
         ['Tick Spacing', 'default (API derives for custom fee tiers)'],
         ['Initializer', requestedInitializer.type],
         [
@@ -927,6 +968,9 @@ const runMulticurveLaunchAndVerify = async (
     expect(createResponse.effectiveConfig.allocationLockMode).toBe(requestedAllocationMode);
     expect(createResponse.effectiveConfig.allocationLockDurationSeconds).toBe(
       allocationLockDurationSeconds,
+    );
+    expect(createResponse.effectiveConfig.feeBeneficiariesSource).toBe(
+      expectedFeeBeneficiariesSource,
     );
     expect(createResponse.effectiveConfig.initializer?.type).toBe(requestedInitializer.type);
 
@@ -1117,19 +1161,24 @@ const runMulticurveLaunchAndVerify = async (
   }
 };
 
+type StaticLiveCurveConfig =
+  | {
+      type: 'preset';
+      preset: 'low' | 'medium' | 'high';
+      fee?: number;
+    }
+  | {
+      type: 'range';
+      marketCapStartUsd: number;
+      marketCapEndUsd: number;
+      fee?: number;
+    };
+
 const runStaticLaunchAndVerify = async (args?: {
   governance?: boolean;
-  curveConfig?:
-    | {
-        type: 'preset';
-        preset: 'low' | 'medium' | 'high';
-      }
-    | {
-        type: 'range';
-        marketCapStartUsd: number;
-        marketCapEndUsd: number;
-      };
+  curveConfig?: StaticLiveCurveConfig;
   configLabel?: string;
+  feeBeneficiaries?: CreateLaunchRequestInput['feeBeneficiaries'];
 }) => {
   const config = loadConfig();
   const services = buildServices(config);
@@ -1142,7 +1191,10 @@ const runStaticLaunchAndVerify = async (args?: {
   const totalSupply = DEFAULT_LIVE_TOTAL_SUPPLY;
   const explorerBase = getBaseScanUrl(chain.chainId);
   const numerairePriceUsd = Number(process.env.LIVE_NUMERAIRE_PRICE_USD || '3000');
-  const curveConfig = args?.curveConfig ?? ({ type: 'preset', preset: 'medium' } as const);
+  const curveConfig: StaticLiveCurveConfig = args?.curveConfig ?? {
+    type: 'preset',
+    preset: 'medium',
+  };
   const curveLabel =
     curveConfig.type === 'preset'
       ? `${curveConfig.preset.toUpperCase()} preset`
@@ -1159,6 +1211,7 @@ const runStaticLaunchAndVerify = async (args?: {
   };
   let submittedTxHash: `0x${string}` | undefined;
   launchSummaries.push(summary);
+  const expectedFeeBeneficiariesSource = args?.feeBeneficiaries ? 'request' : 'default';
 
   if (!chain.config.auctionTypes.includes('static')) {
     chain.config.auctionTypes = [...chain.config.auctionTypes, 'static'];
@@ -1189,6 +1242,7 @@ const runStaticLaunchAndVerify = async (args?: {
     pricing: {
       numerairePriceUsd,
     },
+    ...(args?.feeBeneficiaries ? { feeBeneficiaries: args.feeBeneficiaries } : {}),
     governance: args?.governance ?? false,
     migration: {
       type: 'noOp',
@@ -1206,8 +1260,8 @@ const runStaticLaunchAndVerify = async (args?: {
         [
           'Curve Config',
           curveConfig.type === 'preset'
-            ? `preset:${curveConfig.preset}`
-            : `range:${curveConfig.marketCapStartUsd}-${curveConfig.marketCapEndUsd}`,
+            ? `preset:${curveConfig.preset} fee:${curveConfig.fee ?? 'default'}`
+            : `range:${curveConfig.marketCapStartUsd}-${curveConfig.marketCapEndUsd} fee:${curveConfig.fee ?? 'default'}`,
         ],
         ['Chain ID', chain.chainId],
         ['RPC URL', chain.config.rpcUrl],
@@ -1218,6 +1272,7 @@ const runStaticLaunchAndVerify = async (args?: {
         ['Sale Percent', '100% (default)'],
         ['Allocation Amount', '0 (default)'],
         ['Numeraire Price USD', numerairePriceUsd],
+        ['Fee Beneficiaries', args?.feeBeneficiaries?.length ?? 'default'],
         ['Expected Initializer', lockableV3Initializer],
         [
           'Launch Mode',
@@ -1294,7 +1349,9 @@ const runStaticLaunchAndVerify = async (args?: {
     expect(createResponse.effectiveConfig.tokensForSale).toBe(totalSupply.toString());
     expect(createResponse.effectiveConfig.allocationAmount).toBe('0');
     expect(createResponse.effectiveConfig.allocationLockMode).toBe('none');
-    expect(createResponse.effectiveConfig.feeBeneficiariesSource).toBe('default');
+    expect(createResponse.effectiveConfig.feeBeneficiariesSource).toBe(
+      expectedFeeBeneficiariesSource,
+    );
 
     const expectedPoolId =
       `0x${createdEvent.poolOrHookAddress.slice(2).padStart(64, '0')}`.toLowerCase();
@@ -1355,6 +1412,9 @@ const runDynamicLaunchAndVerify = async (args?: {
   maxProceeds?: string;
   durationSeconds?: number;
   epochLengthSeconds?: number;
+  fee?: number;
+  tickSpacing?: number;
+  feeBeneficiaries?: CreateLaunchRequestInput['feeBeneficiaries'];
 }) => {
   const config = loadConfig();
   const services = buildServices(config);
@@ -1373,6 +1433,8 @@ const runDynamicLaunchAndVerify = async (args?: {
   const maxProceeds = args?.maxProceeds ?? '0.1';
   const durationSeconds = args?.durationSeconds ?? 24 * 60 * 60;
   const epochLengthSeconds = args?.epochLengthSeconds;
+  const fee = args?.fee;
+  const tickSpacing = args?.tickSpacing;
   const configLabel =
     args?.configLabel ??
     `DYNAMIC V4 (start $${marketCapStartUsd}, minProceeds ${minProceeds}, maxProceeds ${maxProceeds}, ${durationSeconds}s, epoch ${epochLengthSeconds ?? 'default'})`;
@@ -1387,6 +1449,7 @@ const runDynamicLaunchAndVerify = async (args?: {
   };
   let submittedTxHash: `0x${string}` | undefined;
   launchSummaries.push(summary);
+  const expectedFeeBeneficiariesSource = args?.feeBeneficiaries ? 'request' : 'default';
 
   if (chain.chainId !== 84532) {
     throw new Error(
@@ -1426,6 +1489,7 @@ const runDynamicLaunchAndVerify = async (args?: {
     pricing: {
       numerairePriceUsd,
     },
+    ...(args?.feeBeneficiaries ? { feeBeneficiaries: args.feeBeneficiaries } : {}),
     governance: args?.governance ?? false,
     migration: {
       type: 'uniswapV2',
@@ -1440,6 +1504,8 @@ const runDynamicLaunchAndVerify = async (args?: {
         maxProceeds,
         durationSeconds,
         ...(epochLengthSeconds !== undefined ? { epochLengthSeconds } : {}),
+        ...(fee !== undefined ? { fee } : {}),
+        ...(tickSpacing !== undefined ? { tickSpacing } : {}),
       },
     },
   };
@@ -1458,6 +1524,8 @@ const runDynamicLaunchAndVerify = async (args?: {
         ['Min / Max Proceeds', `${minProceeds} / ${maxProceeds}`],
         ['Duration (sec)', durationSeconds],
         ['Epoch Length (sec)', epochLengthSeconds ?? 'default (SDK)'],
+        ['Fee / TickSpacing', `${fee ?? 'default'} / ${tickSpacing ?? 'default (SDK/API)'}`],
+        ['Fee Beneficiaries', args?.feeBeneficiaries?.length ?? 'default'],
         ['Numeraire Price USD', numerairePriceUsd],
         [
           'Launch Mode',
@@ -1538,6 +1606,9 @@ const runDynamicLaunchAndVerify = async (args?: {
     expect(createArg.liquidityMigrator.toLowerCase()).toBe(
       chain.addresses.v2Migrator.toLowerCase(),
     );
+    expect(createResponse.effectiveConfig.feeBeneficiariesSource).toBe(
+      expectedFeeBeneficiariesSource,
+    );
 
     const status = await services.statusService.getLaunchStatus(createResponse.launchId);
     expect(status.status).toBe('confirmed');
@@ -1556,6 +1627,12 @@ const runDynamicLaunchAndVerify = async (args?: {
     );
     expect(decodedDynamicConfig.startingTime).toBeGreaterThan(0n);
     expect(decodedDynamicConfig.endingTime).toBeGreaterThan(decodedDynamicConfig.startingTime);
+    if (fee !== undefined) {
+      expect(decodedDynamicConfig.fee).toBe(fee);
+    }
+    if (tickSpacing !== undefined) {
+      expect(decodedDynamicConfig.tickSpacing).toBe(tickSpacing);
+    }
     summary.status = 'created';
   } catch (error) {
     summary.reason = toShortError(error);
@@ -2126,6 +2203,29 @@ describe('live create verification', () => {
   );
 
   liveIt(
+    'STATIC V3 Custom Fee (Random 0.10%-10.00%, supported tier)',
+    ['static', 'fees'],
+    async () => {
+      const supportedStaticFees = [3000, 10000];
+      const selectedFee =
+        supportedStaticFees[Math.floor(Math.random() * supportedStaticFees.length)]!;
+      const feeBeneficiaries = buildRandomFeeBeneficiaries(
+        privateKeyToAccount(loadConfig().privateKey).address,
+      );
+      await runStaticLaunchAndVerify({
+        configLabel: `STATIC V3 Custom Fee (${(selectedFee / 10000).toFixed(2)}%)`,
+        feeBeneficiaries,
+        curveConfig: {
+          type: 'preset',
+          preset: 'medium',
+          fee: selectedFee,
+        },
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
     'STATIC V3 Lockable (MEDIUM preset)',
     ['static'],
     async () => {
@@ -2152,6 +2252,30 @@ describe('live create verification', () => {
   );
 
   liveIt(
+    'DYNAMIC V4 Custom Fee (Random 0.10%-10.00%)',
+    ['dynamic', 'fees'],
+    async () => {
+      const randomFeePercent = randomFeePercentTwoDecimals();
+      const randomFeeUnits = percentToFeeUnits(randomFeePercent);
+      const feeBeneficiaries = buildRandomFeeBeneficiaries(
+        privateKeyToAccount(loadConfig().privateKey).address,
+      );
+      await runDynamicLaunchAndVerify({
+        configLabel: `DYNAMIC V4 Custom Fee (${randomFeePercent.toFixed(2)}%)`,
+        marketCapStartUsd: 100,
+        marketCapMinUsd: 50,
+        minProceeds: '0.01',
+        maxProceeds: '0.1',
+        durationSeconds: 24 * 60 * 60,
+        fee: randomFeeUnits,
+        tickSpacing: 10,
+        feeBeneficiaries,
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
     'DYNAMIC V4 (Range $100->$50, min 0.01, max 0.1, 24h)',
     ['dynamic'],
     async () => {
@@ -2161,6 +2285,28 @@ describe('live create verification', () => {
         minProceeds: '0.01',
         maxProceeds: '0.1',
         durationSeconds: 24 * 60 * 60,
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
+    'MULTICURVE Custom Fee (Random 0.10%-10.00%)',
+    ['multicurve', 'fees'],
+    async () => {
+      const randomFeePercent = randomFeePercentTwoDecimals();
+      const randomFeeUnits = percentToFeeUnits(randomFeePercent);
+      const feeBeneficiaries = buildRandomFeeBeneficiaries(
+        privateKeyToAccount(loadConfig().privateKey).address,
+      );
+      await runMulticurveLaunchAndVerify('medium', {
+        configLabel: `MULTICURVE Custom Fee (${randomFeePercent.toFixed(2)}%)`,
+        feeBeneficiaries,
+        feeConfigOverride: {
+          fee: randomFeeUnits,
+          expectedTickSpacing: 0,
+          feePercent: `${randomFeePercent.toFixed(2)}%`,
+        },
       });
     },
     240_000,

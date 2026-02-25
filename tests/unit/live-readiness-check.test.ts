@@ -9,17 +9,18 @@ import {
 
 describe('live readiness check', () => {
   it('estimates launch counts by live filter', () => {
-    expect(estimateLiveLaunchCount('all')).toBe(14);
-    expect(estimateLiveLaunchCount('static')).toBe(2);
-    expect(estimateLiveLaunchCount('dynamic')).toBe(1);
-    expect(estimateLiveLaunchCount('multicurve')).toBe(11);
+    expect(estimateLiveLaunchCount('all')).toBe(17);
+    expect(estimateLiveLaunchCount('static')).toBe(3);
+    expect(estimateLiveLaunchCount('dynamic')).toBe(2);
+    expect(estimateLiveLaunchCount('multicurve')).toBe(12);
     expect(estimateLiveLaunchCount('multicurve-defaults')).toBe(3);
+    expect(estimateLiveLaunchCount('fees')).toBe(3);
     expect(estimateLiveLaunchCount('governance')).toBe(3);
     expect(estimateLiveLaunchCount('negative')).toBe(0);
   });
 
   it('falls back to all estimate for unknown filters', () => {
-    expect(estimateLiveLaunchCount('unknown-filter')).toBe(14);
+    expect(estimateLiveLaunchCount('unknown-filter')).toBe(17);
   });
 
   it('computes estimated required wei using defaults', () => {

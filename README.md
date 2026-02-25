@@ -348,10 +348,12 @@ Example `GET /health`:
 - Multicurve curve selection:
   - presets are convenient defaults.
   - explicit `ranges` are recommended when you need intentional market-cap bands instead of default tiers.
+  - custom multicurve swap fees are supported via `curveConfig.fee` (custom values supported; tick spacing can be derived or provided).
 - Static launch curve config:
   - `auction.type="static"` requires `auction.curveConfig`.
   - `curveConfig.type="preset"` supports `preset: "low" | "medium" | "high"`.
   - `curveConfig.type="range"` supports explicit `marketCapStartUsd` and `marketCapEndUsd`.
+  - custom static fee input is supported via `curveConfig.fee`, but Uniswap V3 still enforces valid V3 fee tiers onchain.
   - static launches always use lockable beneficiaries (request values or default 95% user / 5% protocol owner).
   - use static only as a fallback when the target chain does not support Uniswap V4/multicurve.
 - Dynamic launch curve config:
@@ -363,6 +365,7 @@ Example `GET /health`:
     - `minProceeds` (decimal string in numeraire units)
     - `maxProceeds` (decimal string in numeraire units)
   - optional: `durationSeconds`, `epochLengthSeconds`, `fee`, `tickSpacing`, `gamma`, `numPdSlugs`
+  - custom dynamic fees are supported via `curveConfig.fee`.
   - dynamic launches require `migration.type="uniswapV2"` in this API profile.
   - `migration.type="uniswapV3"` is reserved and currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
   - `migration.type="uniswapV4"` is reserved and currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
@@ -378,6 +381,11 @@ Example `GET /health`:
 - If `feeBeneficiaries` is omitted, API applies default split:
   - `userAddress`: 95%
   - protocol owner: 5%
+- `feeBeneficiaries` request constraints:
+  - supports up to `10` unique beneficiary addresses.
+  - shares use WAD precision and must sum to `1e18` (100%) when protocol owner is included.
+  - if protocol owner is omitted, provided shares must sum to `95%` (`0.95e18`) and API appends protocol owner at `5%`.
+  - if protocol owner is provided, it must have at least `5%` (`WAD / 20`).
 
 See `docs/mvp-launch.md` for a concise MVP launch example and a full defaults-resolution table.
 
@@ -392,6 +400,7 @@ npm run test:live:static
 npm run test:live:dynamic
 npm run test:live:multicurve
 npm run test:live:multicurve:defaults
+npm run test:live:fees
 npm run test:live:governance
 npm run test:live --verbose
 ```

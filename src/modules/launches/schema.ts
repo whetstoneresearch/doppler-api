@@ -15,6 +15,10 @@ const allocationRecipientSchema = z.object({
   address: addressSchema,
   amount: bigintStringSchema,
 });
+const feeBeneficiarySchema = z.object({
+  address: addressSchema,
+  sharesWad: bigintStringSchema,
+});
 const allocationConfigSchema = z
   .object({
     recipientAddress: addressSchema.optional(),
@@ -60,12 +64,23 @@ export const createLaunchRequestSchema = z.object({
     })
     .optional(),
   feeBeneficiaries: z
-    .array(
-      z.object({
-        address: addressSchema,
-        sharesWad: bigintStringSchema,
-      }),
-    )
+    .array(feeBeneficiarySchema)
+    .max(10)
+    .superRefine((value, ctx) => {
+      const seen = new Set<string>();
+      value.forEach((entry, index) => {
+        const normalized = entry.address.toLowerCase();
+        if (seen.has(normalized)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [index, 'address'],
+            message: `feeBeneficiaries has duplicate address at index ${index}`,
+          });
+          return;
+        }
+        seen.add(normalized);
+      });
+    })
     .optional(),
   governance: z
     .union([

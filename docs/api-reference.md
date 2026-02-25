@@ -56,6 +56,9 @@ Generic launch creation endpoint (future-compatible).
 - `pairing?: { numeraireAddress? }`
 - `pricing?: { numerairePriceUsd? }`
 - `feeBeneficiaries?: [{ address, sharesWad }]`
+  - supports up to `10` unique addresses
+  - when protocol owner is included, shares must sum to `1e18` and protocol owner must have at least `5%` (`WAD / 20`)
+  - when protocol owner is omitted, request shares must sum to `0.95e18` and API appends protocol owner at `0.05e18`
 - `governance?: boolean | { enabled, mode? }`
   - `true` or `{ enabled: true }` => default token-holder governance (OpenZeppelin Governor)
   - `false` or omitted => no governance
@@ -74,6 +77,7 @@ Generic launch creation endpoint (future-compatible).
       - `curves: [{ marketCapStartUsd, marketCapEndUsd, numPositions, sharesWad }]`
       - `marketCapEndUsd` accepts positive number or `"max"` in API payloads
       - example explicit first band: `marketCapStartUsd: 100`
+    - custom multicurve fees are supported via `curveConfig.fee`
     - `initializer?`:
       - `{ type: "standard" }` (implemented via scheduled initializer at startTime `0`)
       - `{ type: "scheduled", startTime }`
@@ -92,6 +96,7 @@ Generic launch creation endpoint (future-compatible).
       - `numPositions?: number`
       - `maxShareToBeSoldWad?: string`
       - example range start: `marketCapStartUsd: 100`
+      - custom static fee input is supported via `curveConfig.fee` (must still be a valid Uniswap V3 fee tier onchain)
     - static launches are configured with lockable beneficiaries (request values or default split)
     - static is intended for chains that do not support Uniswap V4 multicurve paths
   - `type: "dynamic"`:
@@ -103,6 +108,7 @@ Generic launch creation endpoint (future-compatible).
       - `minProceeds: string` (decimal string in numeraire units, e.g. `"0.01"`)
       - `maxProceeds: string` (decimal string in numeraire units, e.g. `"0.1"`)
       - optional: `durationSeconds`, `epochLengthSeconds`, `fee`, `tickSpacing`, `gamma`, `numPdSlugs`
+      - custom dynamic fees are supported via `curveConfig.fee`
     - migration policy:
       - dynamic requires `migration.type = "uniswapV2"`
       - `migration.type = "uniswapV3"` is reserved and currently returns `501 MIGRATION_NOT_IMPLEMENTED`

@@ -290,6 +290,9 @@ components:
       required: [totalSupply]
     FeeBeneficiary:
       type: object
+      description: >
+        Fee beneficiary share entry in WAD precision.
+        Up to 10 unique addresses are supported.
       properties:
         address:
           $ref: '#/components/schemas/HexAddress'
@@ -619,6 +622,12 @@ components:
           $ref: '#/components/schemas/PricingConfig'
         feeBeneficiaries:
           type: array
+          maxItems: 10
+          description: >
+            Optional fee beneficiaries. If omitted, API defaults to 95% user / 5% protocol owner.
+            If protocol owner is omitted in a custom list, shares must sum to 95% and API appends
+            protocol owner at 5%. If protocol owner is included, shares must sum to 100% and the
+            protocol owner share must be at least 5%.
           items:
             $ref: '#/components/schemas/FeeBeneficiary'
         governance:

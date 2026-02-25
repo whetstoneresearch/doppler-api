@@ -256,4 +256,38 @@ describe('create launch schema', () => {
       }),
     ).toThrow();
   });
+
+  it('rejects duplicate fee beneficiary addresses', () => {
+    expect(() =>
+      createLaunchRequestSchema.parse({
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+        tokenomics: { totalSupply: '100' },
+        feeBeneficiaries: [
+          { address: '0x2222222222222222222222222222222222222222', sharesWad: '1' },
+          { address: '0x2222222222222222222222222222222222222222', sharesWad: '2' },
+        ],
+        migration: { type: 'noOp' },
+        auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
+      }),
+    ).toThrow(/duplicate address/i);
+  });
+
+  it('rejects more than 10 fee beneficiaries', () => {
+    const feeBeneficiaries = Array.from({ length: 11 }, (_, index) => ({
+      address: `0x${(index + 1).toString(16).padStart(40, '0')}`,
+      sharesWad: '1',
+    }));
+
+    expect(() =>
+      createLaunchRequestSchema.parse({
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+        tokenomics: { totalSupply: '100' },
+        feeBeneficiaries,
+        migration: { type: 'noOp' },
+        auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
+      }),
+    ).toThrow();
+  });
 });
