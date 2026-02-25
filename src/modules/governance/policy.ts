@@ -2,51 +2,39 @@ import { AppError } from '../../core/errors';
 import type { GovernanceConfig } from '../../core/types';
 import type { ChainRuntimeConfig } from '../../core/config';
 
-export type ResolvedGovernance =
-  | { type: 'noOp' }
-  | { type: 'default' }
-  | {
-      type: 'custom';
-      initialVotingDelay: number;
-      initialVotingPeriod: number;
-      initialProposalThreshold: bigint;
-    };
+export type ResolvedGovernance = { type: 'noOp' } | { type: 'default' };
 
 export const resolveGovernance = (
   governance: GovernanceConfig | boolean | undefined,
   chainConfig: ChainRuntimeConfig,
 ): ResolvedGovernance => {
-  const normalized: GovernanceConfig =
-    typeof governance === 'boolean'
-      ? governance
-        ? { enabled: true, mode: 'default' }
-        : { enabled: false, mode: 'noOp' }
-      : (governance ?? { enabled: false, mode: 'noOp' });
+  const enabled = typeof governance === 'boolean' ? governance : (governance?.enabled ?? false);
+  const explicitMode = typeof governance === 'object' ? governance.mode : undefined;
+  const resolvedMode = enabled ? 'default' : 'noOp';
 
-  const mode = normalized.mode ?? (normalized.enabled ? 'default' : 'noOp');
-
-  if (mode === 'noOp' && !normalized.enabled) {
-    if (!chainConfig.governanceModes.includes(mode)) {
-      throw new AppError(
-        422,
-        'GOVERNANCE_MODE_UNSUPPORTED',
-        `Governance mode ${mode} is not enabled for chain ${chainConfig.chainId}`,
-      );
-    }
-    return { type: 'noOp' };
-  }
-
-  if (mode === 'noOp' && normalized.enabled) {
+  if (explicitMode && explicitMode !== resolvedMode) {
     throw new AppError(
       422,
       'GOVERNANCE_MODE_UNSUPPORTED',
-      'governance.mode=noOp requires enabled=false',
+      'governance supports only binary mode: enabled=true (default) or enabled=false (noOp)',
     );
   }
 
-  throw new AppError(
-    501,
-    'GOVERNANCE_NOT_IMPLEMENTED',
-    'Governance is not implemented yet; use governance=false (noOp)',
-  );
+  if (!chainConfig.governanceModes.includes(resolvedMode)) {
+    throw new AppError(
+      422,
+      'GOVERNANCE_MODE_UNSUPPORTED',
+      `Governance mode ${resolvedMode} is not enabled for chain ${chainConfig.chainId}`,
+    );
+  }
+
+  if (enabled && !chainConfig.governanceEnabled) {
+    throw new AppError(
+      422,
+      'GOVERNANCE_MODE_UNSUPPORTED',
+      `Governance is not enabled for chain ${chainConfig.chainId}`,
+    );
+  }
+
+  return { type: resolvedMode };
 };

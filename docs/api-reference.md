@@ -29,8 +29,8 @@ Generic launch creation endpoint (future-compatible).
   - `migration.type = "noOp"` for multicurve/static
   - `migration.type = "uniswapV2"` for dynamic
   - `migration.type = "uniswapV3"` is explicitly unsupported (returns `501 MIGRATION_NOT_IMPLEMENTED`)
-  - `governance: false` (or omitted) for no-op governance
-  - non-no-op governance is not implemented in this deployment
+  - `governance: false` (or omitted) for no governance
+  - `governance: true` (or `{ enabled: true }`) for default token-holder governance (OpenZeppelin Governor)
 
 #### Request body
 
@@ -57,8 +57,10 @@ Generic launch creation endpoint (future-compatible).
 - `pricing?: { numerairePriceUsd? }`
 - `feeBeneficiaries?: [{ address, sharesWad }]`
 - `governance?: boolean | { enabled, mode? }`
-  - `true` => currently unsupported (returns `501 GOVERNANCE_NOT_IMPLEMENTED`)
-  - `false` or omitted => no-op governance
+  - `true` or `{ enabled: true }` => default token-holder governance (OpenZeppelin Governor)
+  - `false` or omitted => no governance
+  - when `mode` is provided it must match the binary value (`default` for enabled, `noOp` for disabled)
+  - default governance is provisioned via the protocol governance factory.
 - `migration: { type }`
 - `auction:`
   - `type: "multicurve"`:
@@ -127,7 +129,6 @@ Generic launch creation endpoint (future-compatible).
 - `401 UNAUTHORIZED`
 - `422 INVALID_REQUEST` (schema validation) and domain-specific validation errors
 - `501 MIGRATION_NOT_IMPLEMENTED` for unsupported migration modes (for example `uniswapV3` and `uniswapV4`)
-- `501 GOVERNANCE_NOT_IMPLEMENTED` for non-no-op governance (`governance: true` or `governance.mode != "noOp"`)
 
 ---
 
@@ -172,7 +173,7 @@ Returns current launch transaction status.
 ### `GET /v1/capabilities`
 
 Returns deployment profile and per-chain capability matrix.
-Current v1 governance capabilities are `governanceModes: ["noOp"]` and `governanceEnabled: false`.
+Governance support is chain-specific. Check `governanceModes` and `governanceEnabled` per chain.
 
 #### Response `200`
 

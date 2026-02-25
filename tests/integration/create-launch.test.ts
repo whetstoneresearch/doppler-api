@@ -332,7 +332,7 @@ describe('POST /v1/launches', () => {
     }
   });
 
-  it('rejects governance=true as not implemented', async () => {
+  it('accepts governance=true for multicurve launches', async () => {
     app = await buildTestServer();
 
     const response = await app.inject({
@@ -354,8 +354,70 @@ describe('POST /v1/launches', () => {
       },
     });
 
-    expect(response.statusCode).toBe(501);
-    expect(response.json().error.code).toBe('GOVERNANCE_NOT_IMPLEMENTED');
+    expect(response.statusCode).toBe(200);
+    expect(response.json().launchId).toContain('84532:0x');
+  });
+
+  it('accepts governance=true for static launches', async () => {
+    app = await buildTestServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Governed Static Token', symbol: 'GST', tokenURI: 'ipfs://token' },
+        tokenomics: { totalSupply: '1000' },
+        governance: true,
+        migration: { type: 'noOp' },
+        auction: {
+          type: 'static',
+          curveConfig: { type: 'preset', preset: 'medium' },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().launchId).toContain('84532:0x');
+  });
+
+  it('accepts governance=true for dynamic launches', async () => {
+    app = await buildTestServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: {
+          name: 'Governed Dynamic Token',
+          symbol: 'GDT',
+          tokenURI: 'ipfs://token',
+        },
+        tokenomics: { totalSupply: '1000' },
+        governance: true,
+        migration: { type: 'uniswapV2' },
+        auction: {
+          type: 'dynamic',
+          curveConfig: {
+            type: 'range',
+            marketCapStartUsd: 100,
+            marketCapMinUsd: 50,
+            minProceeds: '0.01',
+            maxProceeds: '0.1',
+          },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().launchId).toContain('84532:0x');
   });
 
   it('rejects request without API key', async () => {

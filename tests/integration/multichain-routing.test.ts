@@ -130,8 +130,8 @@ describe('GET /v1/capabilities', () => {
     expect(byChain.get(84532)?.governanceEnabled).toBe(false);
     expect(byChain.get(84532)?.governanceModes).toEqual(['noOp']);
     expect(byChain.get(84532)?.multicurveInitializers).toEqual(['standard']);
-    expect(byChain.get(8453)?.governanceEnabled).toBe(false);
-    expect(byChain.get(8453)?.governanceModes).toEqual(['noOp']);
+    expect(byChain.get(8453)?.governanceEnabled).toBe(true);
+    expect(byChain.get(8453)?.governanceModes).toEqual(['noOp', 'default']);
     expect(byChain.get(8453)?.multicurveInitializers).toEqual(['standard']);
   });
 });

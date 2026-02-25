@@ -32,7 +32,7 @@ npm run test:live:static
 npm run test:live:dynamic
 npm run test:live:multicurve
 npm run test:live:multicurve:defaults
-npm run test:live -- --verbose
+npm run test:live:governance
 npm run test:live --verbose
 ```
 
@@ -398,9 +398,10 @@ Custom-curve rules agents should enforce before submit:
 - Percentage-based sale setup:
   - compute `tokensForSale = totalSupply * salePercent / 100`
   - example: `salePercent=20` => 20% sold in auction, 80% non-market allocation
-- `governance` defaults to `false` (no-op) when omitted.
-- `governance: true` is currently unsupported and returns `501 GOVERNANCE_NOT_IMPLEMENTED`.
-- `governance: { enabled: false, mode: "custom" }` is currently unsupported and returns `501 GOVERNANCE_NOT_IMPLEMENTED`.
+- `governance` defaults to `false` (no governance) when omitted.
+- `governance` is binary at create time:
+  - `false` or omitted => no governance
+  - `true` or `{ enabled: true }` => default token-holder governance (OpenZeppelin Governor via protocol governance factory)
 - `integrationAddress` is optional.
 - If `feeBeneficiaries` is omitted, API defaults to 95% user / 5% protocol owner.
 - If no price provider is available, you must pass `pricing.numerairePriceUsd`.

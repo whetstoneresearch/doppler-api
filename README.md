@@ -305,8 +305,8 @@ Dynamic creation is currently work in progress and should be treated as preview 
       "auctionTypes": ["multicurve", "dynamic"],
       "multicurveInitializers": ["standard", "scheduled", "decay", "rehype"],
       "migrationModes": ["noOp", "uniswapV2"],
-      "governanceModes": ["noOp"],
-      "governanceEnabled": false
+      "governanceModes": ["noOp", "default"],
+      "governanceEnabled": true
     }
   ]
 }
@@ -370,6 +370,9 @@ Example `GET /health`:
   - `tokensForSale = totalSupply * salePercent / 100`
   - Example: 20% sale means 80% non-market allocation.
 - `integrationAddress` is optional.
+- `governance` is binary at create time:
+  - omitted/`false` => no governance
+  - `true` or `{ "enabled": true }` => default token-holder governance (OpenZeppelin Governor via protocol governance factory)
 - `pricing.numerairePriceUsd` overrides provider pricing.
 - If auto-pricing is unavailable, caller must pass `pricing.numerairePriceUsd`.
 - If `feeBeneficiaries` is omitted, API applies default split:
@@ -389,6 +392,7 @@ npm run test:live:static
 npm run test:live:dynamic
 npm run test:live:multicurve
 npm run test:live:multicurve:defaults
+npm run test:live:governance
 npm run test:live --verbose
 ```
 

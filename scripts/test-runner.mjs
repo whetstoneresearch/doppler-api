@@ -8,6 +8,7 @@ const ROOT = process.cwd();
 const RESULTS_DIR = path.join(ROOT, '.test-results');
 const SUMMARY_FILE = path.join(RESULTS_DIR, 'summary.json');
 const VITEST_BIN = path.join(ROOT, 'node_modules', 'vitest', 'vitest.mjs');
+const LIVE_READINESS_ERROR_MARKER = 'LIVE_TEST_READINESS_CHECK_FAILED';
 
 const args = process.argv.slice(2);
 const argSet = new Set(args);
@@ -81,6 +82,9 @@ const conciseLiveNoisePatterns = [
 ];
 
 const shouldSuppressVitestLine = (line, conciseLive = false) => {
+  if (line.includes(LIVE_READINESS_ERROR_MARKER)) {
+    return false;
+  }
   const trimmed = line.trimStart();
   if (vitestNoisePatterns.some((pattern) => pattern.test(trimmed))) {
     return true;
@@ -383,7 +387,21 @@ const runSuite = async (suite, index, total) => {
     });
   }
 
-  if (!success && failedDetails.length > 0 && !conciseLiveOutput) {
+  const readinessFailures = failedDetails.filter((detail) =>
+    detail.includes(LIVE_READINESS_ERROR_MARKER),
+  );
+
+  if (readinessFailures.length > 0) {
+    console.log('\nLive Readiness');
+    for (const detail of readinessFailures) {
+      const readable = detail
+        .replace(`${LIVE_READINESS_ERROR_MARKER}]`, ']')
+        .replace(`${LIVE_READINESS_ERROR_MARKER}:`, '')
+        .replace(LIVE_READINESS_ERROR_MARKER, '')
+        .trim();
+      console.log(`- ${readable}`);
+    }
+  } else if (!success && failedDetails.length > 0 && !conciseLiveOutput) {
     console.log('\nFailures');
     for (const detail of failedDetails.slice(0, 20)) {
       console.log(`- ${detail}`);

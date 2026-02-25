@@ -41,8 +41,8 @@ describe('dynamic launch service', () => {
         defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
         auctionTypes: ['multicurve', 'dynamic'],
         migrationModes: ['noOp', 'uniswapV2'],
-        governanceModes: ['noOp'],
-        governanceEnabled: false,
+        governanceModes: ['noOp', 'default'],
+        governanceEnabled: true,
       },
       addresses: {
         airlock: '0x0000000000000000000000000000000000000001',
@@ -76,7 +76,7 @@ describe('dynamic launch service', () => {
         tokensForSale: '800',
       },
       migration: { type: 'uniswapV2' },
-      governance: false,
+      governance: true,
       auction: {
         type: 'dynamic',
         curveConfig: {
@@ -113,6 +113,7 @@ describe('dynamic launch service', () => {
       '0x2222222222222222222222222222222222222222',
     );
     expect(builder.withMigration).toHaveBeenCalledWith({ type: 'uniswapV2' });
+    expect(builder.withGovernance).toHaveBeenCalledWith({ type: 'default' });
     expect(builder.withVesting).toHaveBeenCalledTimes(1);
 
     expect(txSubmitter.submitCreateTx).toHaveBeenCalledWith(

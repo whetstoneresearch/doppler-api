@@ -231,6 +231,19 @@ describe('create launch schema', () => {
     expect(withoutGovernance.governance).toBeUndefined();
   });
 
+  it('rejects governance.mode=custom at schema boundary', () => {
+    expect(() =>
+      createLaunchRequestSchema.parse({
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+        tokenomics: { totalSupply: '100' },
+        governance: { enabled: true, mode: 'custom' },
+        migration: { type: 'noOp' },
+        auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
+      }),
+    ).toThrow();
+  });
+
   it('rejects invalid address', () => {
     expect(() =>
       createLaunchRequestSchema.parse({

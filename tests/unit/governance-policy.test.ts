@@ -13,13 +13,37 @@ const baseChain: ChainRuntimeConfig = {
   governanceEnabled: false,
 };
 
+const governedChain: ChainRuntimeConfig = {
+  ...baseChain,
+  governanceModes: ['noOp', 'default'],
+  governanceEnabled: true,
+};
+
 describe('governance policy', () => {
   it('defaults to noOp when governance is omitted', () => {
     const resolved = resolveGovernance(undefined, baseChain);
     expect(resolved).toEqual({ type: 'noOp' });
   });
 
-  it('rejects governance=true as not implemented', () => {
-    expect(() => resolveGovernance(true, baseChain)).toThrow(/governance is not implemented yet/i);
+  it('resolves governance=true to default when enabled for chain', () => {
+    const resolved = resolveGovernance(true, governedChain);
+    expect(resolved).toEqual({ type: 'default' });
+  });
+
+  it('resolves governance object enabled=true to default', () => {
+    const resolved = resolveGovernance({ enabled: true }, governedChain);
+    expect(resolved).toEqual({ type: 'default' });
+  });
+
+  it('rejects governance=true when default governance is disabled on chain', () => {
+    expect(() => resolveGovernance(true, baseChain)).toThrow(
+      /governance mode default is not enabled/i,
+    );
+  });
+
+  it('rejects non-binary governance mode configuration', () => {
+    expect(() => resolveGovernance({ enabled: true, mode: 'custom' }, governedChain)).toThrow(
+      /binary mode/i,
+    );
   });
 });

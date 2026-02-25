@@ -38,8 +38,8 @@ export const registerCapabilitiesRoute = async (
           ? resolveMulticurveInitializers(chain)
           : [],
         migrationModes: chain.config.migrationModes,
-        governanceModes: ['noOp'],
-        governanceEnabled: false,
+        governanceModes: chain.config.governanceModes,
+        governanceEnabled: chain.config.governanceEnabled,
       })),
     };
   });

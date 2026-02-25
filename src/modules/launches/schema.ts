@@ -72,7 +72,7 @@ export const createLaunchRequestSchema = z.object({
       z.boolean(),
       z.object({
         enabled: z.boolean(),
-        mode: z.enum(['noOp', 'default', 'custom']).optional(),
+        mode: z.enum(['noOp', 'default']).optional(),
       }),
     ])
     .optional(),

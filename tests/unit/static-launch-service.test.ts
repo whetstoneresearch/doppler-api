@@ -44,8 +44,8 @@ describe('static launch service', () => {
         defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
         auctionTypes: ['multicurve', 'static'],
         migrationModes: ['noOp'],
-        governanceModes: ['noOp'],
-        governanceEnabled: false,
+        governanceModes: ['noOp', 'default'],
+        governanceEnabled: true,
       },
       addresses: {
         airlock: '0x0000000000000000000000000000000000000001',
@@ -79,7 +79,7 @@ describe('static launch service', () => {
         tokensForSale: '800',
       },
       migration: { type: 'noOp' },
-      governance: false,
+      governance: true,
       auction: {
         type: 'static',
         curveConfig: {
@@ -110,6 +110,7 @@ describe('static launch service', () => {
       '0x2222222222222222222222222222222222222222',
     );
     expect(builder.withMigration).toHaveBeenCalledWith({ type: 'noOp' });
+    expect(builder.withGovernance).toHaveBeenCalledWith({ type: 'default' });
     expect(builder.withVesting).toHaveBeenCalledTimes(1);
 
     const passedBeneficiaries = builder.withBeneficiaries.mock.calls[0]?.[0] as Array<{

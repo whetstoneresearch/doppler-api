@@ -7,7 +7,7 @@ import type { AuctionType, GovernanceMode, MigrationType } from './types';
 
 const DEFAULT_AUCTION_TYPES: AuctionType[] = ['multicurve'];
 const DEFAULT_MIGRATION_TYPES: MigrationType[] = ['noOp'];
-const DEFAULT_GOVERNANCE_MODES: GovernanceMode[] = ['noOp'];
+const DEFAULT_GOVERNANCE_MODES: GovernanceMode[] = ['noOp', 'default'];
 
 export interface ChainRuntimeConfig {
   chainId: number;
@@ -122,6 +122,8 @@ const parseChainConfigJson = (): Record<number, ChainRuntimeConfig> => {
     }
 
     const governanceModes = value.governanceModes ?? DEFAULT_GOVERNANCE_MODES;
+    const governanceEnabledDefault =
+      governanceModes.includes('default') || governanceModes.includes('custom');
 
     mapped[chainId] = {
       chainId,
@@ -130,7 +132,7 @@ const parseChainConfigJson = (): Record<number, ChainRuntimeConfig> => {
       auctionTypes: value.auctionTypes ?? DEFAULT_AUCTION_TYPES,
       migrationModes: value.migrationModes ?? DEFAULT_MIGRATION_TYPES,
       governanceModes,
-      governanceEnabled: value.governanceEnabled ?? false,
+      governanceEnabled: value.governanceEnabled ?? governanceEnabledDefault,
     };
   }
 
@@ -170,7 +172,7 @@ export const loadConfig = (): AppConfig => {
       auctionTypes: DEFAULT_AUCTION_TYPES,
       migrationModes: DEFAULT_MIGRATION_TYPES,
       governanceModes: DEFAULT_GOVERNANCE_MODES,
-      governanceEnabled: false,
+      governanceEnabled: true,
     };
   }
 

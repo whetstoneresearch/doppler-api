@@ -1,7 +1,6 @@
 import { buildServer, type AppServices } from '../../src/app/server';
 import type { AppConfig } from '../../src/core/config';
 import { MetricsRegistry } from '../../src/core/metrics';
-import { AppError } from '../../src/core/errors';
 
 export const buildTestServer = async () => {
   const config: AppConfig = {
@@ -37,8 +36,8 @@ export const buildTestServer = async () => {
         defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
         auctionTypes: ['multicurve'],
         migrationModes: ['noOp'],
-        governanceModes: ['noOp'],
-        governanceEnabled: false,
+        governanceModes: ['noOp', 'default'],
+        governanceEnabled: true,
       },
     },
   };
@@ -131,11 +130,6 @@ export const buildTestServer = async () => {
     };
   };
 
-  const hasGovernanceEnabled = (payload?: {
-    governance?: unknown;
-    input?: { governance?: unknown };
-  }) => payload?.governance === true || payload?.input?.governance === true;
-
   const services: AppServices = {
     config,
     metrics: new MetricsRegistry(),
@@ -158,24 +152,9 @@ export const buildTestServer = async () => {
     } as any,
     launchService: {
       createLaunch: async (payload?: { governance?: unknown }) => {
-        if (hasGovernanceEnabled(payload)) {
-          throw new AppError(
-            501,
-            'GOVERNANCE_NOT_IMPLEMENTED',
-            'Governance is not implemented yet; use governance=false (noOp)',
-          );
-        }
-
         return buildLaunchResponse(payload as any);
       },
       createLaunchWithIdempotency: async (payload?: { governance?: unknown; input?: any }) => {
-        if (hasGovernanceEnabled(payload)) {
-          throw new AppError(
-            501,
-            'GOVERNANCE_NOT_IMPLEMENTED',
-            'Governance is not implemented yet; use governance=false (noOp)',
-          );
-        }
         return {
           replayed: false,
           response: buildLaunchResponse((payload as any)?.input),

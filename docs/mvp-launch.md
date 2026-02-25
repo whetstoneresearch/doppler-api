@@ -40,18 +40,18 @@ This file shows:
 
 ## 2) Defaults populated for minimal request
 
-| Field                           | Populated value                           |
-| ------------------------------- | ----------------------------------------- |
-| `chainId`                       | `DEFAULT_CHAIN_ID`                        |
-| `integrationAddress`            | omitted                                   |
-| `pricing.numerairePriceUsd`     | resolved from pricing provider if enabled |
-| `governance`                    | `false` / no-op                           |
-| `tokenomics.tokensForSale`      | `tokenomics.totalSupply`                  |
-| `allocationAmount`              | `0`                                       |
-| `allocationRecipient`           | `userAddress`                             |
-| `allocationLockMode`            | `none`                                    |
-| `allocationLockDurationSeconds` | `0`                                       |
-| `allocationRecipients`          | `[]`                                      |
+| Field                           | Populated value                                                                                     |
+| ------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `chainId`                       | `DEFAULT_CHAIN_ID`                                                                                  |
+| `integrationAddress`            | omitted                                                                                             |
+| `pricing.numerairePriceUsd`     | resolved from pricing provider if enabled                                                           |
+| `governance`                    | omitted/`false` => no governance, `true` => default token-holder governance (OpenZeppelin Governor) |
+| `tokenomics.tokensForSale`      | `tokenomics.totalSupply`                                                                            |
+| `allocationAmount`              | `0`                                                                                                 |
+| `allocationRecipient`           | `userAddress`                                                                                       |
+| `allocationLockMode`            | `none`                                                                                              |
+| `allocationLockDurationSeconds` | `0`                                                                                                 |
+| `allocationRecipients`          | `[]`                                                                                                |
 
 This is the default fair-launch behavior (100% of supply sold through Doppler market).
 

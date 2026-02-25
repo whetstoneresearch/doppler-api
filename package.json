@@ -26,6 +26,7 @@
     "test:live:dynamic": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=dynamic vitest run tests/live/create-and-verify.test.ts",
     "test:live:multicurve": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=multicurve vitest run tests/live/create-and-verify.test.ts",
     "test:live:multicurve:defaults": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=multicurve-defaults vitest run tests/live/create-and-verify.test.ts",
+    "test:live:governance": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=governance vitest run tests/live/create-and-verify.test.ts",
     "test:all": "node scripts/test-runner.mjs --with-live"
   },
   "dependencies": {

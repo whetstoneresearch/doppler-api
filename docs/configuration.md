@@ -49,16 +49,16 @@ Use `CHAIN_CONFIG_JSON` to define one or more chains and capabilities:
     "defaultNumeraireAddress": "0x4200000000000000000000000000000000000006",
     "auctionTypes": ["multicurve", "dynamic"],
     "migrationModes": ["noOp", "uniswapV2"],
-    "governanceModes": ["noOp"],
-    "governanceEnabled": false
+    "governanceModes": ["noOp", "default"],
+    "governanceEnabled": true
   },
   "8453": {
     "rpcUrl": "https://your-base-mainnet-rpc",
     "defaultNumeraireAddress": "0x4200000000000000000000000000000000000006",
     "auctionTypes": ["multicurve"],
     "migrationModes": ["noOp"],
-    "governanceModes": ["noOp"],
-    "governanceEnabled": false
+    "governanceModes": ["noOp", "default"],
+    "governanceEnabled": true
   }
 }
 ```
@@ -68,7 +68,9 @@ Use `CHAIN_CONFIG_JSON` to define one or more chains and capabilities:
 - Keys must be numeric chain IDs.
 - If default chain is not present in `CHAIN_CONFIG_JSON`, the API falls back to `RPC_URL`.
 - `launchId` is always `<chainId>:<txHash>` to preserve cross-chain identity.
-- `governance: true` is currently unsupported and returns `501 GOVERNANCE_NOT_IMPLEMENTED`.
+- `governance` create behavior is binary:
+  - `false` or omitted uses no governance
+  - `true` uses default token-holder governance (OpenZeppelin Governor) via the governance factory when `governanceModes` includes `default` and `governanceEnabled=true`
 - Recommendation: configure `auctionTypes` with `["multicurve"]` for stable V4-capable deployments and reserve `["static"]` for networks without Uniswap V4 support. Add `"dynamic"` only when intentionally testing the current work-in-progress preview mode.
 - Dynamic launches require `migrationModes` to include `"uniswapV2"` and are currently work in progress.
 - `uniswapV3` migration is not supported and returns `501 MIGRATION_NOT_IMPLEMENTED` if requested.

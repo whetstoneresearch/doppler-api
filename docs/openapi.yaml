@@ -7,7 +7,7 @@ info:
     v1 deployment profile supports:
     - multicurve/static with noOp migration
     - dynamic with uniswapV2 migration (work-in-progress preview)
-    - no-op governance only
+    - binary governance toggle (no governance or default token-holder governance using OpenZeppelin Governor)
     Prefer multicurve on V4-capable chains; static is a compatibility path.
     Multicurve initializer modes: standard, scheduled, decay, rehype.
     tokensForSale is configurable; when omitted it defaults to totalSupply (100% market allocation).
@@ -304,7 +304,7 @@ components:
           type: boolean
         mode:
           type: string
-          enum: [noOp, default, custom]
+          enum: [noOp, default]
       required: [enabled]
     GovernanceInput:
       oneOf:
@@ -624,8 +624,9 @@ components:
         governance:
           $ref: '#/components/schemas/GovernanceInput'
           description: >
-            Only no-op governance is currently supported. governance=true or custom/default modes
-            return 501 GOVERNANCE_NOT_IMPLEMENTED.
+            Binary governance toggle. false/omitted uses no governance;
+            true (or { enabled: true }) uses default token-holder governance
+            using OpenZeppelin Governor via the governance factory.
         migration:
           $ref: '#/components/schemas/MigrationConfig'
         auction:

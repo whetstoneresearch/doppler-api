@@ -1,11 +1,17 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   airlockAbi,
   computePoolId,
   decayMulticurveInitializerHookAbi,
   v4MulticurveInitializerAbi,
 } from '@whetstone-research/doppler-sdk';
-import { decodeAbiParameters, decodeFunctionData, parseEther, zeroAddress } from 'viem';
+import {
+  decodeAbiParameters,
+  decodeFunctionData,
+  formatEther,
+  parseEther,
+  zeroAddress,
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { randomBytes } from 'node:crypto';
 
@@ -14,12 +20,19 @@ import { loadConfig } from '../../src/core/config';
 import { decodeCreateEvent } from '../../src/infra/chain/receipt-decoder';
 import type { CreateLaunchRequestInput } from '../../src/modules/launches/schema';
 import { buildRandomCustomCurvePlan } from '../fixtures/random-custom-curves';
+import { buildLiveBalanceRequirement, LIVE_READINESS_ERROR_MARKER } from './readiness-check';
 
 const runLive = process.env.LIVE_TEST_ENABLE === 'true';
 const liveVerbose = process.env.LIVE_TEST_VERBOSE === 'true';
 const liveFilter = (process.env.LIVE_TEST_FILTER ?? 'all').toLowerCase();
 
-type LiveScenarioGroup = 'static' | 'dynamic' | 'multicurve' | 'multicurve-defaults' | 'negative';
+type LiveScenarioGroup =
+  | 'static'
+  | 'dynamic'
+  | 'multicurve'
+  | 'multicurve-defaults'
+  | 'negative'
+  | 'governance';
 
 const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
   if (!runLive) return false;
@@ -33,6 +46,7 @@ const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
   if (liveFilter === 'multicurve-defaults') {
     return groups.includes('multicurve-defaults');
   }
+  if (liveFilter === 'governance') return groups.includes('governance');
   if (liveFilter === 'negative') return groups.includes('negative');
   return true;
 };
@@ -69,6 +83,7 @@ const feeConfigByPreset: Record<
 };
 
 interface MulticurveLiveOverrides {
+  governance?: boolean;
   feeConfigOverride?: { fee: number; expectedTickSpacing: number; feePercent: string };
   configLabel?: string;
   salePercent?: number;
@@ -627,7 +642,7 @@ const waitForTransactionByHash = async (args: {
 
 const assertNotImplementedError = async (
   task: Promise<unknown>,
-  expectedCode: 'MIGRATION_NOT_IMPLEMENTED' | 'GOVERNANCE_NOT_IMPLEMENTED',
+  expectedCode: 'MIGRATION_NOT_IMPLEMENTED',
 ): Promise<void> => {
   try {
     await task;
@@ -786,7 +801,7 @@ const runMulticurveLaunchAndVerify = async (
     pricing: {
       numerairePriceUsd,
     },
-    governance: false,
+    governance: overrides?.governance ?? false,
     migration: {
       type: 'noOp',
     },
@@ -822,7 +837,10 @@ const runMulticurveLaunchAndVerify = async (
         ['Configured Fee', `${feeConfig.feePercent} (${feeConfig.fee})`],
         ['Tick Spacing', 'default (API derives for custom fee tiers)'],
         ['Initializer', requestedInitializer.type],
-        ['Launch Mode', 'multicurve + migration:noOp + governance:noOp'],
+        [
+          'Launch Mode',
+          `multicurve + migration:noOp + governance:${overrides?.governance ? 'default' : 'none'}`,
+        ],
       ]);
     }
 
@@ -1100,6 +1118,7 @@ const runMulticurveLaunchAndVerify = async (
 };
 
 const runStaticLaunchAndVerify = async (args?: {
+  governance?: boolean;
   curveConfig?:
     | {
         type: 'preset';
@@ -1170,7 +1189,7 @@ const runStaticLaunchAndVerify = async (args?: {
     pricing: {
       numerairePriceUsd,
     },
-    governance: false,
+    governance: args?.governance ?? false,
     migration: {
       type: 'noOp',
     },
@@ -1200,7 +1219,10 @@ const runStaticLaunchAndVerify = async (args?: {
         ['Allocation Amount', '0 (default)'],
         ['Numeraire Price USD', numerairePriceUsd],
         ['Expected Initializer', lockableV3Initializer],
-        ['Launch Mode', 'static + migration:noOp + governance:noOp'],
+        [
+          'Launch Mode',
+          `static + migration:noOp + governance:${args?.governance ? 'default' : 'none'}`,
+        ],
       ]);
     }
 
@@ -1325,12 +1347,14 @@ const runStaticLaunchAndVerify = async (args?: {
 };
 
 const runDynamicLaunchAndVerify = async (args?: {
+  governance?: boolean;
   configLabel?: string;
   marketCapStartUsd?: number;
   marketCapMinUsd?: number;
   minProceeds?: string;
   maxProceeds?: string;
   durationSeconds?: number;
+  epochLengthSeconds?: number;
 }) => {
   const config = loadConfig();
   const services = buildServices(config);
@@ -1348,9 +1372,10 @@ const runDynamicLaunchAndVerify = async (args?: {
   const minProceeds = args?.minProceeds ?? '0.01';
   const maxProceeds = args?.maxProceeds ?? '0.1';
   const durationSeconds = args?.durationSeconds ?? 24 * 60 * 60;
+  const epochLengthSeconds = args?.epochLengthSeconds;
   const configLabel =
     args?.configLabel ??
-    `DYNAMIC V4 (start $${marketCapStartUsd}, minProceeds ${minProceeds}, maxProceeds ${maxProceeds}, ${durationSeconds}s)`;
+    `DYNAMIC V4 (start $${marketCapStartUsd}, minProceeds ${minProceeds}, maxProceeds ${maxProceeds}, ${durationSeconds}s, epoch ${epochLengthSeconds ?? 'default'})`;
   const summary: LaunchSummaryRow = {
     config: configLabel,
     status: 'failed',
@@ -1401,7 +1426,7 @@ const runDynamicLaunchAndVerify = async (args?: {
     pricing: {
       numerairePriceUsd,
     },
-    governance: false,
+    governance: args?.governance ?? false,
     migration: {
       type: 'uniswapV2',
     },
@@ -1414,6 +1439,7 @@ const runDynamicLaunchAndVerify = async (args?: {
         minProceeds,
         maxProceeds,
         durationSeconds,
+        ...(epochLengthSeconds !== undefined ? { epochLengthSeconds } : {}),
       },
     },
   };
@@ -1431,8 +1457,12 @@ const runDynamicLaunchAndVerify = async (args?: {
         ['Market Cap Start / Min USD', `${marketCapStartUsd} / ${marketCapMinUsd}`],
         ['Min / Max Proceeds', `${minProceeds} / ${maxProceeds}`],
         ['Duration (sec)', durationSeconds],
+        ['Epoch Length (sec)', epochLengthSeconds ?? 'default (SDK)'],
         ['Numeraire Price USD', numerairePriceUsd],
-        ['Launch Mode', 'dynamic + migration:uniswapV2 + governance:noOp'],
+        [
+          'Launch Mode',
+          `dynamic + migration:uniswapV2 + governance:${args?.governance ? 'default' : 'none'}`,
+        ],
       ]);
     }
 
@@ -1991,6 +2021,48 @@ const runCustomCurveWithRandomVestingAndAllocations = async () => {
 };
 
 describe('live create verification', () => {
+  beforeAll(async () => {
+    if (!runLive) return;
+
+    const config = loadConfig();
+    const services = buildServices(config);
+    const chain = services.chainRegistry.get(config.defaultChainId);
+    const signerAddress = privateKeyToAccount(config.privateKey).address;
+    let requirement: ReturnType<typeof buildLiveBalanceRequirement>;
+
+    try {
+      requirement = buildLiveBalanceRequirement({
+        liveFilter,
+        minBalanceEth: process.env.LIVE_TEST_MIN_BALANCE_ETH,
+        estimatedTxCostEth: process.env.LIVE_TEST_ESTIMATED_TX_COST_ETH,
+        estimatedOverheadEth: process.env.LIVE_TEST_ESTIMATED_OVERHEAD_ETH,
+      });
+    } catch (error) {
+      throw new Error(
+        `[${LIVE_READINESS_ERROR_MARKER}] Invalid live test readiness configuration: ${toShortError(error)}.`,
+        { cause: error as Error },
+      );
+    }
+
+    if (!requirement) return;
+
+    let signerBalance: bigint;
+    try {
+      signerBalance = await chain.publicClient.getBalance({ address: signerAddress });
+    } catch (error) {
+      throw new Error(
+        `[${LIVE_READINESS_ERROR_MARKER}] Could not fetch balance for signer ${signerAddress} on chain ${chain.chainId} (${chain.config.rpcUrl}). Ensure RPC_URL/CHAIN_CONFIG_JSON is reachable before running live tests.`,
+        { cause: error as Error },
+      );
+    }
+
+    if (signerBalance < requirement.requiredWei) {
+      throw new Error(
+        `[${LIVE_READINESS_ERROR_MARKER}] Insufficient estimated balance for LIVE_TEST_FILTER=${liveFilter}. Signer ${signerAddress} on chain ${chain.chainId} has ${formatEther(signerBalance)} ETH, but requires at least ${formatEther(requirement.requiredWei)} ETH (${requirement.reason}). Fund this signer or adjust LIVE_TEST_MIN_BALANCE_ETH / LIVE_TEST_ESTIMATED_TX_COST_ETH / LIVE_TEST_ESTIMATED_OVERHEAD_ETH.`,
+      );
+    }
+  });
+
   afterAll(async () => {
     printLiveMatrix(
       'Launch Summary',
@@ -2230,7 +2302,66 @@ describe('live create verification', () => {
   );
 
   liveIt(
-    'rejects unsupported governance and migration modes as not implemented',
+    'MEDIUM Governance Enabled (Random 60-90% Sale)',
+    ['multicurve', 'governance'],
+    async () => {
+      const randomSalePercent = 60 + Math.floor(Math.random() * 31);
+      await runMulticurveLaunchAndVerify('medium', {
+        configLabel: `MEDIUM Governance Enabled (${randomSalePercent}% Sale)`,
+        salePercent: randomSalePercent,
+        governance: true,
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
+    'STATIC V3 Governance Enabled (Random Preset)',
+    ['static', 'governance'],
+    async () => {
+      const presets: Array<'low' | 'medium' | 'high'> = ['low', 'medium', 'high'];
+      const preset = presets[Math.floor(Math.random() * presets.length)]!;
+      await runStaticLaunchAndVerify({
+        configLabel: `STATIC V3 Governance Enabled (${preset.toUpperCase()} preset)`,
+        governance: true,
+        curveConfig: {
+          type: 'preset',
+          preset,
+        },
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
+    'DYNAMIC V4 Governance Enabled (Random Range/Proceeds)',
+    ['dynamic', 'governance'],
+    async () => {
+      const marketCapStartUsd = 100 + Math.floor(Math.random() * 901); // 100-1000
+      const minGapUsd = 20 + Math.floor(Math.random() * 181); // 20-200
+      const marketCapMinUsd = Math.max(1, marketCapStartUsd - minGapUsd);
+      const minProceedsEth = 0.01 + Math.random() * 0.04; // 0.01-0.05
+      const maxMultiplier = 2 + Math.random() * 4; // 2x-6x
+      const maxProceedsEth = minProceedsEth * maxMultiplier;
+      const durationSeconds = (6 + Math.floor(Math.random() * 19)) * 60 * 60; // 6h-24h
+      const epochLengthSeconds = 60 * 60; // 1h; guarantees duration % epochLength == 0
+
+      await runDynamicLaunchAndVerify({
+        configLabel: `DYNAMIC V4 Governance Enabled (start $${marketCapStartUsd}, min $${marketCapMinUsd}, proceeds ${minProceedsEth.toFixed(4)}-${maxProceedsEth.toFixed(4)}, ${durationSeconds}s, epoch ${epochLengthSeconds}s)`,
+        governance: true,
+        marketCapStartUsd,
+        marketCapMinUsd,
+        minProceeds: minProceedsEth.toFixed(4),
+        maxProceeds: maxProceedsEth.toFixed(4),
+        durationSeconds,
+        epochLengthSeconds,
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
+    'rejects unsupported migration modes as not implemented',
     ['negative'],
     async () => {
       const config = loadConfig();
@@ -2263,31 +2394,11 @@ describe('live create verification', () => {
 
       if (liveVerbose) {
         // eslint-disable-next-line no-console
-        console.log(liveDivider('Validating unsupported governance/migration modes'));
+        console.log(liveDivider('Validating unsupported migration modes'));
         printLiveTable('Expected Responses', [
-          ['governance enabled=true', '501 GOVERNANCE_NOT_IMPLEMENTED'],
-          ['governance custom', '501 GOVERNANCE_NOT_IMPLEMENTED'],
           ['migration uniswapV2/uniswapV3/uniswapV4', '501 MIGRATION_NOT_IMPLEMENTED'],
         ]);
       }
-
-      await assertNotImplementedError(
-        services.launchService.createLaunch({
-          ...basePayload,
-          governance: true,
-          migration: { type: 'noOp' },
-        }),
-        'GOVERNANCE_NOT_IMPLEMENTED',
-      );
-
-      await assertNotImplementedError(
-        services.launchService.createLaunch({
-          ...basePayload,
-          governance: { enabled: false, mode: 'custom' },
-          migration: { type: 'noOp' },
-        }),
-        'GOVERNANCE_NOT_IMPLEMENTED',
-      );
 
       await assertNotImplementedError(
         services.launchService.createLaunch({
@@ -2315,7 +2426,7 @@ describe('live create verification', () => {
         }),
         'MIGRATION_NOT_IMPLEMENTED',
       );
-      verboseLog('[live] unsupported governance/migration checks passed');
+      verboseLog('[live] unsupported migration checks passed');
     },
     120_000,
   );
