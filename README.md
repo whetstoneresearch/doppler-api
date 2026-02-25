@@ -10,6 +10,8 @@ This project is in active development & not ready for production use.
 
 - `POST /v1/launches`
 - `POST /v1/launches/multicurve` (alias)
+- `POST /v1/launches/static` (alias)
+- `POST /v1/launches/dynamic` (alias)
 - `GET /v1/launches/:launchId`
 - `GET /v1/capabilities`
 - `GET /health`

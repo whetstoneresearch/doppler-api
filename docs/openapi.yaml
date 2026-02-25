@@ -92,6 +92,76 @@ paths:
           $ref: '#/components/responses/Error'
         '409':
           $ref: '#/components/responses/Error'
+  /v1/launches/static:
+    post:
+      tags: [Launches]
+      summary: Create static launch (alias)
+      operationId: createStaticLaunch
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Reuse the same key for safe retries of identical create payloads.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLaunchRequest'
+      responses:
+        '200':
+          description: Launch submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateLaunchResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '501':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /v1/launches/dynamic:
+    post:
+      tags: [Launches]
+      summary: Create dynamic launch (alias)
+      operationId: createDynamicLaunch
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Reuse the same key for safe retries of identical create payloads.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLaunchRequest'
+      responses:
+        '200':
+          description: Launch submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateLaunchResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '501':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
   /v1/launches/{launchId}:
     get:
       tags: [Status]

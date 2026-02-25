@@ -19,6 +19,8 @@ import { LaunchService } from '../modules/launches/service';
 import { StatusService } from '../modules/status/service';
 import { registerCreateLaunchRoute } from './routes/launches.post';
 import { registerCreateMulticurveAliasRoute } from './routes/launches-multicurve.post';
+import { registerCreateStaticAliasRoute } from './routes/launches-static.post';
+import { registerCreateDynamicAliasRoute } from './routes/launches-dynamic.post';
 import { registerLaunchStatusRoute } from './routes/launches-status.get';
 import { registerHealthRoute } from './routes/health.get';
 import { registerReadyRoute } from './routes/ready.get';
@@ -109,6 +111,8 @@ export const buildServer = async (services?: AppServices) => {
   await registerMetricsRoute(app, resolvedServices.metrics);
   await registerCreateLaunchRoute(app, resolvedServices.launchService);
   await registerCreateMulticurveAliasRoute(app, resolvedServices.launchService);
+  await registerCreateStaticAliasRoute(app, resolvedServices.launchService);
+  await registerCreateDynamicAliasRoute(app, resolvedServices.launchService);
   await registerLaunchStatusRoute(app, resolvedServices.statusService);
 
   return app;

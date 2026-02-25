@@ -50,6 +50,10 @@ Include API key header on launch/status routes:
 ## 3. One launch flow
 
 1. Call `POST /v1/launches`.
+   - Optional aliases:
+   - `POST /v1/launches/multicurve` (forces `auction.type="multicurve"`)
+   - `POST /v1/launches/static` (forces `auction.type="static"`)
+   - `POST /v1/launches/dynamic` (forces `auction.type="dynamic"`)
 2. Save `launchId` from response.
 3. Poll `GET /v1/launches/:launchId` every 3-5 seconds.
 4. Stop when status is `confirmed` or `reverted`.

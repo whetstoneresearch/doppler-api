@@ -140,6 +140,93 @@ describe('POST /v1/launches', () => {
     expect(body.effectiveConfig.tokensForSale).toBe('1000');
   });
 
+  it('static launch alias: /v1/launches/static', async () => {
+    app = await buildTestServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches/static',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Static Alias Token', symbol: 'SAT', tokenURI: 'ipfs://token' },
+        tokenomics: { totalSupply: '1000' },
+        governance: { enabled: false, mode: 'noOp' },
+        migration: { type: 'noOp' },
+        auction: {
+          type: 'static',
+          curveConfig: {
+            type: 'preset',
+            preset: 'low',
+          },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().launchId).toContain('84532:0x');
+  });
+
+  it('dynamic launch alias: /v1/launches/dynamic', async () => {
+    app = await buildTestServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches/dynamic',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Dynamic Alias Token', symbol: 'DAT', tokenURI: 'ipfs://token' },
+        tokenomics: { totalSupply: '1000' },
+        governance: { enabled: false, mode: 'noOp' },
+        migration: { type: 'uniswapV2' },
+        auction: {
+          type: 'dynamic',
+          curveConfig: {
+            type: 'range',
+            marketCapStartUsd: 100,
+            marketCapMinUsd: 50,
+            minProceeds: '0.01',
+            maxProceeds: '0.1',
+            durationSeconds: 86_400,
+          },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().launchId).toContain('84532:0x');
+  });
+
+  it('static alias rejects non-static auction payloads', async () => {
+    app = await buildTestServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches/static',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Wrong Alias Token', symbol: 'WAT', tokenURI: 'ipfs://token' },
+        tokenomics: { totalSupply: '1000' },
+        governance: { enabled: false, mode: 'noOp' },
+        migration: { type: 'noOp' },
+        auction: {
+          type: 'multicurve',
+          curveConfig: { type: 'preset', presets: ['low'] },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(422);
+  });
+
   it('returns allocation defaults when sale is less than total supply', async () => {
     app = await buildTestServer();
 

@@ -7,6 +7,8 @@ Base URL (local): `http://localhost:3000`
 - Required on:
   - `POST /v1/launches`
   - `POST /v1/launches/multicurve`
+  - `POST /v1/launches/static`
+  - `POST /v1/launches/dynamic`
   - `GET /v1/launches/:launchId`
 - Header:
   - `x-api-key: <API_KEY>`
@@ -143,6 +145,24 @@ Generic launch creation endpoint (future-compatible).
 Convenience alias for multicurve launches.
 
 - Internally forwards to `POST /v1/launches` and forces `auction.type = "multicurve"`.
+- Same auth, request shape, response, and error model as `POST /v1/launches`.
+
+---
+
+### `POST /v1/launches/static`
+
+Convenience alias for static launches.
+
+- Internally forwards to `POST /v1/launches` and forces `auction.type = "static"`.
+- Same auth, request shape, response, and error model as `POST /v1/launches`.
+
+---
+
+### `POST /v1/launches/dynamic`
+
+Convenience alias for dynamic launches.
+
+- Internally forwards to `POST /v1/launches` and forces `auction.type = "dynamic"`.
 - Same auth, request shape, response, and error model as `POST /v1/launches`.
 
 ---
