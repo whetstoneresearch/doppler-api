@@ -19,7 +19,7 @@ This file shows:
     "symbol": "MVP",
     "tokenURI": "ipfs://mvp-token"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000"
   },
   "migration": {
@@ -46,7 +46,7 @@ This file shows:
 | `integrationAddress`            | omitted                                                                                             |
 | `pricing.numerairePriceUsd`     | resolved from pricing provider if enabled                                                           |
 | `governance`                    | omitted/`false` => no governance, `true` => default token-holder governance (OpenZeppelin Governor) |
-| `tokenomics.tokensForSale`      | `tokenomics.totalSupply`                                                                            |
+| `economics.tokensForSale`       | `economics.totalSupply`                                                                             |
 | `allocationAmount`              | `0`                                                                                                 |
 | `allocationRecipient`           | `userAddress`                                                                                       |
 | `allocationLockMode`            | `none`                                                                                              |
@@ -67,7 +67,7 @@ Use this when you want non-market supply split across specific addresses.
     "symbol": "SPLIT",
     "tokenURI": "ipfs://split-token"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000",
     "allocations": {
       "recipients": [
@@ -119,7 +119,7 @@ Validation rules for explicit split:
     "symbol": "SMVP",
     "tokenURI": "ipfs://static-mvp-token"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000"
   },
   "migration": {
@@ -155,7 +155,7 @@ Static request notes:
     "symbol": "SRT",
     "tokenURI": "ipfs://static-range-token"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000"
   },
   "migration": {
@@ -184,7 +184,7 @@ If you need explicit market-cap shaping on multicurve, use `auction.curveConfig.
     "symbol": "DMVP",
     "tokenURI": "ipfs://dynamic-mvp-token"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000"
   },
   "migration": {

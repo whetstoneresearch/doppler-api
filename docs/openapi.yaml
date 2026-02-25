@@ -298,7 +298,7 @@ components:
           type: string
           minLength: 1
       required: [name, symbol, tokenURI]
-    Tokenomics:
+    Economics:
       type: object
       properties:
         totalSupply:
@@ -315,29 +315,13 @@ components:
           type: object
           description: >
             Optional non-market allocation controls for the non-sale remainder.
-            Use recipients[] (preferred) or allocations[] (legacy alias) to split
-            remainder across up to 10 unique addresses.
+            Use recipients[] to split remainder across up to 10 unique addresses.
             Allocation amounts must sum to totalSupply - tokensForSale.
-            Do not send both recipients[] and allocations[] in the same request.
           properties:
             recipientAddress:
               $ref: '#/components/schemas/HexAddress'
             recipients:
               type: array
-              maxItems: 10
-              items:
-                type: object
-                properties:
-                  address:
-                    $ref: '#/components/schemas/HexAddress'
-                  amount:
-                    type: string
-                    pattern: '^\d+$'
-                required: [address, amount]
-            allocations:
-              type: array
-              deprecated: true
-              description: Legacy alias for recipients.
               maxItems: 10
               items:
                 type: object
@@ -697,8 +681,8 @@ components:
           $ref: '#/components/schemas/HexAddress'
         tokenMetadata:
           $ref: '#/components/schemas/TokenMetadata'
-        tokenomics:
-          $ref: '#/components/schemas/Tokenomics'
+        economics:
+          $ref: '#/components/schemas/Economics'
         pairing:
           $ref: '#/components/schemas/PairingConfig'
         pricing:
@@ -723,7 +707,7 @@ components:
           $ref: '#/components/schemas/MigrationConfig'
         auction:
           $ref: '#/components/schemas/AuctionConfig'
-      required: [userAddress, tokenMetadata, tokenomics, migration, auction]
+      required: [userAddress, tokenMetadata, economics, migration, auction]
     CreateLaunchResponse:
       type: object
       properties:

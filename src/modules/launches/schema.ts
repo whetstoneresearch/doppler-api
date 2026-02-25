@@ -22,22 +22,12 @@ const feeBeneficiarySchema = z.object({
 const allocationConfigSchema = z
   .object({
     recipientAddress: addressSchema.optional(),
-    allocations: z.array(allocationRecipientSchema).max(10).optional(),
     recipients: z.array(allocationRecipientSchema).max(10).optional(),
     mode: z.enum(['vest', 'unlock', 'vault']).optional(),
     durationSeconds: z.number().int().nonnegative().optional(),
     cliffDurationSeconds: z.number().int().nonnegative().optional(),
   })
-  .superRefine((value, ctx) => {
-    if (value.allocations && value.recipients) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['recipients'],
-        message:
-          'tokenomics.allocations.recipients cannot be used with tokenomics.allocations.allocations',
-      });
-    }
-  });
+  .strict();
 const migrationSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.enum(['noOp', 'uniswapV2', 'uniswapV3']),
@@ -58,7 +48,7 @@ export const createLaunchRequestSchema = z.object({
     symbol: z.string().min(1),
     tokenURI: z.string().min(1),
   }),
-  tokenomics: z.object({
+  economics: z.object({
     totalSupply: bigintStringSchema,
     tokensForSale: bigintStringSchema.optional(),
     allocations: allocationConfigSchema.optional(),

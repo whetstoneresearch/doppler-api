@@ -40,13 +40,12 @@ Generic launch creation endpoint (future-compatible).
 - `userAddress: 0x...`
 - `integrationAddress?: 0x...`
 - `tokenMetadata: { name, symbol, tokenURI }`
-- `tokenomics: { totalSupply, tokensForSale?, allocations? }`
+- `economics: { totalSupply, tokensForSale?, allocations? }`
   - `tokensForSale` defaults to `totalSupply` when omitted.
   - when `tokensForSale < totalSupply`, market allocation must be at least `20%` of `totalSupply`.
   - `allocations` is optional metadata for lock behavior when `tokensForSale < totalSupply`:
     - `recipientAddress?` (defaults to `userAddress`)
-    - `recipients?: [{ address, amount }]` (preferred)
-    - `allocations?: [{ address, amount }]` (legacy alias)
+    - `recipients?: [{ address, amount }]`
       - optional explicit recipient split for non-market allocation remainder
       - supports up to `10` unique addresses, no duplicates
       - must sum exactly to `totalSupply - tokensForSale`

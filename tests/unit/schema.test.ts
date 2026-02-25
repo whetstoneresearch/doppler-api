@@ -8,7 +8,7 @@ describe('create launch schema', () => {
       userAddress: '0x1111111111111111111111111111111111111111',
       integrationAddress: '0x2222222222222222222222222222222222222222',
       tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-      tokenomics: {
+      economics: {
         totalSupply: '100',
         tokensForSale: '50',
         allocations: {
@@ -28,33 +28,32 @@ describe('create launch schema', () => {
     });
 
     expect(parsed.integrationAddress).toBe('0x2222222222222222222222222222222222222222');
-    expect(parsed.tokenomics.allocations?.mode).toBe('vault');
-    expect(parsed.tokenomics.allocations?.recipients?.length).toBe(2);
+    expect(parsed.economics.allocations?.mode).toBe('vault');
+    expect(parsed.economics.allocations?.recipients?.length).toBe(2);
   });
 
-  it('rejects payloads that mix recipients and allocations aliases', () => {
+  it('rejects legacy allocations alias under economics.allocations', () => {
     expect(() =>
       createLaunchRequestSchema.parse({
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-        tokenomics: {
+        economics: {
           totalSupply: '100',
           allocations: {
-            recipients: [{ address: '0x1111111111111111111111111111111111111111', amount: '10' }],
             allocations: [{ address: '0x2222222222222222222222222222222222222222', amount: '10' }],
           },
         },
         migration: { type: 'noOp' },
         auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
       }),
-    ).toThrow(/cannot be used with tokenomics\.allocations\.allocations/i);
+    ).toThrow(/unrecognized key/i);
   });
 
   it('accepts multicurve initializer variants', () => {
     const base = {
       userAddress: '0x1111111111111111111111111111111111111111',
       tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-      tokenomics: { totalSupply: '100' },
+      economics: { totalSupply: '100' },
       migration: { type: 'noOp' as const },
       auction: {
         type: 'multicurve' as const,
@@ -117,7 +116,7 @@ describe('create launch schema', () => {
     const parsed = createLaunchRequestSchema.parse({
       userAddress: '0x1111111111111111111111111111111111111111',
       tokenMetadata: { name: 'Static Token', symbol: 'STK', tokenURI: 'ipfs://token' },
-      tokenomics: { totalSupply: '100' },
+      economics: { totalSupply: '100' },
       migration: { type: 'noOp' },
       auction: {
         type: 'static',
@@ -142,7 +141,7 @@ describe('create launch schema', () => {
       createLaunchRequestSchema.parse({
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Static Token', symbol: 'STK', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '100' },
+        economics: { totalSupply: '100' },
         migration: { type: 'noOp' },
         auction: {
           type: 'static',
@@ -155,7 +154,7 @@ describe('create launch schema', () => {
     const parsed = createLaunchRequestSchema.parse({
       userAddress: '0x1111111111111111111111111111111111111111',
       tokenMetadata: { name: 'Dynamic Token', symbol: 'DYN', tokenURI: 'ipfs://token' },
-      tokenomics: { totalSupply: '100' },
+      economics: { totalSupply: '100' },
       migration: { type: 'uniswapV2' },
       auction: {
         type: 'dynamic',
@@ -182,7 +181,7 @@ describe('create launch schema', () => {
       createLaunchRequestSchema.parse({
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Dynamic Token', symbol: 'DYN', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '100' },
+        economics: { totalSupply: '100' },
         migration: { type: 'uniswapV2' },
         auction: {
           type: 'dynamic',
@@ -202,7 +201,7 @@ describe('create launch schema', () => {
     const parsed = createLaunchRequestSchema.parse({
       userAddress: '0x1111111111111111111111111111111111111111',
       tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-      tokenomics: { totalSupply: '100' },
+      economics: { totalSupply: '100' },
       migration: { type: 'uniswapV3' },
       auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
     });
@@ -213,7 +212,7 @@ describe('create launch schema', () => {
     const parsed = createLaunchRequestSchema.parse({
       userAddress: '0x1111111111111111111111111111111111111111',
       tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-      tokenomics: { totalSupply: '100' },
+      economics: { totalSupply: '100' },
       migration: { type: 'uniswapV4', fee: 10_000, tickSpacing: 100 },
       auction: {
         type: 'dynamic',
@@ -234,7 +233,7 @@ describe('create launch schema', () => {
       createLaunchRequestSchema.parse({
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '100' },
+        economics: { totalSupply: '100' },
         migration: { type: 'uniswapV4' },
         auction: {
           type: 'dynamic',
@@ -254,7 +253,7 @@ describe('create launch schema', () => {
     const withBoolean = createLaunchRequestSchema.parse({
       userAddress: '0x1111111111111111111111111111111111111111',
       tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-      tokenomics: { totalSupply: '100' },
+      economics: { totalSupply: '100' },
       governance: true,
       migration: { type: 'noOp' },
       auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
@@ -263,7 +262,7 @@ describe('create launch schema', () => {
     const withoutGovernance = createLaunchRequestSchema.parse({
       userAddress: '0x1111111111111111111111111111111111111111',
       tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-      tokenomics: { totalSupply: '100' },
+      economics: { totalSupply: '100' },
       migration: { type: 'noOp' },
       auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
     });
@@ -277,7 +276,7 @@ describe('create launch schema', () => {
       createLaunchRequestSchema.parse({
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '100' },
+        economics: { totalSupply: '100' },
         governance: { enabled: true, mode: 'custom' },
         migration: { type: 'noOp' },
         auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
@@ -290,7 +289,7 @@ describe('create launch schema', () => {
       createLaunchRequestSchema.parse({
         userAddress: '0x123',
         tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '100' },
+        economics: { totalSupply: '100' },
         governance: { enabled: false, mode: 'noOp' },
         migration: { type: 'noOp' },
         auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
@@ -303,7 +302,7 @@ describe('create launch schema', () => {
       createLaunchRequestSchema.parse({
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '100' },
+        economics: { totalSupply: '100' },
         feeBeneficiaries: [
           { address: '0x2222222222222222222222222222222222222222', sharesWad: '1' },
           { address: '0x2222222222222222222222222222222222222222', sharesWad: '2' },
@@ -324,7 +323,7 @@ describe('create launch schema', () => {
       createLaunchRequestSchema.parse({
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '100' },
+        economics: { totalSupply: '100' },
         feeBeneficiaries,
         migration: { type: 'noOp' },
         auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },

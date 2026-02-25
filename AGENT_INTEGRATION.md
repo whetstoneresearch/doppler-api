@@ -79,7 +79,7 @@ Use `Idempotency-Key` on create requests in production integrations.
     "symbol": "MTK",
     "tokenURI": "ipfs://metadata"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000"
   },
   "pricing": {
@@ -115,7 +115,7 @@ Use this when you want intentional market-cap bands and allocation shares instea
     "symbol": "ACT",
     "tokenURI": "ipfs://agent-curve-token"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000"
   },
   "pricing": {
@@ -167,7 +167,7 @@ Use this when you want intentional market-cap bands and allocation shares instea
     "symbol": "SPL",
     "tokenURI": "ipfs://split-token"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000",
     "tokensForSale": "200000000000000000000000",
     "allocations": {
@@ -203,7 +203,7 @@ Use this when you want intentional market-cap bands and allocation shares instea
     "symbol": "TST",
     "tokenURI": "ipfs://team-split-token"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000",
     "allocations": {
       "recipients": [
@@ -251,7 +251,7 @@ For V4-capable networks, use the multicurve templates above.
     "symbol": "STC",
     "tokenURI": "ipfs://static-token"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000"
   },
   "pricing": {
@@ -282,7 +282,7 @@ For V4-capable networks, use the multicurve templates above.
     "symbol": "SRT",
     "tokenURI": "ipfs://static-range-token"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000"
   },
   "pricing": {
@@ -318,7 +318,7 @@ This mode is intended for assets with well-known value and maximally capital-eff
     "symbol": "DYN",
     "tokenURI": "ipfs://dynamic-token"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000"
   },
   "pricing": {
@@ -365,7 +365,7 @@ Custom-curve rules agents should enforce before submit:
 
 ## 7. Important defaults
 
-- `tokenomics.tokensForSale` defaults to `totalSupply`.
+- `economics.tokensForSale` defaults to `totalSupply`.
 - if `tokensForSale < totalSupply`, market sale must be at least 20% of total supply.
 - Multicurve initializer defaults to `standard` (implemented as scheduled with `startTime=0`).
 - Supported multicurve initializer modes:
@@ -393,8 +393,7 @@ Custom-curve rules agents should enforce before submit:
   - default lock mode is `vest`
   - default lock duration is `7776000` seconds (90 days)
 - Explicit allocation split:
-  - use `tokenomics.allocations.recipients` for up to 10 unique addresses
-  - legacy alias `tokenomics.allocations.allocations` is also accepted
+  - use `economics.allocations.recipients` for up to 10 unique addresses
   - no duplicate addresses
   - amounts must sum exactly to `totalSupply - tokensForSale`
   - if `tokensForSale` is omitted, API derives it from allocation amounts

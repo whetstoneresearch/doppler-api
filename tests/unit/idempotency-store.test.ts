@@ -5,7 +5,7 @@ import { IdempotencyStore } from '../../src/infra/idempotency/store';
 const samplePayload = {
   userAddress: '0x1111111111111111111111111111111111111111',
   tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-  tokenomics: { totalSupply: '1000' },
+  economics: { totalSupply: '1000' },
   governance: { enabled: false, mode: 'noOp' as const },
   migration: { type: 'noOp' as const },
   auction: { type: 'multicurve' as const, curveConfig: { type: 'preset' as const } },

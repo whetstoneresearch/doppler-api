@@ -10,7 +10,7 @@ import type { CreateLaunchRequestInput } from '../../src/modules/launches/schema
 const baseInput: CreateLaunchRequestInput = {
   userAddress: '0x1111111111111111111111111111111111111111',
   tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://meta' },
-  tokenomics: { totalSupply: '1000' },
+  economics: { totalSupply: '1000' },
   governance: { enabled: false, mode: 'noOp' },
   migration: { type: 'noOp' },
   auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
@@ -26,7 +26,7 @@ describe('sale number mapping', () => {
   it('uses override when provided', () => {
     const sale = resolveSaleNumbers({
       ...baseInput,
-      tokenomics: { totalSupply: '1000', tokensForSale: '700' },
+      economics: { totalSupply: '1000', tokensForSale: '700' },
     });
     expect(sale.tokensForSale).toBe(700n);
   });
@@ -34,7 +34,7 @@ describe('sale number mapping', () => {
   it('derives tokensForSale from recipients when tokensForSale is omitted', () => {
     const sale = resolveSaleNumbers({
       ...baseInput,
-      tokenomics: {
+      economics: {
         totalSupply: '1000',
         allocations: {
           recipients: [
@@ -51,7 +51,7 @@ describe('sale number mapping', () => {
   it('defaults allocation lock to 90-day vest when remainder exists', () => {
     const input: CreateLaunchRequestInput = {
       ...baseInput,
-      tokenomics: { totalSupply: '1000', tokensForSale: '200' },
+      economics: { totalSupply: '1000', tokensForSale: '200' },
     };
     const sale = resolveSaleNumbers(input);
     const allocation = resolveAllocationPlan({
@@ -69,7 +69,7 @@ describe('sale number mapping', () => {
   it('supports unlock mode for allocation', () => {
     const input: CreateLaunchRequestInput = {
       ...baseInput,
-      tokenomics: {
+      economics: {
         totalSupply: '1000',
         tokensForSale: '300',
         allocations: { mode: 'unlock', durationSeconds: 0 },
@@ -90,7 +90,7 @@ describe('sale number mapping', () => {
   it('supports vault mode with custom recipient/duration/cliff', () => {
     const input: CreateLaunchRequestInput = {
       ...baseInput,
-      tokenomics: {
+      economics: {
         totalSupply: '1000',
         tokensForSale: '250',
         allocations: {
@@ -118,12 +118,12 @@ describe('sale number mapping', () => {
   it('supports explicit multi-address allocations', () => {
     const input: CreateLaunchRequestInput = {
       ...baseInput,
-      tokenomics: {
+      economics: {
         totalSupply: '1000',
         tokensForSale: '400',
         allocations: {
           mode: 'vest',
-          allocations: [
+          recipients: [
             { address: '0x2222222222222222222222222222222222222222', amount: '300' },
             { address: '0x3333333333333333333333333333333333333333', amount: '300' },
           ],
@@ -149,7 +149,7 @@ describe('sale number mapping', () => {
   it('rejects allocation config when nothing is allocated', () => {
     const input: CreateLaunchRequestInput = {
       ...baseInput,
-      tokenomics: {
+      economics: {
         totalSupply: '1000',
         tokensForSale: '1000',
         allocations: { mode: 'vest' },
@@ -162,13 +162,13 @@ describe('sale number mapping', () => {
         totalSupply: sale.totalSupply,
         tokensForSale: sale.tokensForSale,
       }),
-    ).toThrow(/tokenomics\.allocations requires tokensForSale to be less than totalSupply/i);
+    ).toThrow(/economics\.allocations requires tokensForSale to be less than totalSupply/i);
   });
 
   it('rejects unlock mode with non-zero duration', () => {
     const input: CreateLaunchRequestInput = {
       ...baseInput,
-      tokenomics: {
+      economics: {
         totalSupply: '1000',
         tokensForSale: '200',
         allocations: { mode: 'unlock', durationSeconds: 60 },
@@ -188,11 +188,11 @@ describe('sale number mapping', () => {
     expect(() =>
       resolveSaleNumbers({
         ...baseInput,
-        tokenomics: {
+        economics: {
           totalSupply: '1000',
           tokensForSale: '400',
           allocations: {
-            allocations: [{ address: '0x2222222222222222222222222222222222222222', amount: '500' }],
+            recipients: [{ address: '0x2222222222222222222222222222222222222222', amount: '500' }],
           },
         },
       }),
@@ -202,11 +202,11 @@ describe('sale number mapping', () => {
   it('rejects duplicate allocation addresses', () => {
     const input: CreateLaunchRequestInput = {
       ...baseInput,
-      tokenomics: {
+      economics: {
         totalSupply: '1000',
         tokensForSale: '600',
         allocations: {
-          allocations: [
+          recipients: [
             { address: '0x2222222222222222222222222222222222222222', amount: '200' },
             { address: '0x2222222222222222222222222222222222222222', amount: '200' },
           ],
@@ -226,11 +226,11 @@ describe('sale number mapping', () => {
     expect(() =>
       resolveSaleNumbers({
         ...baseInput,
-        tokenomics: {
+        economics: {
           totalSupply: '1000',
           tokensForSale: '199',
           allocations: {
-            allocations: [{ address: '0x2222222222222222222222222222222222222222', amount: '801' }],
+            recipients: [{ address: '0x2222222222222222222222222222222222222222', amount: '801' }],
           },
         },
       }),
@@ -246,26 +246,11 @@ describe('sale number mapping', () => {
     expect(() =>
       resolveSaleNumbers({
         ...baseInput,
-        tokenomics: {
+        economics: {
           totalSupply: '1000',
-          allocations: { allocations },
+          allocations: { recipients: allocations },
         },
       }),
     ).toThrow(/supports up to 10 unique addresses/i);
-  });
-
-  it('rejects mixing recipients and allocations aliases', () => {
-    expect(() =>
-      resolveSaleNumbers({
-        ...baseInput,
-        tokenomics: {
-          totalSupply: '1000',
-          allocations: {
-            recipients: [{ address: '0x2222222222222222222222222222222222222222', amount: '300' }],
-            allocations: [{ address: '0x3333333333333333333333333333333333333333', amount: '300' }],
-          },
-        },
-      }),
-    ).toThrow(/recipients cannot be used with tokenomics\.allocations\.allocations/i);
   });
 });

@@ -11,15 +11,11 @@ export interface TokenMetadata {
   tokenURI: string;
 }
 
-export interface Tokenomics {
+export interface Economics {
   totalSupply: string;
   tokensForSale?: string;
   allocations?: {
     recipientAddress?: HexAddress;
-    allocations?: Array<{
-      address: HexAddress;
-      amount: string;
-    }>;
     recipients?: Array<{
       address: HexAddress;
       amount: string;
@@ -172,7 +168,7 @@ export interface CreateLaunchRequest {
   userAddress: HexAddress;
   integrationAddress?: HexAddress;
   tokenMetadata: TokenMetadata;
-  tokenomics: Tokenomics;
+  economics: Economics;
   pairing?: PairingConfig;
   pricing?: PricingConfig;
   feeBeneficiaries?: FeeBeneficiaryInput[];

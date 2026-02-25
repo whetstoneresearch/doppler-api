@@ -43,10 +43,9 @@ npm run dev
 - Governance: `enabled=false` is the active profile, eg. `noOp`
 - Token allocation profile:
   - Default: 100% of `totalSupply` is allocated to the multicurve market.
-  - Optional: set `tokenomics.tokensForSale` to allocate less to the market.
+  - Optional: set `economics.tokensForSale` to allocate less to the market.
   - Remainder (`totalSupply - tokensForSale`) is allocated to non-market allocation recipients.
-  - Optional: set `tokenomics.allocations.recipients` (max 10 unique recipients) to split the non-market remainder.
-  - Backward compatible alias: `tokenomics.allocations.allocations`.
+  - Optional: set `economics.allocations.recipients` (max 10 unique recipients) to split the non-market remainder.
 - Multicurve design reference: [Doppler Multicurve whitepaper](https://doppler.lol/multicurve.pdf).
 - Guidance: prefer `multicurve` whenever the target chain has Uniswap V4 support. Use `static` only when V4 is unavailable.
 
@@ -81,7 +80,7 @@ content-type: application/json
     "symbol": "MTK",
     "tokenURI": "ipfs://my-token-metadata"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000",
     "tokensForSale": "800000000000000000000000",
     "allocations": {
@@ -323,7 +322,7 @@ Example `GET /health`:
 
 ## Validation and defaults
 
-- `tokenomics.tokensForSale` is optional:
+- `economics.tokensForSale` is optional:
   - if omitted, `tokensForSale = totalSupply` (100% sold to market).
   - if provided, it must be `> 0` and `<= totalSupply`.
   - if `tokensForSale < totalSupply`, it must be at least `20%` of `totalSupply`.
@@ -333,8 +332,7 @@ Example `GET /health`:
   - default lock mode is `vest` for `90` days when non-market allocation exists.
   - lock modes: `vest`, `unlock`, `vault`.
 - Optional explicit split across recipients:
-  - `tokenomics.allocations.recipients` supports up to `10` unique allocation recipients.
-  - legacy alias `tokenomics.allocations.allocations` is also accepted.
+  - `economics.allocations.recipients` supports up to `10` unique allocation recipients.
   - no duplicate addresses are allowed.
   - allocation amounts must sum exactly to `totalSupply - tokensForSale`.
   - if allocations are provided and `tokensForSale` is omitted, API derives `tokensForSale`.

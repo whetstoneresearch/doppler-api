@@ -7,7 +7,7 @@ import type { CreateLaunchRequestInput } from '../../src/modules/launches/schema
 const baseInput: CreateLaunchRequestInput = {
   userAddress: '0x1111111111111111111111111111111111111111',
   tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://meta' },
-  tokenomics: { totalSupply: '1000000000000000000' },
+  economics: { totalSupply: '1000000000000000000' },
   governance: { enabled: false, mode: 'noOp' },
   migration: { type: 'noOp' },
   auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },

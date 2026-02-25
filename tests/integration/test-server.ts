@@ -54,42 +54,38 @@ export const buildTestServer = async () => {
 
   const buildLaunchResponse = (payload?: {
     userAddress?: string;
-    tokenomics?: {
+    economics?: {
       totalSupply?: string;
       tokensForSale?: string;
       allocations?: {
         recipientAddress?: string;
-        allocations?: Array<{ address: string; amount: string }>;
         recipients?: Array<{ address: string; amount: string }>;
         mode?: 'vest' | 'unlock' | 'vault';
         durationSeconds?: number;
       };
     };
   }) => {
-    const totalSupply = BigInt(payload?.tokenomics?.totalSupply ?? '1000');
-    const explicitAllocations =
-      payload?.tokenomics?.allocations?.recipients ??
-      payload?.tokenomics?.allocations?.allocations ??
-      [];
+    const totalSupply = BigInt(payload?.economics?.totalSupply ?? '1000');
+    const explicitAllocations = payload?.economics?.allocations?.recipients ?? [];
     const explicitAllocationTotal = explicitAllocations.reduce(
       (sum, entry) => sum + BigInt(entry.amount),
       0n,
     );
     const tokensForSale = BigInt(
-      payload?.tokenomics?.tokensForSale ??
+      payload?.economics?.tokensForSale ??
         (explicitAllocations.length > 0
           ? (totalSupply - explicitAllocationTotal).toString()
           : totalSupply.toString()),
     );
     const allocationAmount = totalSupply - tokensForSale;
     const allocationMode =
-      allocationAmount > 0n ? (payload?.tokenomics?.allocations?.mode ?? 'vest') : 'none';
+      allocationAmount > 0n ? (payload?.economics?.allocations?.mode ?? 'vest') : 'none';
     const allocationDuration =
       allocationMode === 'none'
         ? 0
         : allocationMode === 'unlock'
           ? 0
-          : (payload?.tokenomics?.allocations?.durationSeconds ?? 90 * 24 * 60 * 60);
+          : (payload?.economics?.allocations?.durationSeconds ?? 90 * 24 * 60 * 60);
     const allocationRecipients =
       explicitAllocations.length > 0
         ? explicitAllocations
@@ -97,7 +93,7 @@ export const buildTestServer = async () => {
           ? [
               {
                 address:
-                  payload?.tokenomics?.allocations?.recipientAddress ??
+                  payload?.economics?.allocations?.recipientAddress ??
                   payload?.userAddress ??
                   '0x1111111111111111111111111111111111111111',
                 amount: allocationAmount.toString(),

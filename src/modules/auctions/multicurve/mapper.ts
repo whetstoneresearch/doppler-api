@@ -38,7 +38,7 @@ export const parsePositiveBigInt = (value: string, field: string): bigint => {
 export const resolveSaleNumbers = (
   input: CreateLaunchRequestInput,
 ): { totalSupply: bigint; tokensForSale: bigint } => {
-  const totalSupply = parsePositiveBigInt(input.tokenomics.totalSupply, 'tokenomics.totalSupply');
+  const totalSupply = parsePositiveBigInt(input.economics.totalSupply, 'economics.totalSupply');
   const { entries: explicitAllocations, fieldPath: explicitAllocationsPath } =
     parseExplicitAllocations(input);
   const explicitAllocationTotal = explicitAllocations.reduce(
@@ -46,21 +46,21 @@ export const resolveSaleNumbers = (
     0n,
   );
   const hasExplicitAllocations = explicitAllocations.length > 0;
-  const tokensForSale = input.tokenomics.tokensForSale
-    ? parsePositiveBigInt(input.tokenomics.tokensForSale, 'tokenomics.tokensForSale')
+  const tokensForSale = input.economics.tokensForSale
+    ? parsePositiveBigInt(input.economics.tokensForSale, 'economics.tokensForSale')
     : hasExplicitAllocations
       ? totalSupply - explicitAllocationTotal
       : totalSupply;
 
   if (tokensForSale <= 0n) {
-    throw new AppError(422, 'INVALID_TOKENOMICS', 'tokenomics.tokensForSale must be > 0');
+    throw new AppError(422, 'INVALID_TOKENOMICS', 'economics.tokensForSale must be > 0');
   }
 
   if (tokensForSale > totalSupply) {
     throw new AppError(
       422,
       'INVALID_TOKENOMICS',
-      'tokenomics.tokensForSale cannot exceed tokenomics.totalSupply',
+      'economics.tokensForSale cannot exceed economics.totalSupply',
     );
   }
 
@@ -71,7 +71,7 @@ export const resolveSaleNumbers = (
       throw new AppError(
         422,
         'INVALID_TOKENOMICS',
-        `tokenomics.tokensForSale must be at least ${MIN_MARKET_SALE_PERCENT.toString()}% of totalSupply`,
+        `economics.tokensForSale must be at least ${MIN_MARKET_SALE_PERCENT.toString()}% of totalSupply`,
       );
     }
   }
@@ -97,27 +97,14 @@ interface ExplicitAllocationEntry {
 
 interface ParsedExplicitAllocations {
   entries: ExplicitAllocationEntry[];
-  fieldPath: 'tokenomics.allocations.recipients' | 'tokenomics.allocations.allocations';
+  fieldPath: 'economics.allocations.recipients';
 }
 
 const parseExplicitAllocations = (input: CreateLaunchRequestInput): ParsedExplicitAllocations => {
-  const config = input.tokenomics.allocations;
-  const legacyAllocations = config?.allocations ?? [];
+  const config = input.economics.allocations;
   const recipients = config?.recipients ?? [];
-
-  if (legacyAllocations.length > 0 && recipients.length > 0) {
-    throw new AppError(
-      422,
-      'INVALID_TOKENOMICS',
-      'tokenomics.allocations.recipients cannot be used with tokenomics.allocations.allocations',
-    );
-  }
-
-  const fieldPath =
-    recipients.length > 0
-      ? 'tokenomics.allocations.recipients'
-      : 'tokenomics.allocations.allocations';
-  const requested = recipients.length > 0 ? recipients : legacyAllocations;
+  const fieldPath = 'economics.allocations.recipients';
+  const requested = recipients;
   if (requested.length === 0) return { entries: [], fieldPath };
 
   if (requested.length > MAX_ALLOCATION_RECIPIENTS) {
@@ -156,7 +143,7 @@ export const resolveAllocationPlan = (args: {
 }): AllocationPlan => {
   const { input, totalSupply, tokensForSale } = args;
   const allocationAmount = totalSupply - tokensForSale;
-  const config = input.tokenomics.allocations;
+  const config = input.economics.allocations;
   const { entries: explicitAllocations } = parseExplicitAllocations(input);
 
   if (allocationAmount === 0n) {
@@ -164,7 +151,7 @@ export const resolveAllocationPlan = (args: {
       throw new AppError(
         422,
         'INVALID_TOKENOMICS',
-        'tokenomics.allocations requires tokensForSale to be less than totalSupply',
+        'economics.allocations requires tokensForSale to be less than totalSupply',
       );
     }
 
@@ -183,7 +170,7 @@ export const resolveAllocationPlan = (args: {
     throw new AppError(
       422,
       'INVALID_TOKENOMICS',
-      'tokenomics.allocations.recipientAddress cannot be used with explicit recipient splits',
+      'economics.allocations.recipientAddress cannot be used with explicit recipient splits',
     );
   }
 
@@ -199,7 +186,7 @@ export const resolveAllocationPlan = (args: {
       throw new AppError(
         422,
         'INVALID_TOKENOMICS',
-        'tokenomics.allocations.durationSeconds must be 0 when mode is "unlock"',
+        'economics.allocations.durationSeconds must be 0 when mode is "unlock"',
       );
     }
     lockDurationSeconds = 0;
@@ -209,7 +196,7 @@ export const resolveAllocationPlan = (args: {
       throw new AppError(
         422,
         'INVALID_TOKENOMICS',
-        'tokenomics.allocations.durationSeconds must be > 0 for vest/vault modes',
+        'economics.allocations.durationSeconds must be > 0 for vest/vault modes',
       );
     }
   }
@@ -218,7 +205,7 @@ export const resolveAllocationPlan = (args: {
     throw new AppError(
       422,
       'INVALID_TOKENOMICS',
-      'tokenomics.allocations.cliffDurationSeconds cannot exceed durationSeconds',
+      'economics.allocations.cliffDurationSeconds cannot exceed durationSeconds',
     );
   }
 

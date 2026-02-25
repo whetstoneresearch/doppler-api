@@ -50,11 +50,11 @@ Use curated tiers (`low`, `medium`, `high`) and optionally choose fee/tick spaci
 Use explicit market-cap ranges and supply allocations (`sharesWad`).
 
 Note: `sharesWad` controls allocation across market-cap curves inside the launch market.
-Top-level sale allocation is configured separately with `tokenomics.tokensForSale`:
+Top-level sale allocation is configured separately with `economics.tokensForSale`:
 
 - if omitted, 100% of supply is sold into the launch market
 - if provided, the remainder is allocated to provided addresses with lock settings from
-  `tokenomics.allocations` (default 90-day vest)
+  `economics.allocations` (default 90-day vest)
 - when split allocations are used, market allocation must still be at least 20% of total supply
 
 ### Requirements
@@ -111,7 +111,7 @@ Top-level sale allocation is configured separately with `tokenomics.tokensForSal
     "symbol": "CCT",
     "tokenURI": "ipfs://custom-curve-token"
   },
-  "tokenomics": {
+  "economics": {
     "totalSupply": "1000000000000000000000000"
   },
   "pricing": {

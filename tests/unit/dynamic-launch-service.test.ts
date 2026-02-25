@@ -71,7 +71,7 @@ describe('dynamic launch service', () => {
       userAddress: '0x1111111111111111111111111111111111111111',
       integrationAddress: '0x2222222222222222222222222222222222222222',
       tokenMetadata: { name: 'Dynamic', symbol: 'DYN', tokenURI: 'ipfs://token' },
-      tokenomics: {
+      economics: {
         totalSupply: '1000',
         tokensForSale: '800',
       },
@@ -183,7 +183,7 @@ describe('dynamic launch service', () => {
       chainId: 84532,
       userAddress: '0x1111111111111111111111111111111111111111',
       tokenMetadata: { name: 'Dynamic', symbol: 'DYN', tokenURI: 'ipfs://token' },
-      tokenomics: {
+      economics: {
         totalSupply: '1000',
       },
       migration: { type: 'uniswapV4', fee: 20_000, tickSpacing: 100 },
@@ -269,7 +269,7 @@ describe('dynamic launch service', () => {
       chainId: 84532,
       userAddress: '0x1111111111111111111111111111111111111111',
       tokenMetadata: { name: 'Dynamic', symbol: 'DYN', tokenURI: 'ipfs://token' },
-      tokenomics: {
+      economics: {
         totalSupply: '1000',
       },
       migration: { type: 'noOp' },

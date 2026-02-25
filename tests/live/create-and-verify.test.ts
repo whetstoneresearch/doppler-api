@@ -96,7 +96,6 @@ interface MulticurveLiveOverrides {
   salePercent?: number;
   allocations?: {
     recipientAddress?: `0x${string}`;
-    allocations?: Array<{ address: `0x${string}`; amount: string }>;
     recipients?: Array<{ address: `0x${string}`; amount: string }>;
     mode?: 'vest' | 'unlock' | 'vault';
     durationSeconds?: number;
@@ -131,7 +130,7 @@ interface MulticurveLiveOverrides {
           numerairePrice?: number;
           farTick?: number;
         };
-  };
+      };
 }
 
 type LiveAllocationsConfig = NonNullable<MulticurveLiveOverrides['allocations']>;
@@ -726,8 +725,7 @@ const runMulticurveLaunchAndVerify = async (
     throw new Error(`tokensForSale resolved to 0 for salePercent=${salePercent}`);
   }
   const allocationAmount = totalSupply - tokensForSale;
-  const explicitAllocations =
-    overrides?.allocations?.recipients ?? overrides?.allocations?.allocations ?? [];
+  const explicitAllocations = overrides?.allocations?.recipients ?? [];
   const explicitAllocationTotal = explicitAllocations.reduce(
     (sum, entry) => sum + BigInt(entry.amount),
     0n,
@@ -841,7 +839,7 @@ const runMulticurveLaunchAndVerify = async (
       symbol,
       tokenURI: tokenUri,
     },
-    tokenomics: {
+    economics: {
       totalSupply: totalSupply.toString(),
       ...(tokensForSale !== totalSupply ? { tokensForSale: tokensForSale.toString() } : {}),
       ...(allocationAmount > 0n && overrides?.allocations
@@ -1211,7 +1209,7 @@ const runStaticLaunchAndVerify = async (args?: {
     throw new Error(`tokensForSale resolved to 0 for salePercent=${salePercent}`);
   }
   const allocationAmount = totalSupply - tokensForSale;
-  const explicitAllocations = args?.allocations?.recipients ?? args?.allocations?.allocations ?? [];
+  const explicitAllocations = args?.allocations?.recipients ?? [];
   const explicitAllocationTotal = explicitAllocations.reduce(
     (sum, entry) => sum + BigInt(entry.amount),
     0n,
@@ -1221,7 +1219,8 @@ const runStaticLaunchAndVerify = async (args?: {
       `explicit allocation sum mismatch: expected ${allocationAmount}, got ${explicitAllocationTotal}`,
     );
   }
-  const requestedAllocationMode = allocationAmount > 0n ? (args?.allocations?.mode ?? 'vest') : 'none';
+  const requestedAllocationMode =
+    allocationAmount > 0n ? (args?.allocations?.mode ?? 'vest') : 'none';
   const allocationRecipientAddress =
     explicitAllocations[0]?.address ?? args?.allocations?.recipientAddress ?? userAddress;
   const expectedVestingRecipients =
@@ -1241,7 +1240,8 @@ const runStaticLaunchAndVerify = async (args?: {
       ? 0
       : (args?.allocations?.durationSeconds ?? DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS);
   const salePercentIsDefault = args?.salePercent === undefined;
-  const allocationRecipientIsDefault = explicitAllocations.length === 0 && !args?.allocations?.recipientAddress;
+  const allocationRecipientIsDefault =
+    explicitAllocations.length === 0 && !args?.allocations?.recipientAddress;
   const allocationModeIsDefault = allocationAmount > 0n && !args?.allocations?.mode;
   const allocationDurationIsDefault =
     allocationAmount > 0n &&
@@ -1314,7 +1314,7 @@ const runStaticLaunchAndVerify = async (args?: {
       symbol,
       tokenURI: tokenUri,
     },
-    tokenomics: {
+    economics: {
       totalSupply: totalSupply.toString(),
       ...(tokensForSale !== totalSupply ? { tokensForSale: tokensForSale.toString() } : {}),
       ...(allocationAmount > 0n && args?.allocations ? { allocations: args.allocations } : {}),
@@ -1453,9 +1453,9 @@ const runStaticLaunchAndVerify = async (args?: {
     if (allocationAmount > 0n) {
       const decodedTokenFactoryData = decodeStandardTokenFactoryData(createArg.tokenFactoryData);
       expect(decodedTokenFactoryData.vestingDuration).toBe(BigInt(allocationLockDurationSeconds));
-      expect(decodedTokenFactoryData.recipients.map((recipient) => recipient.toLowerCase())).toEqual(
-        expectedVestingRecipients.map((recipient) => recipient.toLowerCase()),
-      );
+      expect(
+        decodedTokenFactoryData.recipients.map((recipient) => recipient.toLowerCase()),
+      ).toEqual(expectedVestingRecipients.map((recipient) => recipient.toLowerCase()));
       expect(decodedTokenFactoryData.amounts.map((amount) => amount.toString())).toEqual(
         expectedVestingAmounts.map((amount) => amount.toString()),
       );
@@ -1547,7 +1547,7 @@ const runDynamicLaunchAndVerify = async (args?: {
     throw new Error(`tokensForSale resolved to 0 for salePercent=${salePercent}`);
   }
   const allocationAmount = totalSupply - tokensForSale;
-  const explicitAllocations = args?.allocations?.recipients ?? args?.allocations?.allocations ?? [];
+  const explicitAllocations = args?.allocations?.recipients ?? [];
   const explicitAllocationTotal = explicitAllocations.reduce(
     (sum, entry) => sum + BigInt(entry.amount),
     0n,
@@ -1557,7 +1557,8 @@ const runDynamicLaunchAndVerify = async (args?: {
       `explicit allocation sum mismatch: expected ${allocationAmount}, got ${explicitAllocationTotal}`,
     );
   }
-  const requestedAllocationMode = allocationAmount > 0n ? (args?.allocations?.mode ?? 'vest') : 'none';
+  const requestedAllocationMode =
+    allocationAmount > 0n ? (args?.allocations?.mode ?? 'vest') : 'none';
   const allocationRecipientAddress =
     explicitAllocations[0]?.address ?? args?.allocations?.recipientAddress ?? userAddress;
   const expectedVestingRecipients =
@@ -1577,7 +1578,8 @@ const runDynamicLaunchAndVerify = async (args?: {
       ? 0
       : (args?.allocations?.durationSeconds ?? DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS);
   const salePercentIsDefault = args?.salePercent === undefined;
-  const allocationRecipientIsDefault = explicitAllocations.length === 0 && !args?.allocations?.recipientAddress;
+  const allocationRecipientIsDefault =
+    explicitAllocations.length === 0 && !args?.allocations?.recipientAddress;
   const allocationModeIsDefault = allocationAmount > 0n && !args?.allocations?.mode;
   const allocationDurationIsDefault =
     allocationAmount > 0n &&
@@ -1664,7 +1666,7 @@ const runDynamicLaunchAndVerify = async (args?: {
       symbol,
       tokenURI: tokenUri,
     },
-    tokenomics: {
+    economics: {
       totalSupply: totalSupply.toString(),
       ...(tokensForSale !== totalSupply ? { tokensForSale: tokensForSale.toString() } : {}),
       ...(allocationAmount > 0n && args?.allocations ? { allocations: args.allocations } : {}),
@@ -1830,9 +1832,9 @@ const runDynamicLaunchAndVerify = async (args?: {
     if (allocationAmount > 0n) {
       const decodedTokenFactoryData = decodeStandardTokenFactoryData(createArg.tokenFactoryData);
       expect(decodedTokenFactoryData.vestingDuration).toBe(BigInt(allocationLockDurationSeconds));
-      expect(decodedTokenFactoryData.recipients.map((recipient) => recipient.toLowerCase())).toEqual(
-        expectedVestingRecipients.map((recipient) => recipient.toLowerCase()),
-      );
+      expect(
+        decodedTokenFactoryData.recipients.map((recipient) => recipient.toLowerCase()),
+      ).toEqual(expectedVestingRecipients.map((recipient) => recipient.toLowerCase()));
       expect(decodedTokenFactoryData.amounts.map((amount) => amount.toString())).toEqual(
         expectedVestingAmounts.map((amount) => amount.toString()),
       );
@@ -1923,7 +1925,7 @@ const runCustomCurveLaunchAndVerify = async () => {
       symbol,
       tokenURI: tokenUri,
     },
-    tokenomics: {
+    economics: {
       totalSupply,
     },
     pricing: {
@@ -2166,14 +2168,14 @@ const runCustomCurveWithRandomVestingAndAllocations = async () => {
       symbol,
       tokenURI: tokenUri,
     },
-    tokenomics: {
+    economics: {
       totalSupply: totalSupply.toString(),
       tokensForSale: tokensForSale.toString(),
       allocations: {
         mode: 'vest',
         durationSeconds: vestDurationSeconds,
         cliffDurationSeconds,
-        allocations,
+        recipients: allocations,
       },
     },
     pricing: {
@@ -2701,7 +2703,7 @@ describe('live create verification', () => {
         allocations: {
           mode: 'vest',
           durationSeconds: 60 * 24 * 60 * 60,
-          allocations,
+          recipients: allocations,
         },
       });
     },
@@ -2867,7 +2869,7 @@ describe('live create verification', () => {
           symbol: `P${Date.now().toString().slice(-4)}`,
           tokenURI: 'ipfs://live-planned',
         },
-        tokenomics: {
+        economics: {
           totalSupply: (1_000_000n * 10n ** 18n).toString(),
         },
         auction: {

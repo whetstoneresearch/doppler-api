@@ -74,7 +74,7 @@ describe('static launch service', () => {
       userAddress: '0x1111111111111111111111111111111111111111',
       integrationAddress: '0x2222222222222222222222222222222222222222',
       tokenMetadata: { name: 'Static', symbol: 'STC', tokenURI: 'ipfs://token' },
-      tokenomics: {
+      economics: {
         totalSupply: '1000',
         tokensForSale: '800',
       },
@@ -200,7 +200,7 @@ describe('static launch service', () => {
       chainId: 84532,
       userAddress: '0x1111111111111111111111111111111111111111',
       tokenMetadata: { name: 'Static', symbol: 'STC', tokenURI: 'ipfs://token' },
-      tokenomics: {
+      economics: {
         totalSupply: '1000',
       },
       migration: { type: 'noOp' },

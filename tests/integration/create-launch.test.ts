@@ -24,7 +24,7 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '1000' },
+        economics: { totalSupply: '1000' },
         governance: { enabled: false, mode: 'noOp' },
         migration: { type: 'noOp' },
         auction: {
@@ -54,7 +54,7 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Static Token', symbol: 'STK', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '1000' },
+        economics: { totalSupply: '1000' },
         governance: { enabled: false, mode: 'noOp' },
         migration: { type: 'noOp' },
         auction: {
@@ -85,7 +85,7 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Static Range Token', symbol: 'SRT', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '1000' },
+        economics: { totalSupply: '1000' },
         governance: { enabled: false, mode: 'noOp' },
         migration: { type: 'noOp' },
         auction: {
@@ -117,7 +117,7 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Dynamic Token', symbol: 'DYN', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '1000' },
+        economics: { totalSupply: '1000' },
         governance: { enabled: false, mode: 'noOp' },
         migration: { type: 'uniswapV2' },
         auction: {
@@ -156,7 +156,7 @@ describe('POST /v1/launches', () => {
           symbol: 'DV4',
           tokenURI: 'ipfs://token',
         },
-        tokenomics: { totalSupply: '1000' },
+        economics: { totalSupply: '1000' },
         governance: { enabled: false, mode: 'noOp' },
         migration: { type: 'uniswapV4', fee: 20_000, tickSpacing: 100 },
         auction: {
@@ -188,7 +188,7 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Static Alias Token', symbol: 'SAT', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '1000' },
+        economics: { totalSupply: '1000' },
         governance: { enabled: false, mode: 'noOp' },
         migration: { type: 'noOp' },
         auction: {
@@ -217,7 +217,7 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Dynamic Alias Token', symbol: 'DAT', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '1000' },
+        economics: { totalSupply: '1000' },
         governance: { enabled: false, mode: 'noOp' },
         migration: { type: 'uniswapV2' },
         auction: {
@@ -250,7 +250,7 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Wrong Alias Token', symbol: 'WAT', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '1000' },
+        economics: { totalSupply: '1000' },
         governance: { enabled: false, mode: 'noOp' },
         migration: { type: 'noOp' },
         auction: {
@@ -275,7 +275,7 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Wrong Dynamic Alias', symbol: 'WDA', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '1000' },
+        economics: { totalSupply: '1000' },
         governance: { enabled: false, mode: 'noOp' },
         migration: { type: 'noOp' },
         auction: {
@@ -300,7 +300,7 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Split Token', symbol: 'SPL', tokenURI: 'ipfs://split' },
-        tokenomics: { totalSupply: '1000', tokensForSale: '200' },
+        economics: { totalSupply: '1000', tokensForSale: '200' },
         governance: { enabled: false, mode: 'noOp' },
         migration: { type: 'noOp' },
         auction: {
@@ -333,7 +333,7 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Unlocked Token', symbol: 'ULK', tokenURI: 'ipfs://unlock' },
-        tokenomics: {
+        economics: {
           totalSupply: '1000',
           tokensForSale: '400',
           allocations: {
@@ -374,11 +374,11 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Team Split Token', symbol: 'TST', tokenURI: 'ipfs://split' },
-        tokenomics: {
+        economics: {
           totalSupply: '1000',
           allocations: {
             mode: 'vest',
-            allocations: [
+            recipients: [
               { address: '0x2222222222222222222222222222222222222222', amount: '300' },
               { address: '0x3333333333333333333333333333333333333333', amount: '200' },
             ],
@@ -412,7 +412,7 @@ describe('POST /v1/launches', () => {
     const basePayload = {
       userAddress: '0x1111111111111111111111111111111111111111',
       tokenMetadata: { name: 'Init Token', symbol: 'INI', tokenURI: 'ipfs://init' },
-      tokenomics: {
+      economics: {
         totalSupply: '1000',
         tokensForSale: '800',
       },
@@ -492,7 +492,7 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Governed Token', symbol: 'GOV', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '1000' },
+        economics: { totalSupply: '1000' },
         governance: true,
         migration: { type: 'noOp' },
         auction: {
@@ -518,7 +518,7 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Governed Static Token', symbol: 'GST', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '1000' },
+        economics: { totalSupply: '1000' },
         governance: true,
         migration: { type: 'noOp' },
         auction: {
@@ -548,7 +548,7 @@ describe('POST /v1/launches', () => {
           symbol: 'GDT',
           tokenURI: 'ipfs://token',
         },
-        tokenomics: { totalSupply: '1000' },
+        economics: { totalSupply: '1000' },
         governance: true,
         migration: { type: 'uniswapV2' },
         auction: {
@@ -577,7 +577,7 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-        tokenomics: { totalSupply: '1000' },
+        economics: { totalSupply: '1000' },
         governance: { enabled: false, mode: 'noOp' },
         migration: { type: 'noOp' },
         auction: {

@@ -63,7 +63,7 @@ describe('multicurve launch service', () => {
       chainId: 84532,
       userAddress: '0x1111111111111111111111111111111111111111',
       tokenMetadata: { name: 'Multicurve', symbol: 'MLT', tokenURI: 'ipfs://token' },
-      tokenomics: { totalSupply: '1000', tokensForSale: '1000' },
+      economics: { totalSupply: '1000', tokensForSale: '1000' },
       governance: true,
       migration: { type: 'noOp' },
       auction: {
