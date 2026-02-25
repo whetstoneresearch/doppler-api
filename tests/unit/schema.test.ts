@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createLaunchRequestSchema } from '../../src/modules/launches/schema';
 
 describe('create launch schema', () => {
-  it('accepts valid payload with recipients alias', () => {
+  it('accepts valid payload with recipients', () => {
     const parsed = createLaunchRequestSchema.parse({
       userAddress: '0x1111111111111111111111111111111111111111',
       integrationAddress: '0x2222222222222222222222222222222222222222',

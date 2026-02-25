@@ -45,7 +45,7 @@ All errors are returned as:
 - `MIGRATION_MODE_UNSUPPORTED`
 - `GOVERNANCE_MODE_UNSUPPORTED`
 - `NUMERAIRE_REQUIRED`
-- `INVALID_TOKENOMICS`
+- `INVALID_ECONOMICS`
   - includes allocation errors such as:
     - `tokensForSale` below 20% market minimum when using split allocations
     - non-market allocation sums not matching `totalSupply - tokensForSale`
