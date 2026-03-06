@@ -33,7 +33,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Reuse the same key for safe retries of identical create payloads.
+          description: Reuse the same key for safe retries of identical create payloads (required in shared/prod mode).
       requestBody:
         required: true
         content:
@@ -49,6 +49,8 @@ paths:
                 $ref: '#/components/schemas/CreateLaunchResponse'
         '401':
           $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '422':
           $ref: '#/components/responses/Error'
         '501':
@@ -68,7 +70,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Reuse the same key for safe retries of identical create payloads.
+          description: Reuse the same key for safe retries of identical create payloads (required in shared/prod mode).
       requestBody:
         required: true
         content:
@@ -84,6 +86,8 @@ paths:
                 $ref: '#/components/schemas/CreateLaunchResponse'
         '401':
           $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '422':
           $ref: '#/components/responses/Error'
         '501':
@@ -103,7 +107,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Reuse the same key for safe retries of identical create payloads.
+          description: Reuse the same key for safe retries of identical create payloads (required in shared/prod mode).
       requestBody:
         required: true
         content:
@@ -119,6 +123,8 @@ paths:
                 $ref: '#/components/schemas/CreateLaunchResponse'
         '401':
           $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '422':
           $ref: '#/components/responses/Error'
         '501':
@@ -138,7 +144,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Reuse the same key for safe retries of identical create payloads.
+          description: Reuse the same key for safe retries of identical create payloads (required in shared/prod mode).
       requestBody:
         required: true
         content:
@@ -154,6 +160,8 @@ paths:
                 $ref: '#/components/schemas/CreateLaunchResponse'
         '401':
           $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '422':
           $ref: '#/components/responses/Error'
         '501':
@@ -183,6 +191,8 @@ paths:
                 $ref: '#/components/schemas/LaunchStatusResponse'
         '401':
           $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '422':
           $ref: '#/components/responses/Error'
         '502':
@@ -202,6 +212,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CapabilitiesResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /health:
     get:
       tags: [Ops]
@@ -220,6 +232,8 @@ paths:
                     type: string
                     example: ok
                 required: [status]
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /ready:
     get:
       tags: [Ops]
@@ -239,6 +253,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReadyResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /metrics:
     get:
       tags: [Ops]
@@ -252,6 +268,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MetricsResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -261,6 +279,12 @@ components:
   responses:
     Error:
       description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    TooManyRequests:
+      description: Rate limit exceeded
       content:
         application/json:
           schema:
@@ -282,6 +306,7 @@ components:
               type: string
             message:
               type: string
+              description: For 5xx responses this is always "Internal server error".
             details: {}
           required: [code, message]
       required: [error]

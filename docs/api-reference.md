@@ -18,6 +18,14 @@ Base URL (local): `http://localhost:3000`
   - `GET /v1/capabilities`
   - `GET /metrics`
 
+## Error behavior
+
+- Error envelope shape: `{ error: { code, message, details? } }`
+- Rate limiting returns `429 RATE_LIMITED`.
+- Public routes are rate-limited by client IP (spoofed `x-api-key` values are ignored for bucketing).
+- For all `5xx` responses, `message` is intentionally generic (`"Internal server error"`);
+  use server logs plus `x-request-id` for diagnostics.
+
 ## Implemented endpoints
 
 ### `POST /v1/launches`
@@ -128,16 +136,20 @@ Generic launch creation endpoint (future-compatible).
 
 #### Idempotency header
 
-- Optional request header: `Idempotency-Key: <string>`
+- Request header: `Idempotency-Key: <string>`
+  - optional in local mode
+  - required in shared/prod mode
 - same key + same request payload: returns original response and sets `x-idempotency-replayed: true`
 - same key + different payload: returns `409 IDEMPOTENCY_KEY_REUSE_MISMATCH`
-- when `IDEMPOTENCY_REQUIRE_KEY=true`, create requests without header return `422 IDEMPOTENCY_KEY_REQUIRED`
+- when `IDEMPOTENCY_REQUIRE_KEY=true` (always true in shared mode), create requests without header return `422 IDEMPOTENCY_KEY_REQUIRED`
 
 #### Error responses
 
 - `401 UNAUTHORIZED`
+- `429 RATE_LIMITED`
 - `422 INVALID_REQUEST` (schema validation) and domain-specific validation errors
 - `501 MIGRATION_NOT_IMPLEMENTED` for unsupported migration modes (for example `uniswapV3`)
+- `500 INTERNAL_ERROR` (message is generic)
 
 ---
 
@@ -190,10 +202,11 @@ Returns current launch transaction status.
 #### Error responses
 
 - `401 UNAUTHORIZED`
+- `429 RATE_LIMITED`
 - `422 INVALID_LAUNCH_ID`
 - `502 CHAIN_LOOKUP_FAILED`
 - `502 CREATE_EVENT_NOT_FOUND`
-- `500 INTERNAL_ERROR` (unexpected)
+- `500 INTERNAL_ERROR` (message is generic)
 
 ---
 

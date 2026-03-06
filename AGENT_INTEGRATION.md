@@ -43,11 +43,26 @@ npm run test:live --verbose
 - Add `--verbose` to print per-launch parameter + onchain verification tables.
 - Live launch creation tests run sequentially to avoid nonce conflicts for one signer.
 
+## 1c. Shared/prod mode requirements
+
+- Set `DEPLOYMENT_MODE=shared` (or run with `NODE_ENV=production` and no explicit deployment mode).
+- Set `REDIS_URL` and `IDEMPOTENCY_BACKEND=redis`.
+- In shared mode, create endpoints require `Idempotency-Key`.
+- Rate-limit state is Redis-backed; public-route limiting buckets by IP (spoofed `x-api-key` does not bypass).
+- Shared mode startup fails fast if Redis is unreachable.
+
 ## 2. Required auth
 
 Include API key header on launch/status routes:
 
 - `x-api-key: <API_KEY>`
+
+## 2b. Error behavior
+
+- Error envelope shape: `{ "error": { "code", "message", "details?" } }`
+- Rate limiting returns `429` with code `RATE_LIMITED`.
+- `5xx` responses intentionally return a generic message (`"Internal server error"`).
+  Use server logs and `x-request-id` for detailed diagnostics.
 
 ## 3. One launch flow
 
@@ -66,7 +81,7 @@ Auction selection guidance:
 - Use `auction.type="dynamic"` for high value assets that need maximally capital-efficient price discovery.
 - Use `auction.type="static"` only for networks that do not support Uniswap V4.
 
-Use `Idempotency-Key` on create requests in production integrations.
+Use `Idempotency-Key` on all create requests in shared/prod integrations (required by policy).
 
 ## 4. Minimal request template
 

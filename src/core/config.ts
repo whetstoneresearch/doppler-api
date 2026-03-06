@@ -9,6 +9,9 @@ const DEFAULT_AUCTION_TYPES: AuctionType[] = ['multicurve'];
 const DEFAULT_MIGRATION_TYPES: MigrationType[] = ['noOp'];
 const DEFAULT_GOVERNANCE_MODES: GovernanceMode[] = ['noOp', 'default'];
 
+export type DeploymentMode = 'local' | 'shared';
+export type IdempotencyBackend = 'file' | 'redis';
+
 export interface ChainRuntimeConfig {
   chainId: number;
   rpcUrl: string;
@@ -21,6 +24,7 @@ export interface ChainRuntimeConfig {
 
 export interface AppConfig {
   port: number;
+  deploymentMode: DeploymentMode;
   apiKey: string;
   apiKeys: string[];
   defaultChainId: number;
@@ -33,11 +37,18 @@ export interface AppConfig {
     max: number;
     timeWindowMs: number;
   };
+  redis: {
+    url?: string;
+    keyPrefix: string;
+  };
   idempotency: {
     enabled: boolean;
+    backend: IdempotencyBackend;
     requireKey: boolean;
     ttlMs: number;
     storePath: string;
+    redisLockTtlMs: number;
+    redisLockRefreshMs: number;
   };
   pricing: {
     enabled: boolean;
@@ -69,6 +80,28 @@ const parseStringArray = (value: string | undefined): string[] => {
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean);
+};
+
+const parseDeploymentMode = (): DeploymentMode => {
+  const raw = process.env.DEPLOYMENT_MODE?.trim().toLowerCase();
+  if (!raw) {
+    return process.env.NODE_ENV?.trim().toLowerCase() === 'production' ? 'shared' : 'local';
+  }
+
+  if (raw === 'local' || raw === 'shared') {
+    return raw;
+  }
+
+  throw new AppError(500, 'INVALID_ENV', 'DEPLOYMENT_MODE must be "local" or "shared"');
+};
+
+const parseIdempotencyBackend = (): IdempotencyBackend => {
+  const raw = process.env.IDEMPOTENCY_BACKEND?.trim().toLowerCase() || 'file';
+  if (raw === 'file' || raw === 'redis') {
+    return raw;
+  }
+
+  throw new AppError(500, 'INVALID_ENV', 'IDEMPOTENCY_BACKEND must be "file" or "redis"');
 };
 
 const chainConfigSchema = z.object({
@@ -143,6 +176,16 @@ export const loadConfig = (): AppConfig => {
   const apiKey = process.env.API_KEY;
   const rpcUrl = process.env.RPC_URL;
   const privateKey = process.env.PRIVATE_KEY as `0x${string}` | undefined;
+  const deploymentMode = parseDeploymentMode();
+  const redisUrl = process.env.REDIS_URL?.trim() || undefined;
+  const redisKeyPrefix = process.env.REDIS_KEY_PREFIX?.trim() || 'doppler-api';
+  const idempotencyEnabled = parseBoolean(process.env.IDEMPOTENCY_ENABLED, true);
+  const idempotencyBackend = parseIdempotencyBackend();
+  const idempotencyRedisLockTtlMs = parseNumber(process.env.IDEMPOTENCY_REDIS_LOCK_TTL_MS, 900_000);
+  const idempotencyRedisLockRefreshMs = parseNumber(
+    process.env.IDEMPOTENCY_REDIS_LOCK_REFRESH_MS,
+    Math.max(Math.floor(idempotencyRedisLockTtlMs / 3), 1_000),
+  );
 
   if (!apiKey) {
     throw new AppError(500, 'MISSING_ENV', 'API_KEY is required');
@@ -180,9 +223,44 @@ export const loadConfig = (): AppConfig => {
   const provider = (process.env.PRICE_PROVIDER?.trim() || 'coingecko') as 'coingecko' | 'none';
   const apiKeys = parseStringArray(process.env.API_KEYS);
   const resolvedApiKeys = [...new Set([apiKey, ...apiKeys].filter(Boolean) as string[])];
+  const requireIdempotencyKey =
+    deploymentMode === 'shared' ? true : parseBoolean(process.env.IDEMPOTENCY_REQUIRE_KEY, false);
+
+  if (idempotencyBackend === 'redis' && !redisUrl) {
+    throw new AppError(500, 'MISSING_ENV', 'REDIS_URL is required when IDEMPOTENCY_BACKEND=redis');
+  }
+
+  if (idempotencyRedisLockRefreshMs >= idempotencyRedisLockTtlMs) {
+    throw new AppError(
+      500,
+      'INVALID_ENV',
+      'IDEMPOTENCY_REDIS_LOCK_REFRESH_MS must be less than IDEMPOTENCY_REDIS_LOCK_TTL_MS',
+    );
+  }
+
+  if (deploymentMode === 'shared') {
+    if (!redisUrl) {
+      throw new AppError(500, 'MISSING_ENV', 'REDIS_URL is required when DEPLOYMENT_MODE=shared');
+    }
+    if (!idempotencyEnabled) {
+      throw new AppError(
+        500,
+        'INVALID_ENV',
+        'IDEMPOTENCY_ENABLED must be true when DEPLOYMENT_MODE=shared',
+      );
+    }
+    if (idempotencyBackend !== 'redis') {
+      throw new AppError(
+        500,
+        'INVALID_ENV',
+        'IDEMPOTENCY_BACKEND must be "redis" when DEPLOYMENT_MODE=shared',
+      );
+    }
+  }
 
   return {
     port: parseNumber(process.env.PORT, 3000),
+    deploymentMode,
     apiKey,
     apiKeys: resolvedApiKeys,
     defaultChainId,
@@ -195,11 +273,18 @@ export const loadConfig = (): AppConfig => {
       max: parseNumber(process.env.RATE_LIMIT_MAX, 100),
       timeWindowMs: parseNumber(process.env.RATE_LIMIT_WINDOW_MS, 60_000),
     },
+    redis: {
+      url: redisUrl,
+      keyPrefix: redisKeyPrefix,
+    },
     idempotency: {
-      enabled: parseBoolean(process.env.IDEMPOTENCY_ENABLED, true),
-      requireKey: parseBoolean(process.env.IDEMPOTENCY_REQUIRE_KEY, false),
+      enabled: idempotencyEnabled,
+      backend: idempotencyBackend,
+      requireKey: requireIdempotencyKey,
       ttlMs: parseNumber(process.env.IDEMPOTENCY_TTL_MS, 86_400_000),
       storePath: process.env.IDEMPOTENCY_STORE_PATH || '.data/idempotency-store.json',
+      redisLockTtlMs: idempotencyRedisLockTtlMs,
+      redisLockRefreshMs: idempotencyRedisLockRefreshMs,
     },
     pricing: {
       enabled: pricingEnabled,

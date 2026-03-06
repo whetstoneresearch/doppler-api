@@ -5,6 +5,7 @@ import { MetricsRegistry } from '../../src/core/metrics';
 export const buildTestServer = async () => {
   const config: AppConfig = {
     port: 3000,
+    deploymentMode: 'local',
     apiKey: 'test-key',
     apiKeys: ['test-key'],
     defaultChainId: 84532,
@@ -16,11 +17,17 @@ export const buildTestServer = async () => {
       max: 100,
       timeWindowMs: 60_000,
     },
+    redis: {
+      keyPrefix: 'doppler-api-test',
+    },
     idempotency: {
       enabled: true,
+      backend: 'file',
       requireKey: false,
       ttlMs: 86_400_000,
       storePath: '.test-results/test-idempotency.json',
+      redisLockTtlMs: 900_000,
+      redisLockRefreshMs: 300_000,
     },
     pricing: {
       enabled: false,

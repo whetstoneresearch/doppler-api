@@ -5,6 +5,7 @@ import type { AppConfig } from '../../src/core/config';
 
 const baseConfig: AppConfig = {
   port: 3000,
+  deploymentMode: 'local',
   apiKey: 'test',
   apiKeys: ['test'],
   defaultChainId: 84532,
@@ -16,11 +17,17 @@ const baseConfig: AppConfig = {
     max: 100,
     timeWindowMs: 60_000,
   },
+  redis: {
+    keyPrefix: 'doppler-api-test',
+  },
   idempotency: {
     enabled: true,
+    backend: 'file',
     requireKey: false,
     ttlMs: 86_400_000,
     storePath: '.test-results/test-idempotency.json',
+    redisLockTtlMs: 900_000,
+    redisLockRefreshMs: 300_000,
   },
   pricing: {
     enabled: false,

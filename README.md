@@ -17,6 +17,14 @@ This project is in active development & not ready for production use.
 - `GET /health`
 - `GET /ready`
 
+## Error behavior
+
+- Error envelope shape: `{ "error": { "code", "message", "details?" } }`
+- Rate limiting returns `429` with code `RATE_LIMITED`.
+- Public route rate limits are keyed by client IP; spoofed `x-api-key` values do not create new buckets.
+- `5xx` responses always return a generic client message: `"Internal server error"`.
+  Inspect server logs and correlate by `x-request-id` for full diagnostics.
+
 ## Quick start
 
 ```bash
@@ -24,6 +32,19 @@ npm install
 cp .env.example .env
 npm run dev
 ```
+
+## Deployment modes and Redis
+
+- Local default (`DEPLOYMENT_MODE=local`):
+  - `IDEMPOTENCY_BACKEND=file` (default)
+  - no Redis required
+- Shared/prod (`DEPLOYMENT_MODE=shared`, or `NODE_ENV=production` when `DEPLOYMENT_MODE` is unset):
+  - `REDIS_URL` is required
+  - `IDEMPOTENCY_BACKEND` must be `redis`
+  - create endpoints always require `Idempotency-Key` (`IDEMPOTENCY_REQUIRE_KEY=true` is enforced)
+  - rate-limit state is Redis-backed for cross-replica consistency
+  - Redis-backed idempotency uses an in-flight lock heartbeat; tune
+    `IDEMPOTENCY_REDIS_LOCK_TTL_MS` to exceed max expected create duration
 
 ## Current target feature set
 
@@ -67,6 +88,7 @@ Example:
 ```http
 POST /v1/launches
 x-api-key: <API_KEY>
+Idempotency-Key: <UNIQUE_KEY>
 content-type: application/json
 ```
 

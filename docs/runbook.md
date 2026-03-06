@@ -15,7 +15,10 @@ This runbook covers public-launch incidents for:
    - `GET /ready`
 2. Confirm service pressure:
    - `GET /metrics`
-3. Find request in logs by `x-request-id`.
+3. Confirm shared-mode Redis config:
+   - `DEPLOYMENT_MODE=shared`
+   - `REDIS_URL` is set and reachable
+4. Find request in logs by `x-request-id`.
 
 ## Incident: create request failed before tx broadcast
 
@@ -29,6 +32,7 @@ Actions:
 2. If using idempotency:
    - reuse the same `Idempotency-Key` for safe retry with identical payload
    - do not reuse the key with changed payload
+   - in shared mode, create requests must include `Idempotency-Key`
 3. If pricing error:
    - provide explicit `pricing.numerairePriceUsd` or fix pricing provider config.
 
@@ -62,7 +66,9 @@ Actions:
 ## Rollback
 
 1. Redeploy previous known-good image/commit.
-2. Keep idempotency store path stable so duplicate create requests are still protected.
+2. Keep idempotency backend storage stable so duplicate create requests are still protected:
+   - file backend: keep `IDEMPOTENCY_STORE_PATH` stable
+   - redis backend: keep `REDIS_KEY_PREFIX` stable
 3. Verify:
    - `/health` = 200
    - `/ready` = 200

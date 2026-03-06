@@ -9,6 +9,9 @@
 ## Optional environment variables
 
 - `PORT` (default: `3000`)
+- `DEPLOYMENT_MODE` (default: `local`)
+  - allowed: `local`, `shared`
+  - if unset and `NODE_ENV=production`, deployment mode defaults to `shared`
 - `DEFAULT_CHAIN_ID` (default: `84532`)
 - `DEFAULT_NUMERAIRE_ADDRESS` (default from chain addresses)
 - `READY_RPC_TIMEOUT_MS` (default: `2000`)
@@ -21,12 +24,38 @@
 - `RATE_LIMIT_MAX` (default: `100`)
 - `RATE_LIMIT_WINDOW_MS` (default: `60000`)
 
+## Redis environment variables
+
+- `REDIS_URL`
+- `REDIS_KEY_PREFIX` (default: `doppler-api`)
+
 ## Idempotency environment variables
 
 - `IDEMPOTENCY_ENABLED` (default: `true`)
+- `IDEMPOTENCY_BACKEND` (default: `file`, allowed: `file`, `redis`)
 - `IDEMPOTENCY_REQUIRE_KEY` (default: `false`)
+  - forced to `true` when `DEPLOYMENT_MODE=shared`
 - `IDEMPOTENCY_TTL_MS` (default: `86400000`)
 - `IDEMPOTENCY_STORE_PATH` (default: `.data/idempotency-store.json`)
+- `IDEMPOTENCY_REDIS_LOCK_TTL_MS` (default: `900000`)
+  - TTL for cross-replica in-flight idempotency lock
+  - set this to at least your max expected create-launch duration
+- `IDEMPOTENCY_REDIS_LOCK_REFRESH_MS` (default: `300000`)
+  - heartbeat interval for refreshing the Redis in-flight lock
+  - must be lower than `IDEMPOTENCY_REDIS_LOCK_TTL_MS`
+
+## Shared mode guardrails
+
+When `DEPLOYMENT_MODE=shared`:
+
+- `REDIS_URL` is required.
+- `IDEMPOTENCY_ENABLED` must be `true`.
+- `IDEMPOTENCY_BACKEND` must be `redis`.
+- create endpoints require `Idempotency-Key`.
+- rate-limiter state uses Redis for cross-replica consistency.
+- startup fails fast if Redis cannot be reached.
+
+Local mode remains file-backed by default and does not require Redis.
 
 ## Pricing environment variables
 

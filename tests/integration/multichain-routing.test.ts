@@ -17,6 +17,7 @@ describe('GET /v1/capabilities', () => {
   it('returns per-chain capability matrix', async () => {
     const config: AppConfig = {
       port: 3000,
+      deploymentMode: 'local',
       apiKey: 'test-key',
       apiKeys: ['test-key'],
       defaultChainId: 84532,
@@ -28,11 +29,17 @@ describe('GET /v1/capabilities', () => {
         max: 100,
         timeWindowMs: 60_000,
       },
+      redis: {
+        keyPrefix: 'doppler-api-test',
+      },
       idempotency: {
         enabled: true,
+        backend: 'file',
         requireKey: false,
         ttlMs: 86_400_000,
         storePath: '.test-results/test-idempotency.json',
+        redisLockTtlMs: 900_000,
+        redisLockRefreshMs: 300_000,
       },
       pricing: {
         enabled: true,
