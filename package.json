@@ -33,26 +33,26 @@
     "test:all": "node scripts/test-runner.mjs --with-live"
   },
   "dependencies": {
-    "@fastify/cors": "^8.5.0",
-    "@fastify/rate-limit": "^8.0.3",
-    "@fastify/sensible": "^5.6.0",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/sensible": "^6.0.4",
     "@whetstone-research/doppler-sdk": "^0.0.22",
     "dotenv": "^16.4.5",
-    "fastify": "^4.28.1",
-    "fastify-plugin": "^4.5.1",
+    "fastify": "^5.8.1",
+    "fastify-plugin": "^5.1.0",
     "pino": "^9.5.0",
     "viem": "^2.21.53",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
-    "@typescript-eslint/eslint-plugin": "^8.56.0",
-    "@typescript-eslint/parser": "^8.56.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
     "eslint": "^8.57.1",
     "eslint-config-prettier": "^9.1.2",
     "prettier": "^3.8.1",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.8"
+    "vitest": "^4.0.18"
   }
 }

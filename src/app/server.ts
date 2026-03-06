@@ -77,7 +77,7 @@ export const buildServer = async (services?: AppServices) => {
   const resolvedServices = services ?? buildServices(loadConfig());
   const logger = createLogger(resolvedServices.config.logLevel);
 
-  const app = Fastify({ logger });
+  const app = Fastify({ loggerInstance: logger });
 
   await app.register(sensible);
   await app.register(cors, {
