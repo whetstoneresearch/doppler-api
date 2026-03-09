@@ -66,6 +66,7 @@ Include API key header on launch/status routes:
 - Rate limiting returns `429` with code `RATE_LIMITED`.
 - `5xx` responses intentionally return a generic message (`"Internal server error"`).
   Use server logs and `x-request-id` for detailed diagnostics.
+- `GET /ready` degraded checks intentionally return a generic per-chain error (`"dependency unavailable"`).
 
 ## 3. One launch flow
 

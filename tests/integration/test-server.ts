@@ -2,7 +2,11 @@ import { buildServer, type AppServices } from '../../src/app/server';
 import type { AppConfig } from '../../src/core/config';
 import { MetricsRegistry } from '../../src/core/metrics';
 
-export const buildTestServer = async () => {
+interface BuildTestServerOptions {
+  readyCheckFails?: boolean;
+}
+
+export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
   const config: AppConfig = {
     port: 3000,
     deploymentMode: 'local',
@@ -55,7 +59,12 @@ export const buildTestServer = async () => {
     config: config.chains[84532],
     addresses: { airlock: '0x0000000000000000000000000000000000000001' },
     publicClient: {
-      getBlockNumber: async () => 123n,
+      getBlockNumber: async () => {
+        if (options.readyCheckFails) {
+          throw new Error('rpc provider request failed with internal details');
+        }
+        return 123n;
+      },
     },
     walletClient: {},
   } as any;

@@ -252,6 +252,7 @@ Dependency readiness probe (RPC checks for configured chains).
 - body:
   - `status: "ready" | "degraded"`
   - `checks[]: { chainId, ok, latestBlock? , error? }`
+  - when `ok=false`, `error` is intentionally generic (`"dependency unavailable"`)
 
 ---
 

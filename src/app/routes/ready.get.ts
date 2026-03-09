@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 
 import type { ChainRegistry } from '../../infra/chain/registry';
 
+const READY_CHECK_FAILURE_MESSAGE = 'dependency unavailable';
+
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
   let timeout: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -29,11 +31,11 @@ export const registerReadyRoute = async (
             ok: true,
             latestBlock: block.toString(),
           };
-        } catch (error) {
+        } catch {
           return {
             chainId: chain.chainId,
             ok: false,
-            error: error instanceof Error ? error.message : 'unknown',
+            error: READY_CHECK_FAILURE_MESSAGE,
           };
         }
       }),

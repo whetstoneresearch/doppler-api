@@ -56,12 +56,14 @@ Actions:
 Symptoms:
 
 - `/ready` returns `503`, chain checks with `ok=false`.
+- readiness `checks[].error` is intentionally generic (`dependency unavailable`).
 
 Actions:
 
 1. Switch chain `rpcUrl` entries in `doppler.config.ts` (or override `RPC_URL` for `DEFAULT_CHAIN_ID`) to healthy endpoints.
 2. Restart service.
-3. Re-run `/ready` and a small create test with idempotency key.
+3. Inspect server logs for the root-cause RPC error details.
+4. Re-run `/ready` and a small create test with idempotency key.
 
 ## Rollback
 

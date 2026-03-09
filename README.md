@@ -342,6 +342,7 @@ Dynamic is intended for assets with well-known value that benefit from maximally
 
 - `GET /health`: process liveness
 - `GET /ready`: dependency readiness (chain RPC checks)
+- degraded readiness checks return a generic error string (`"dependency unavailable"`) to avoid leaking upstream internals
 
 Example `GET /health`:
 
