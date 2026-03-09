@@ -18,6 +18,7 @@ This runbook covers public-launch incidents for:
 3. Confirm shared-mode Redis config:
    - `DEPLOYMENT_MODE=shared`
    - `REDIS_URL` is set and reachable
+   - all replicas share the same `REDIS_KEY_PREFIX`
 4. Find request in logs by `x-request-id`.
 
 ## Incident: create request failed before tx broadcast
@@ -49,7 +50,8 @@ Actions:
 3. Retry request with same `Idempotency-Key`.
 4. If persistent:
    - restart service once to clear transient RPC client state
-   - verify no parallel systems are using the same `PRIVATE_KEY`.
+   - verify no parallel systems outside this deployment are using the same `PRIVATE_KEY`
+   - confirm Redis connectivity and consistent `REDIS_KEY_PREFIX` across replicas so the nonce lock is shared.
 
 ## Incident: RPC degraded
 

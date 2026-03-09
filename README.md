@@ -50,6 +50,7 @@ npm run dev
   - `IDEMPOTENCY_BACKEND` must be `redis`
   - create endpoints always require `Idempotency-Key` (`IDEMPOTENCY_REQUIRE_KEY=true` is enforced)
   - rate-limit state is Redis-backed for cross-replica consistency
+  - nonce submission uses a Redis-backed distributed signer lock for cross-replica coordination
   - Redis-backed idempotency uses an in-flight lock heartbeat; tune
     `IDEMPOTENCY_REDIS_LOCK_TTL_MS` to exceed max expected create duration
 

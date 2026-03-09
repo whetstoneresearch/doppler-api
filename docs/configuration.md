@@ -70,6 +70,7 @@ When `DEPLOYMENT_MODE=shared`:
 - `IDEMPOTENCY_BACKEND` must be `redis`.
 - create endpoints require `Idempotency-Key`.
 - rate-limiter state uses Redis for cross-replica consistency.
+- tx nonce submission uses a Redis-backed distributed signer lock for cross-replica coordination.
 - startup fails fast if Redis cannot be reached.
 
 Local mode remains file-backed by default and does not require Redis.

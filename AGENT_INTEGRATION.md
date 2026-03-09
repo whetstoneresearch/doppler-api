@@ -52,6 +52,7 @@ npm run test:live --verbose
 - Set `REDIS_URL` and `IDEMPOTENCY_BACKEND=redis`.
 - In shared mode, create endpoints require `Idempotency-Key`.
 - Rate-limit state is Redis-backed; public-route limiting buckets by IP (spoofed `x-api-key` does not bypass).
+- Tx submission uses a Redis-backed distributed nonce lock so replicas can safely share one signer.
 - Shared mode startup fails fast if Redis is unreachable.
 
 ## 2. Required auth

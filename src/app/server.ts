@@ -1,33 +1,36 @@
-import Fastify from 'fastify';
-import cors from '@fastify/cors';
-import sensible from '@fastify/sensible';
-import rateLimit from '@fastify/rate-limit';
-import Redis from 'ioredis';
-import { fileURLToPath } from 'node:url';
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import sensible from "@fastify/sensible";
+import rateLimit from "@fastify/rate-limit";
+import Redis from "ioredis";
+import { fileURLToPath } from "node:url";
 
-import { loadConfig, type AppConfig } from '../core/config';
-import { AppError } from '../core/errors';
-import { createLogger } from '../core/logger';
-import { MetricsRegistry } from '../core/metrics';
-import authPlugin from './plugins/auth';
-import errorHandlerPlugin from './plugins/error-handler';
-import requestLoggerPlugin from './plugins/request-logger';
-import { ChainRegistry } from '../infra/chain/registry';
-import { DopplerSdkRegistry } from '../infra/doppler/sdk-client';
-import { createIdempotencyStore, type IdempotencyStore } from '../infra/idempotency/store';
-import { TxSubmitter } from '../infra/tx/submitter';
-import { PricingService } from '../modules/pricing/service';
-import { LaunchService } from '../modules/launches/service';
-import { StatusService } from '../modules/status/service';
-import { registerCreateLaunchRoute } from './routes/launches.post';
-import { registerCreateMulticurveAliasRoute } from './routes/launches-multicurve.post';
-import { registerCreateStaticAliasRoute } from './routes/launches-static.post';
-import { registerCreateDynamicAliasRoute } from './routes/launches-dynamic.post';
-import { registerLaunchStatusRoute } from './routes/launches-status.get';
-import { registerHealthRoute } from './routes/health.get';
-import { registerReadyRoute } from './routes/ready.get';
-import { registerCapabilitiesRoute } from './routes/capabilities.get';
-import { registerMetricsRoute } from './routes/metrics.get';
+import { loadConfig, type AppConfig } from "../core/config";
+import { AppError } from "../core/errors";
+import { createLogger } from "../core/logger";
+import { MetricsRegistry } from "../core/metrics";
+import authPlugin from "./plugins/auth";
+import errorHandlerPlugin from "./plugins/error-handler";
+import requestLoggerPlugin from "./plugins/request-logger";
+import { ChainRegistry } from "../infra/chain/registry";
+import { DopplerSdkRegistry } from "../infra/doppler/sdk-client";
+import {
+  createIdempotencyStore,
+  type IdempotencyStore,
+} from "../infra/idempotency/store";
+import { TxSubmitter } from "../infra/tx/submitter";
+import { PricingService } from "../modules/pricing/service";
+import { LaunchService } from "../modules/launches/service";
+import { StatusService } from "../modules/status/service";
+import { registerCreateLaunchRoute } from "./routes/launches.post";
+import { registerCreateMulticurveAliasRoute } from "./routes/launches-multicurve.post";
+import { registerCreateStaticAliasRoute } from "./routes/launches-static.post";
+import { registerCreateDynamicAliasRoute } from "./routes/launches-dynamic.post";
+import { registerLaunchStatusRoute } from "./routes/launches-status.get";
+import { registerHealthRoute } from "./routes/health.get";
+import { registerReadyRoute } from "./routes/ready.get";
+import { registerCapabilitiesRoute } from "./routes/capabilities.get";
+import { registerMetricsRoute } from "./routes/metrics.get";
 
 export interface AppServices {
   config: AppConfig;
@@ -43,7 +46,7 @@ export interface AppServices {
 }
 
 const usesRedis = (config: AppConfig): boolean =>
-  config.deploymentMode === 'shared' || config.idempotency.backend === 'redis';
+  config.deploymentMode === "shared" || config.idempotency.backend === "redis";
 
 const createRedisClient = (config: AppConfig): Redis | undefined => {
   if (!usesRedis(config)) {
@@ -53,8 +56,8 @@ const createRedisClient = (config: AppConfig): Redis | undefined => {
   if (!config.redis.url) {
     throw new AppError(
       500,
-      'MISSING_ENV',
-      'REDIS_URL is required when Redis-backed state is enabled',
+      "MISSING_ENV",
+      "REDIS_URL is required when Redis-backed state is enabled",
     );
   }
 
@@ -64,7 +67,9 @@ const createRedisClient = (config: AppConfig): Redis | undefined => {
   });
 };
 
-const normalizeHeader = (value: string | string[] | undefined): string | undefined => {
+const normalizeHeader = (
+  value: string | string[] | undefined,
+): string | undefined => {
   if (Array.isArray(value)) {
     return value[0] || undefined;
   }
@@ -82,8 +87,11 @@ export const buildServices = (config: AppConfig): AppServices => {
   const metrics = new MetricsRegistry();
   const chainRegistry = new ChainRegistry(config);
   const sdkRegistry = new DopplerSdkRegistry(chainRegistry.list());
-  const txSubmitter = new TxSubmitter();
   const redisClient = createRedisClient(config);
+  const txSubmitter = new TxSubmitter({
+    redis: redisClient,
+    redisKeyPrefix: config.redis.keyPrefix,
+  });
   const idempotencyStore = createIdempotencyStore({
     enabled: config.idempotency.enabled,
     backend: config.idempotency.backend,
@@ -122,11 +130,16 @@ export const buildServices = (config: AppConfig): AppServices => {
 export const buildServer = async (services?: AppServices) => {
   const resolvedServices = services ?? buildServices(loadConfig());
   const logger = createLogger(resolvedServices.config.logLevel);
-  const usesRedisRateLimit = resolvedServices.config.deploymentMode === 'shared';
+  const usesRedisRateLimit =
+    resolvedServices.config.deploymentMode === "shared";
   const allowedApiKeys = new Set(resolvedServices.config.apiKeys);
 
   if (usesRedisRateLimit && !resolvedServices.redisClient) {
-    throw new AppError(500, 'MISSING_ENV', 'Shared deployments require Redis-backed rate limiting');
+    throw new AppError(
+      500,
+      "MISSING_ENV",
+      "Shared deployments require Redis-backed rate limiting",
+    );
   }
 
   if (usesRedisRateLimit) {
@@ -135,8 +148,8 @@ export const buildServer = async (services?: AppServices) => {
     } catch (error) {
       throw new AppError(
         500,
-        'REDIS_UNAVAILABLE',
-        'Shared deployments require reachable Redis at startup',
+        "REDIS_UNAVAILABLE",
+        "Shared deployments require reachable Redis at startup",
         error,
       );
     }
@@ -147,7 +160,9 @@ export const buildServer = async (services?: AppServices) => {
   await app.register(sensible);
   await app.register(cors, {
     origin:
-      resolvedServices.config.corsOrigins.length > 0 ? resolvedServices.config.corsOrigins : false,
+      resolvedServices.config.corsOrigins.length > 0
+        ? resolvedServices.config.corsOrigins
+        : false,
   });
   const rateLimitOptions: Record<string, unknown> = {
     max: resolvedServices.config.rateLimit.max,
@@ -157,7 +172,7 @@ export const buildServer = async (services?: AppServices) => {
         return `ip:${request.ip}`;
       }
 
-      const apiKey = normalizeHeader(request.headers['x-api-key']);
+      const apiKey = normalizeHeader(request.headers["x-api-key"]);
       if (apiKey && allowedApiKeys.has(apiKey)) {
         return `api-key:${apiKey}`;
       }
@@ -174,7 +189,7 @@ export const buildServer = async (services?: AppServices) => {
   await app.register(rateLimit, rateLimitOptions);
 
   if (resolvedServices.redisClient) {
-    app.addHook('onClose', async () => {
+    app.addHook("onClose", async () => {
       try {
         await resolvedServices.redisClient?.quit();
       } catch {
@@ -184,7 +199,9 @@ export const buildServer = async (services?: AppServices) => {
   }
 
   await app.register(errorHandlerPlugin);
-  await app.register(requestLoggerPlugin, { metrics: resolvedServices.metrics });
+  await app.register(requestLoggerPlugin, {
+    metrics: resolvedServices.metrics,
+  });
   await app.register(authPlugin, { apiKeys: resolvedServices.config.apiKeys });
 
   await registerHealthRoute(app);
@@ -213,10 +230,11 @@ const start = async () => {
   const services = buildServices(config);
   const app = await buildServer(services);
 
-  await app.listen({ host: '0.0.0.0', port: config.port });
+  await app.listen({ host: "0.0.0.0", port: config.port });
 };
 
-const isEntry = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isEntry =
+  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isEntry) {
   start().catch((error) => {
     // eslint-disable-next-line no-console
