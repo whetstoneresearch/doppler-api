@@ -12,9 +12,9 @@ This runbook covers public-launch incidents for:
 
 1. Confirm process health:
    - `GET /health`
-   - `GET /ready`
+   - `GET /ready` (include `x-api-key`)
 2. Confirm service pressure:
-   - `GET /metrics`
+   - `GET /metrics` (include `x-api-key`)
 3. Confirm shared-mode Redis config:
    - `DEPLOYMENT_MODE=shared`
    - `REDIS_URL` is set and reachable
@@ -46,7 +46,7 @@ Symptoms:
 Actions:
 
 1. Check wallet account has funds for gas.
-2. Verify chain RPC is healthy (`/ready`).
+2. Verify chain RPC is healthy (`/ready` with `x-api-key`).
 3. Retry request with same `Idempotency-Key`.
 4. If persistent:
    - restart service once to clear transient RPC client state
@@ -65,7 +65,7 @@ Actions:
 1. Switch chain `rpcUrl` entries in `doppler.config.ts` (or override `RPC_URL` for `DEFAULT_CHAIN_ID`) to healthy endpoints.
 2. Restart service.
 3. Inspect server logs for the root-cause RPC error details.
-4. Re-run `/ready` and a small create test with idempotency key.
+4. Re-run `/ready` (with `x-api-key`) and a small create test with idempotency key.
 
 ## Rollback
 
@@ -75,5 +75,5 @@ Actions:
    - redis backend: keep `REDIS_KEY_PREFIX` stable
 3. Verify:
    - `/health` = 200
-   - `/ready` = 200
+   - `/ready` (with `x-api-key`) = 200
    - `POST /v1/launches` succeeds with an idempotency key.

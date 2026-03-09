@@ -10,19 +10,19 @@ Base URL (local): `http://localhost:3000`
   - `POST /v1/launches/static`
   - `POST /v1/launches/dynamic`
   - `GET /v1/launches/:launchId`
+  - `GET /v1/capabilities`
+  - `GET /ready`
+  - `GET /metrics`
 - Header:
   - `x-api-key: <API_KEY>`
 - Not required on:
   - `GET /health`
-  - `GET /ready`
-  - `GET /v1/capabilities`
-  - `GET /metrics`
 
 ## Error behavior
 
 - Error envelope shape: `{ error: { code, message, details? } }`
 - Rate limiting returns `429 RATE_LIMITED`.
-- Public routes are rate-limited by client IP (spoofed `x-api-key` values are ignored for bucketing).
+- `GET /health` is rate-limited by client IP (spoofed `x-api-key` values are ignored for bucketing).
 - For all `5xx` responses, `message` is intentionally generic (`"Internal server error"`);
   use server logs plus `x-request-id` for diagnostics.
 
@@ -227,6 +227,11 @@ Governance support is chain-specific. Check `governanceModes` and `governanceEna
   - `governanceModes`
   - `governanceEnabled`
 
+#### Error responses
+
+- `401 UNAUTHORIZED`
+- `429 RATE_LIMITED`
+
 ---
 
 ### `GET /health`
@@ -254,6 +259,11 @@ Dependency readiness probe (RPC checks for configured chains).
   - `checks[]: { chainId, ok, latestBlock? , error? }`
   - when `ok=false`, `error` is intentionally generic (`"dependency unavailable"`)
 
+#### Error responses
+
+- `401 UNAUTHORIZED`
+- `429 RATE_LIMITED`
+
 ---
 
 ### `GET /metrics`
@@ -267,6 +277,11 @@ Basic service metrics snapshot for operational visibility.
 - `http.totalRequests`
 - `http.byStatusClass`
 - `http.avgDurationMs`
+
+#### Error responses
+
+- `401 UNAUTHORIZED`
+- `429 RATE_LIMITED`
 
 ## Request/response examples
 

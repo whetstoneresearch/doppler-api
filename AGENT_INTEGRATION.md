@@ -51,13 +51,13 @@ npm run test:live --verbose
 - Set `DEPLOYMENT_MODE=shared` (or run with `NODE_ENV=production` and no explicit deployment mode).
 - Set `REDIS_URL` and `IDEMPOTENCY_BACKEND=redis`.
 - In shared mode, create endpoints require `Idempotency-Key`.
-- Rate-limit state is Redis-backed; public-route limiting buckets by IP (spoofed `x-api-key` does not bypass).
+- Rate-limit state is Redis-backed; `GET /health` is IP-bucketed (spoofed `x-api-key` does not bypass).
 - Tx submission uses a Redis-backed distributed nonce lock so replicas can safely share one signer.
 - Shared mode startup fails fast if Redis is unreachable.
 
 ## 2. Required auth
 
-Include API key header on launch/status routes:
+Include API key header on all endpoints except `GET /health`:
 
 - `x-api-key: <API_KEY>`
 
@@ -460,7 +460,8 @@ curl -H "x-api-key: $API_KEY" \
 Capabilities:
 
 ```bash
-curl http://localhost:3000/v1/capabilities
+curl -H "x-api-key: $API_KEY" \
+  http://localhost:3000/v1/capabilities
 ```
 
 ## 9. Docs for agents

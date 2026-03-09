@@ -14,14 +14,19 @@ This project is in active development & not ready for production use.
 - `POST /v1/launches/dynamic` (alias)
 - `GET /v1/launches/:launchId`
 - `GET /v1/capabilities`
+- `GET /metrics`
 - `GET /health`
 - `GET /ready`
+
+Auth model:
+
+- `x-api-key` is required on all endpoints except `GET /health`.
 
 ## Error behavior
 
 - Error envelope shape: `{ "error": { "code", "message", "details?" } }`
 - Rate limiting returns `429` with code `RATE_LIMITED`.
-- Public route rate limits are keyed by client IP; spoofed `x-api-key` values do not create new buckets.
+- `GET /health` rate limits are keyed by client IP; spoofed `x-api-key` values do not create new buckets.
 - `5xx` responses always return a generic client message: `"Internal server error"`.
   Inspect server logs and correlate by `x-request-id` for full diagnostics.
 
@@ -342,7 +347,8 @@ Dynamic is intended for assets with well-known value that benefit from maximally
 ## Health and readiness
 
 - `GET /health`: process liveness
-- `GET /ready`: dependency readiness (chain RPC checks)
+- `GET /ready`: dependency readiness (chain RPC checks, requires `x-api-key`)
+- `GET /metrics`: service metrics snapshot (requires `x-api-key`)
 - degraded readiness checks return a generic error string (`"dependency unavailable"`) to avoid leaking upstream internals
 
 Example `GET /health`:

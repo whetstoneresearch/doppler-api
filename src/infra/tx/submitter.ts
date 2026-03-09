@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID } from 'node:crypto';
 
-import { AppError } from "../../core/errors";
-import type { HexHash } from "../../core/types";
-import type { ChainContext } from "../chain/registry";
+import { AppError } from '../../core/errors';
+import type { HexHash } from '../../core/types';
+import type { ChainContext } from '../chain/registry';
 
 const DEFAULT_NONCE_LOCK_TTL_MS = 120_000;
 const DEFAULT_NONCE_LOCK_REFRESH_MS = 30_000;
@@ -27,33 +27,25 @@ const delay = async (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
-const isLockScriptSuccess = (result: unknown): boolean =>
-  result === 1 || result === "1";
+const isLockScriptSuccess = (result: unknown): boolean => result === 1 || result === '1';
 
 export interface TxSubmitterRedisClient {
   set(
     key: string,
     value: string,
-    mode: "PX",
+    mode: 'PX',
     durationMs: number,
-    setMode?: "NX",
-  ): Promise<"OK" | null>;
-  eval(
-    script: string,
-    numKeys: number,
-    ...args: Array<string | number>
-  ): Promise<unknown>;
+    setMode?: 'NX',
+  ): Promise<'OK' | null>;
+  eval(script: string, numKeys: number, ...args: Array<string | number>): Promise<unknown>;
 }
 
 const isNonceError = (error: unknown): boolean => {
-  const msg =
-    error instanceof Error
-      ? error.message.toLowerCase()
-      : String(error).toLowerCase();
+  const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
   return (
-    msg.includes("nonce too low") ||
-    msg.includes("already known") ||
-    msg.includes("replacement transaction underpriced")
+    msg.includes('nonce too low') ||
+    msg.includes('already known') ||
+    msg.includes('replacement transaction underpriced')
   );
 };
 
@@ -73,19 +65,15 @@ export class TxSubmitter {
     lockPollIntervalMs?: number;
   }) {
     this.redis = args?.redis;
-    this.redisKeyPrefix = args?.redisKeyPrefix ?? "doppler-api";
+    this.redisKeyPrefix = args?.redisKeyPrefix ?? 'doppler-api';
     this.lockTtlMs = args?.lockTtlMs ?? DEFAULT_NONCE_LOCK_TTL_MS;
     this.lockRefreshMs =
       args?.lockRefreshMs ??
       Math.min(DEFAULT_NONCE_LOCK_REFRESH_MS, Math.floor(this.lockTtlMs / 3));
-    this.lockPollIntervalMs =
-      args?.lockPollIntervalMs ?? DEFAULT_NONCE_LOCK_POLL_INTERVAL_MS;
+    this.lockPollIntervalMs = args?.lockPollIntervalMs ?? DEFAULT_NONCE_LOCK_POLL_INTERVAL_MS;
   }
 
-  private async withChainLock<T>(
-    chainId: number,
-    fn: () => Promise<T>,
-  ): Promise<T> {
+  private async withChainLock<T>(chainId: number, fn: () => Promise<T>): Promise<T> {
     const previous = this.queueByChain.get(chainId) ?? Promise.resolve();
     let release: (() => void) | undefined;
     const current = new Promise<void>((resolve) => {
@@ -108,10 +96,7 @@ export class TxSubmitter {
     return `${this.redisKeyPrefix}:tx:nonce-lock:${chainId}:${address.toLowerCase()}`;
   }
 
-  private async releaseNonceLock(
-    lockKey: string,
-    lockValue: string,
-  ): Promise<void> {
+  private async releaseNonceLock(lockKey: string, lockValue: string): Promise<void> {
     if (!this.redis) {
       return;
     }
@@ -119,10 +104,7 @@ export class TxSubmitter {
     await this.redis.eval(RELEASE_NONCE_LOCK_SCRIPT, 1, lockKey, lockValue);
   }
 
-  private async refreshNonceLock(
-    lockKey: string,
-    lockValue: string,
-  ): Promise<boolean> {
+  private async refreshNonceLock(lockKey: string, lockValue: string): Promise<boolean> {
     if (!this.redis) {
       return false;
     }
@@ -151,13 +133,7 @@ export class TxSubmitter {
 
     for (;;) {
       const acquired =
-        (await this.redis.set(
-          lockKey,
-          lockValue,
-          "PX",
-          this.lockTtlMs,
-          "NX",
-        )) === "OK";
+        (await this.redis.set(lockKey, lockValue, 'PX', this.lockTtlMs, 'NX')) === 'OK';
       if (acquired) {
         break;
       }
@@ -212,7 +188,7 @@ export class TxSubmitter {
     if (!account) {
       throw new AppError(
         500,
-        "INTERNAL_ERROR",
+        'INTERNAL_ERROR',
         `Wallet account not configured for chain ${chain.chainId}`,
       );
     }
@@ -224,7 +200,7 @@ export class TxSubmitter {
         fn: async () => {
           const pendingNonce = await chain.publicClient.getTransactionCount({
             address: account.address,
-            blockTag: "pending",
+            blockTag: 'pending',
           });
 
           const txArgs = {
@@ -234,20 +210,16 @@ export class TxSubmitter {
           } as Record<string, unknown>;
 
           try {
-            return (await chain.walletClient.writeContract(
-              txArgs as any,
-            )) as HexHash;
+            return (await chain.walletClient.writeContract(txArgs as any)) as HexHash;
           } catch (error) {
             if (!isNonceError(error)) throw error;
 
             const retryNonce = await chain.publicClient.getTransactionCount({
               address: account.address,
-              blockTag: "pending",
+              blockTag: 'pending',
             });
             const retryArgs = { ...txArgs, nonce: retryNonce };
-            return (await chain.walletClient.writeContract(
-              retryArgs as any,
-            )) as HexHash;
+            return (await chain.walletClient.writeContract(retryArgs as any)) as HexHash;
           }
         },
       }),

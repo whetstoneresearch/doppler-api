@@ -1,9 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from 'vitest';
 
-import {
-  TxSubmitter,
-  type TxSubmitterRedisClient,
-} from "../../src/infra/tx/submitter";
+import { TxSubmitter, type TxSubmitterRedisClient } from '../../src/infra/tx/submitter';
 
 const sleep = async (ms: number): Promise<void> =>
   new Promise((resolve) => {
@@ -11,10 +8,7 @@ const sleep = async (ms: number): Promise<void> =>
   });
 
 class FakeRedisClient implements TxSubmitterRedisClient {
-  private readonly store = new Map<
-    string,
-    { value: string; expiresAtMs: number }
-  >();
+  private readonly store = new Map<string, { value: string; expiresAtMs: number }>();
 
   private prune(key: string): void {
     const entry = this.store.get(key);
@@ -30,16 +24,16 @@ class FakeRedisClient implements TxSubmitterRedisClient {
   async set(
     key: string,
     value: string,
-    mode: "PX",
+    mode: 'PX',
     durationMs: number,
-    setMode?: "NX",
-  ): Promise<"OK" | null> {
-    if (mode !== "PX") {
+    setMode?: 'NX',
+  ): Promise<'OK' | null> {
+    if (mode !== 'PX') {
       return null;
     }
 
     this.prune(key);
-    if (setMode === "NX" && this.store.has(key)) {
+    if (setMode === 'NX' && this.store.has(key)) {
       return null;
     }
 
@@ -47,14 +41,10 @@ class FakeRedisClient implements TxSubmitterRedisClient {
       value,
       expiresAtMs: Date.now() + durationMs,
     });
-    return "OK";
+    return 'OK';
   }
 
-  async eval(
-    _script: string,
-    _numKeys: number,
-    ...args: Array<string | number>
-  ): Promise<unknown> {
+  async eval(_script: string, _numKeys: number, ...args: Array<string | number>): Promise<unknown> {
     const lockKey = String(args[0]);
     const expectedValue = String(args[1]);
     this.prune(lockKey);
@@ -77,18 +67,13 @@ class FakeRedisClient implements TxSubmitterRedisClient {
   }
 }
 
-describe("tx submitter", () => {
-  it("retries once on nonce errors with refreshed pending nonce", async () => {
-    const getTransactionCount = vi
-      .fn()
-      .mockResolvedValueOnce(7)
-      .mockResolvedValueOnce(8);
+describe('tx submitter', () => {
+  it('retries once on nonce errors with refreshed pending nonce', async () => {
+    const getTransactionCount = vi.fn().mockResolvedValueOnce(7).mockResolvedValueOnce(8);
     const writeContract = vi
       .fn()
-      .mockRejectedValueOnce(new Error("nonce too low"))
-      .mockResolvedValueOnce(
-        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      );
+      .mockRejectedValueOnce(new Error('nonce too low'))
+      .mockResolvedValueOnce('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 
     const chain = {
       chainId: 84532,
@@ -96,7 +81,7 @@ describe("tx submitter", () => {
         getTransactionCount,
       },
       walletClient: {
-        account: { address: "0x1111111111111111111111111111111111111111" },
+        account: { address: '0x1111111111111111111111111111111111111111' },
         writeContract,
       },
     } as any;
@@ -104,7 +89,7 @@ describe("tx submitter", () => {
     const submitter = new TxSubmitter();
     const txHash = await submitter.submitCreateTx({
       chain,
-      request: { to: "0x2222222222222222222222222222222222222222" },
+      request: { to: '0x2222222222222222222222222222222222222222' },
     });
 
     expect(txHash).toMatch(/^0x[a-fA-F0-9]{64}$/);
@@ -114,18 +99,18 @@ describe("tx submitter", () => {
     expect(writeContract.mock.calls[1][0].nonce).toBe(8);
   });
 
-  it("serializes nonce submission across submitter instances with shared redis lock", async () => {
+  it('serializes nonce submission across submitter instances with shared redis lock', async () => {
     const redis = new FakeRedisClient();
     const firstSubmitter = new TxSubmitter({
       redis,
-      redisKeyPrefix: "test",
+      redisKeyPrefix: 'test',
       lockTtlMs: 250,
       lockRefreshMs: 50,
       lockPollIntervalMs: 5,
     });
     const secondSubmitter = new TxSubmitter({
       redis,
-      redisKeyPrefix: "test",
+      redisKeyPrefix: 'test',
       lockTtlMs: 250,
       lockRefreshMs: 50,
       lockPollIntervalMs: 5,
@@ -139,12 +124,12 @@ describe("tx submitter", () => {
     });
     const writeContract = vi.fn(async (_args: { nonce: number }) => {
       if (writeInFlight) {
-        throw new Error("concurrent nonce write");
+        throw new Error('concurrent nonce write');
       }
 
       writeInFlight = true;
       await sleep(30);
-      const txHash = `0x${String(nextNonce).padStart(64, "a")}`;
+      const txHash = `0x${String(nextNonce).padStart(64, 'a')}`;
       nextNonce += 1;
       writeInFlight = false;
       return txHash;
@@ -157,7 +142,7 @@ describe("tx submitter", () => {
           getTransactionCount,
         },
         walletClient: {
-          account: { address: "0x1111111111111111111111111111111111111111" },
+          account: { address: '0x1111111111111111111111111111111111111111' },
           writeContract,
         },
       }) as any;
@@ -165,11 +150,11 @@ describe("tx submitter", () => {
     const [firstTxHash, secondTxHash] = await Promise.all([
       firstSubmitter.submitCreateTx({
         chain: buildChain(),
-        request: { to: "0x2222222222222222222222222222222222222222" },
+        request: { to: '0x2222222222222222222222222222222222222222' },
       }),
       secondSubmitter.submitCreateTx({
         chain: buildChain(),
-        request: { to: "0x2222222222222222222222222222222222222222" },
+        request: { to: '0x2222222222222222222222222222222222222222' },
       }),
     ]);
 

@@ -21,7 +21,7 @@ export const registerReadyRoute = async (
   chainRegistry: ChainRegistry,
   timeoutMs: number,
 ) => {
-  fastify.get('/ready', { config: { auth: false } }, async (request, reply) => {
+  fastify.get('/ready', async (request, reply) => {
     const checks = await Promise.all(
       chainRegistry.list().map(async (chain) => {
         try {

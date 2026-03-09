@@ -120,7 +120,13 @@ describe('GET /v1/capabilities', () => {
 
     app = await buildServer(services);
 
-    const response = await app.inject({ method: 'GET', url: '/v1/capabilities' });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/capabilities',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+    });
 
     expect(response.statusCode).toBe(200);
     const body = response.json() as {
