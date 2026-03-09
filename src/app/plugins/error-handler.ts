@@ -17,13 +17,19 @@ export default fp(async (fastify) => {
     }
 
     const appError = asAppError(error);
+    const isServerError = appError.statusCode >= 500;
+    const message = isServerError ? 'Internal server error' : appError.message;
+    const details = !isServerError && appError.details !== undefined ? appError.details : undefined;
 
-    request.log.error({ err: error, code: appError.code }, appError.message);
+    request.log.error(
+      { err: error, code: appError.code, statusCode: appError.statusCode },
+      appError.message,
+    );
     reply.status(appError.statusCode).send({
       error: {
         code: appError.code,
-        message: appError.message,
-        ...(appError.details ? { details: appError.details } : {}),
+        message,
+        ...(details !== undefined ? { details } : {}),
       },
     });
   });

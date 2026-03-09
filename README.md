@@ -14,8 +14,21 @@ This project is in active development & not ready for production use.
 - `POST /v1/launches/dynamic` (alias)
 - `GET /v1/launches/:launchId`
 - `GET /v1/capabilities`
+- `GET /metrics`
 - `GET /health`
 - `GET /ready`
+
+Auth model:
+
+- `x-api-key` is required on all endpoints except `GET /health`.
+
+## Error behavior
+
+- Error envelope shape: `{ "error": { "code", "message", "details?" } }`
+- Rate limiting returns `429` with code `RATE_LIMITED`.
+- `GET /health` rate limits are keyed by client IP; spoofed `x-api-key` values do not create new buckets.
+- `5xx` responses always return a generic client message: `"Internal server error"`.
+  Inspect server logs and correlate by `x-request-id` for full diagnostics.
 
 ## Quick start
 
@@ -24,6 +37,28 @@ npm install
 cp .env.example .env
 npm run dev
 ```
+
+## Configuration model
+
+- `doppler.config.ts` is the canonical source for non-secret runtime settings.
+- Environment variables override typed settings at runtime.
+- Required secrets remain in env: `API_KEY`, `PRIVATE_KEY` (and `REDIS_URL` when needed).
+- The template object is type-checked via `DopplerTemplateConfigV1`; config shape drift fails build/typecheck.
+
+## Deployment modes and Redis
+
+- Local default (`DEPLOYMENT_MODE=local`):
+  - `IDEMPOTENCY_BACKEND=file` (default)
+  - no Redis required
+- Shared/prod (`DEPLOYMENT_MODE=shared`, or `NODE_ENV=production` when `DEPLOYMENT_MODE` is unset):
+  - `REDIS_URL` is required
+  - `IDEMPOTENCY_BACKEND` must be `redis`
+  - create endpoints always require `Idempotency-Key` (`IDEMPOTENCY_REQUIRE_KEY=true` is enforced)
+  - rate-limit state is Redis-backed for cross-replica consistency
+  - nonce submission uses a Redis-backed distributed signer lock for cross-replica coordination
+  - Redis-backed idempotency writes an `in_progress` marker before tx submit to close crash/restart duplicate windows
+  - retries against a stuck `in_progress` marker fail closed with `409 IDEMPOTENCY_KEY_IN_DOUBT`; verify launch status before attempting a new key
+  - Redis in-flight lock uses a heartbeat; tune `IDEMPOTENCY_REDIS_LOCK_TTL_MS` to exceed max expected create duration
 
 ## Current target feature set
 
@@ -67,6 +102,7 @@ Example:
 ```http
 POST /v1/launches
 x-api-key: <API_KEY>
+Idempotency-Key: <UNIQUE_KEY>
 content-type: application/json
 ```
 
@@ -312,7 +348,9 @@ Dynamic is intended for assets with well-known value that benefit from maximally
 ## Health and readiness
 
 - `GET /health`: process liveness
-- `GET /ready`: dependency readiness (chain RPC checks)
+- `GET /ready`: dependency readiness (chain RPC checks, requires `x-api-key`)
+- `GET /metrics`: service metrics snapshot (requires `x-api-key`)
+- degraded readiness checks return a generic error string (`"dependency unavailable"`) to avoid leaking upstream internals
 
 Example `GET /health`:
 

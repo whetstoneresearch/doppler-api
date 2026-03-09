@@ -24,7 +24,7 @@ export const registerCapabilitiesRoute = async (
   chainRegistry: ChainRegistry,
   pricingService: PricingService,
 ) => {
-  fastify.get('/v1/capabilities', { config: { auth: false } }, async () => {
+  fastify.get('/v1/capabilities', async () => {
     return {
       defaultChainId: chainRegistry.defaultChainId,
       pricing: {

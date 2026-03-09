@@ -2,9 +2,14 @@ import { buildServer, type AppServices } from '../../src/app/server';
 import type { AppConfig } from '../../src/core/config';
 import { MetricsRegistry } from '../../src/core/metrics';
 
-export const buildTestServer = async () => {
+interface BuildTestServerOptions {
+  readyCheckFails?: boolean;
+}
+
+export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
   const config: AppConfig = {
     port: 3000,
+    deploymentMode: 'local',
     apiKey: 'test-key',
     apiKeys: ['test-key'],
     defaultChainId: 84532,
@@ -16,11 +21,17 @@ export const buildTestServer = async () => {
       max: 100,
       timeWindowMs: 60_000,
     },
+    redis: {
+      keyPrefix: 'doppler-api-test',
+    },
     idempotency: {
       enabled: true,
+      backend: 'file',
       requireKey: false,
       ttlMs: 86_400_000,
       storePath: '.test-results/test-idempotency.json',
+      redisLockTtlMs: 900_000,
+      redisLockRefreshMs: 300_000,
     },
     pricing: {
       enabled: false,
@@ -28,6 +39,7 @@ export const buildTestServer = async () => {
       baseUrl: 'https://api.coingecko.com/api/v3',
       timeoutMs: 1000,
       cacheTtlMs: 1000,
+      coingeckoAssetId: 'ethereum',
     },
     chains: {
       84532: {
@@ -47,7 +59,12 @@ export const buildTestServer = async () => {
     config: config.chains[84532],
     addresses: { airlock: '0x0000000000000000000000000000000000000001' },
     publicClient: {
-      getBlockNumber: async () => 123n,
+      getBlockNumber: async () => {
+        if (options.readyCheckFails) {
+          throw new Error('rpc provider request failed with internal details');
+        }
+        return 123n;
+      },
     },
     walletClient: {},
   } as any;
