@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript"],
+  "categories": {
+    "correctness": "off"
+  },
+  "ignorePatterns": ["dist/**", "node_modules/**", "coverage/**", ".test-results/**"],
+  "env": {
+    "builtin": true
+  },
+  "rules": {
+    "typescript/no-explicit-any": "off",
+    "no-console": [
+      "error",
+      {
+        "allow": ["warn", "error"]
+      }
+    ],
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["tests/**/*", "scripts/**/*"],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
+}
