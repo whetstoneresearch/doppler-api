@@ -59,7 +59,7 @@ Symptoms:
 
 Actions:
 
-1. Switch `RPC_URL` or `CHAIN_CONFIG_JSON` RPC entries to healthy endpoints.
+1. Switch chain `rpcUrl` entries in `doppler.config.ts` (or override `RPC_URL` for `DEFAULT_CHAIN_ID`) to healthy endpoints.
 2. Restart service.
 3. Re-run `/ready` and a small create test with idempotency key.
 

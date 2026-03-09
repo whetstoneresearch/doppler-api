@@ -84,8 +84,6 @@ Dynamic-specific policy notes:
 - `MISSING_ENV`
 - `INVALID_ENV`
 - `REDIS_UNAVAILABLE`
-- `INVALID_CHAIN_CONFIG_JSON`
-- `INVALID_CHAIN_ID`
 - `UNSUPPORTED_CHAIN`
 
 Shared-mode guardrail notes:

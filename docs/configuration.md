@@ -1,46 +1,63 @@
 # Configuration Reference
 
+Runtime configuration is TypeScript-first:
+
+- Canonical non-secret settings live in `doppler.config.ts`.
+- Secrets and operational runtime overrides come from environment variables.
+- The template object in `doppler.config.ts` must satisfy `DopplerTemplateConfigV1`.
+  If the shape drifts, `npm run typecheck` / `npm run build` fails.
+
+## Canonical typed config
+
+Edit `doppler.config.ts` for:
+
+- chain map and per-chain capabilities
+- default chain selection
+- non-secret service defaults (port, logging, idempotency defaults, pricing defaults)
+
 ## Required environment variables
 
 - `API_KEY`
 - `PRIVATE_KEY`
-- `RPC_URL` (required unless `CHAIN_CONFIG_JSON` defines the default chain)
 
-## Optional environment variables
+## Optional environment overrides
 
-- `PORT` (default: `3000`)
-- `DEPLOYMENT_MODE` (default: `local`)
+- `PORT` (default from `doppler.config.ts`)
+- `DEPLOYMENT_MODE` (default from `doppler.config.ts`)
   - allowed: `local`, `shared`
   - if unset and `NODE_ENV=production`, deployment mode defaults to `shared`
-- `DEFAULT_CHAIN_ID` (default: `84532`)
-- `DEFAULT_NUMERAIRE_ADDRESS` (default from chain addresses)
-- `READY_RPC_TIMEOUT_MS` (default: `2000`)
-- `LOG_LEVEL` (default: `info`)
+- `DEFAULT_CHAIN_ID` (must exist in `doppler.config.ts`)
+- `RPC_URL`
+  - overrides `rpcUrl` for `DEFAULT_CHAIN_ID` only
+- `DEFAULT_NUMERAIRE_ADDRESS`
+  - overrides `defaultNumeraireAddress` for `DEFAULT_CHAIN_ID` only
+- `READY_RPC_TIMEOUT_MS` (default from `doppler.config.ts`)
+- `LOG_LEVEL` (default from `doppler.config.ts`)
 - `CORS_ORIGINS`
   - Comma-separated allowlist.
   - Empty means CORS is disabled.
 - `API_KEYS`
   - Optional comma-separated additional API keys.
-- `RATE_LIMIT_MAX` (default: `100`)
-- `RATE_LIMIT_WINDOW_MS` (default: `60000`)
+- `RATE_LIMIT_MAX` (default from `doppler.config.ts`)
+- `RATE_LIMIT_WINDOW_MS` (default from `doppler.config.ts`)
 
 ## Redis environment variables
 
 - `REDIS_URL`
-- `REDIS_KEY_PREFIX` (default: `doppler-api`)
+- `REDIS_KEY_PREFIX` (default from `doppler.config.ts`)
 
 ## Idempotency environment variables
 
-- `IDEMPOTENCY_ENABLED` (default: `true`)
-- `IDEMPOTENCY_BACKEND` (default: `file`, allowed: `file`, `redis`)
-- `IDEMPOTENCY_REQUIRE_KEY` (default: `false`)
+- `IDEMPOTENCY_ENABLED` (default from `doppler.config.ts`)
+- `IDEMPOTENCY_BACKEND` (default from `doppler.config.ts`, allowed: `file`, `redis`)
+- `IDEMPOTENCY_REQUIRE_KEY` (default from `doppler.config.ts`)
   - forced to `true` when `DEPLOYMENT_MODE=shared`
-- `IDEMPOTENCY_TTL_MS` (default: `86400000`)
-- `IDEMPOTENCY_STORE_PATH` (default: `.data/idempotency-store.json`)
-- `IDEMPOTENCY_REDIS_LOCK_TTL_MS` (default: `900000`)
+- `IDEMPOTENCY_TTL_MS` (default from `doppler.config.ts`)
+- `IDEMPOTENCY_STORE_PATH` (default from `doppler.config.ts`)
+- `IDEMPOTENCY_REDIS_LOCK_TTL_MS` (default from `doppler.config.ts`)
   - TTL for cross-replica in-flight idempotency lock
   - set this to at least your max expected create-launch duration
-- `IDEMPOTENCY_REDIS_LOCK_REFRESH_MS` (default: `300000`)
+- `IDEMPOTENCY_REDIS_LOCK_REFRESH_MS` (default from `doppler.config.ts`)
   - heartbeat interval for refreshing the Redis in-flight lock
   - must be lower than `IDEMPOTENCY_REDIS_LOCK_TTL_MS`
 
@@ -59,43 +76,44 @@ Local mode remains file-backed by default and does not require Redis.
 
 ## Pricing environment variables
 
-- `PRICE_ENABLED` (default: `true`)
-- `PRICE_PROVIDER` (default: `coingecko`)
-- `PRICE_BASE_URL` (default: `https://api.coingecko.com/api/v3`)
-- `PRICE_TIMEOUT_MS` (default: `3000`)
-- `PRICE_CACHE_TTL_MS` (default: `15000`)
+- `PRICE_ENABLED` (default from `doppler.config.ts`)
+- `PRICE_PROVIDER` (default from `doppler.config.ts`)
+- `PRICE_BASE_URL` (default from `doppler.config.ts`)
+- `PRICE_TIMEOUT_MS` (default from `doppler.config.ts`)
+- `PRICE_CACHE_TTL_MS` (default from `doppler.config.ts`)
 - `PRICE_API_KEY` (optional)
-- `PRICE_COINGECKO_ASSET_ID` (default: `ethereum`)
+- `PRICE_COINGECKO_ASSET_ID` (default from `doppler.config.ts`)
 
 ## Multichain configuration
 
-Use `CHAIN_CONFIG_JSON` to define one or more chains and capabilities:
+Define chains directly in `doppler.config.ts`:
 
-```json
-{
-  "84532": {
-    "rpcUrl": "https://your-base-sepolia-rpc",
-    "defaultNumeraireAddress": "0x4200000000000000000000000000000000000006",
-    "auctionTypes": ["multicurve", "dynamic"],
-    "migrationModes": ["noOp", "uniswapV2", "uniswapV4"],
-    "governanceModes": ["noOp", "default"],
-    "governanceEnabled": true
+```ts
+chains: {
+  84532: {
+    rpcUrl: 'https://your-base-sepolia-rpc',
+    defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
+    auctionTypes: ['multicurve', 'dynamic'],
+    migrationModes: ['noOp', 'uniswapV2', 'uniswapV4'],
+    governanceModes: ['noOp', 'default'],
+    governanceEnabled: true,
   },
-  "8453": {
-    "rpcUrl": "https://your-base-mainnet-rpc",
-    "defaultNumeraireAddress": "0x4200000000000000000000000000000000000006",
-    "auctionTypes": ["multicurve"],
-    "migrationModes": ["noOp"],
-    "governanceModes": ["noOp", "default"],
-    "governanceEnabled": true
-  }
+  8453: {
+    rpcUrl: 'https://your-base-mainnet-rpc',
+    defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
+    auctionTypes: ['multicurve'],
+    migrationModes: ['noOp'],
+    governanceModes: ['noOp', 'default'],
+    governanceEnabled: true,
+  },
 }
 ```
 
 ### Notes
 
 - Keys must be numeric chain IDs.
-- If default chain is not present in `CHAIN_CONFIG_JSON`, the API falls back to `RPC_URL`.
+- `DEFAULT_CHAIN_ID` must reference an existing key in `doppler.config.ts`.
+- `RPC_URL` only overrides the configured `rpcUrl` for `DEFAULT_CHAIN_ID`.
 - `launchId` is always `<chainId>:<txHash>` to preserve cross-chain identity.
 - `governance` create behavior is binary:
   - `false` or omitted uses no governance

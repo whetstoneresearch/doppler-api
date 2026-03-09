@@ -35,6 +35,7 @@ const baseConfig: AppConfig = {
     baseUrl: 'https://api.coingecko.com/api/v3',
     timeoutMs: 1000,
     cacheTtlMs: 1000,
+    coingeckoAssetId: 'ethereum',
   },
   chains: {
     84532: {

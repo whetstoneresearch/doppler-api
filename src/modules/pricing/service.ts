@@ -35,7 +35,7 @@ export class PricingService {
       baseUrl: config.pricing.baseUrl,
       timeoutMs: config.pricing.timeoutMs,
       apiKey: config.pricing.apiKey,
-      defaultAssetId: process.env.PRICE_COINGECKO_ASSET_ID || 'ethereum',
+      defaultAssetId: config.pricing.coingeckoAssetId,
     });
   }
 

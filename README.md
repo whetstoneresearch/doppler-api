@@ -33,6 +33,13 @@ cp .env.example .env
 npm run dev
 ```
 
+## Configuration model
+
+- `doppler.config.ts` is the canonical source for non-secret runtime settings.
+- Environment variables override typed settings at runtime.
+- Required secrets remain in env: `API_KEY`, `PRIVATE_KEY` (and `REDIS_URL` when needed).
+- The template object is type-checked via `DopplerTemplateConfigV1`; config shape drift fails build/typecheck.
+
 ## Deployment modes and Redis
 
 - Local default (`DEPLOYMENT_MODE=local`):

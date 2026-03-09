@@ -1,16 +1,16 @@
 import 'dotenv/config';
 
-import { z } from 'zod';
-
 import { AppError } from './errors';
 import type { AuctionType, GovernanceMode, MigrationType } from './types';
+import { dopplerTemplateConfig } from '../../doppler.config';
+import type {
+  DeploymentMode,
+  DopplerTemplateConfigV1,
+  IdempotencyBackend,
+  PriceProvider,
+} from './template-config';
 
-const DEFAULT_AUCTION_TYPES: AuctionType[] = ['multicurve'];
-const DEFAULT_MIGRATION_TYPES: MigrationType[] = ['noOp'];
-const DEFAULT_GOVERNANCE_MODES: GovernanceMode[] = ['noOp', 'default'];
-
-export type DeploymentMode = 'local' | 'shared';
-export type IdempotencyBackend = 'file' | 'redis';
+export type { DeploymentMode, IdempotencyBackend };
 
 export interface ChainRuntimeConfig {
   chainId: number;
@@ -52,10 +52,11 @@ export interface AppConfig {
   };
   pricing: {
     enabled: boolean;
-    provider: 'coingecko' | 'none';
+    provider: PriceProvider;
     baseUrl: string;
     timeoutMs: number;
     cacheTtlMs: number;
+    coingeckoAssetId: string;
     apiKey?: string;
   };
 }
@@ -82,10 +83,13 @@ const parseStringArray = (value: string | undefined): string[] => {
     .filter(Boolean);
 };
 
-const parseDeploymentMode = (): DeploymentMode => {
+const parseDeploymentMode = (fallback: DeploymentMode): DeploymentMode => {
   const raw = process.env.DEPLOYMENT_MODE?.trim().toLowerCase();
   if (!raw) {
-    return process.env.NODE_ENV?.trim().toLowerCase() === 'production' ? 'shared' : 'local';
+    if (process.env.NODE_ENV?.trim().toLowerCase() === 'production') {
+      return 'shared';
+    }
+    return fallback;
   }
 
   if (raw === 'local' || raw === 'shared') {
@@ -95,8 +99,8 @@ const parseDeploymentMode = (): DeploymentMode => {
   throw new AppError(500, 'INVALID_ENV', 'DEPLOYMENT_MODE must be "local" or "shared"');
 };
 
-const parseIdempotencyBackend = (): IdempotencyBackend => {
-  const raw = process.env.IDEMPOTENCY_BACKEND?.trim().toLowerCase() || 'file';
+const parseIdempotencyBackend = (fallback: IdempotencyBackend): IdempotencyBackend => {
+  const raw = process.env.IDEMPOTENCY_BACKEND?.trim().toLowerCase() || fallback;
   if (raw === 'file' || raw === 'redis') {
     return raw;
   }
@@ -104,68 +108,76 @@ const parseIdempotencyBackend = (): IdempotencyBackend => {
   throw new AppError(500, 'INVALID_ENV', 'IDEMPOTENCY_BACKEND must be "file" or "redis"');
 };
 
-const chainConfigSchema = z.object({
-  rpcUrl: z.string().min(1),
-  defaultNumeraireAddress: z.string().startsWith('0x').optional(),
-  auctionTypes: z.array(z.enum(['multicurve', 'static', 'dynamic'])).optional(),
-  migrationModes: z.array(z.enum(['noOp', 'uniswapV2', 'uniswapV3', 'uniswapV4'])).optional(),
-  governanceModes: z.array(z.enum(['noOp', 'default', 'custom'])).optional(),
-  governanceEnabled: z.boolean().optional(),
-});
-
-const chainConfigMapSchema = z.record(chainConfigSchema);
-
-const parseChainConfigJson = (): Record<number, ChainRuntimeConfig> => {
-  const raw = process.env.CHAIN_CONFIG_JSON;
-  if (!raw || raw.trim() === '') {
-    return {};
+const parsePricingProvider = (fallback: PriceProvider): PriceProvider => {
+  const raw = process.env.PRICE_PROVIDER?.trim().toLowerCase() || fallback;
+  if (raw === 'coingecko' || raw === 'none') {
+    return raw;
   }
 
-  let decoded: unknown;
-  try {
-    decoded = JSON.parse(raw);
-  } catch (error) {
-    throw new AppError(
-      500,
-      'INVALID_CHAIN_CONFIG_JSON',
-      'CHAIN_CONFIG_JSON is not valid JSON',
-      error,
-    );
+  throw new AppError(500, 'INVALID_ENV', 'PRICE_PROVIDER must be "coingecko" or "none"');
+};
+
+const parseInteger = (value: string | undefined, fallback: number): number => {
+  if (!value || value.trim() === '') {
+    return fallback;
   }
 
-  const parsed = chainConfigMapSchema.safeParse(decoded);
-  if (!parsed.success) {
-    throw new AppError(
-      500,
-      'INVALID_CHAIN_CONFIG_JSON',
-      'CHAIN_CONFIG_JSON has invalid shape',
-      parsed.error.flatten(),
-    );
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new AppError(500, 'INVALID_ENV', `Expected a positive integer but received ${value}`);
+  }
+
+  return parsed;
+};
+
+const parseStringOrFallback = (value: string | undefined, fallback: string): string => {
+  if (value === undefined) return fallback;
+  const trimmed = value.trim();
+  return trimmed === '' ? fallback : trimmed;
+};
+
+const parseOptionalStringArray = (value: string | undefined): string[] | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  return parseStringArray(value);
+};
+
+const resolveTemplateChains = (
+  template: DopplerTemplateConfigV1,
+): Record<number, ChainRuntimeConfig> => {
+  const entries = Object.entries(template.chains);
+  if (entries.length === 0) {
+    throw new AppError(500, 'INVALID_ENV', 'doppler.config.ts must define at least one chain');
   }
 
   const mapped: Record<number, ChainRuntimeConfig> = {};
-  for (const [chainIdStr, value] of Object.entries(parsed.data)) {
+  for (const [chainIdStr, value] of entries) {
     const chainId = Number(chainIdStr);
     if (!Number.isInteger(chainId) || chainId <= 0) {
       throw new AppError(
         500,
-        'INVALID_CHAIN_ID',
-        `Invalid chainId key in CHAIN_CONFIG_JSON: ${chainIdStr}`,
+        'INVALID_ENV',
+        `Invalid chainId key in doppler.config.ts: ${chainIdStr}`,
       );
     }
 
-    const governanceModes = value.governanceModes ?? DEFAULT_GOVERNANCE_MODES;
-    const governanceEnabledDefault =
-      governanceModes.includes('default') || governanceModes.includes('custom');
+    if (!value.rpcUrl || value.rpcUrl.trim() === '') {
+      throw new AppError(
+        500,
+        'INVALID_ENV',
+        `Missing rpcUrl for chain ${chainId} in doppler.config.ts`,
+      );
+    }
 
     mapped[chainId] = {
       chainId,
       rpcUrl: value.rpcUrl,
       defaultNumeraireAddress: value.defaultNumeraireAddress as `0x${string}` | undefined,
-      auctionTypes: value.auctionTypes ?? DEFAULT_AUCTION_TYPES,
-      migrationModes: value.migrationModes ?? DEFAULT_MIGRATION_TYPES,
-      governanceModes,
-      governanceEnabled: value.governanceEnabled ?? governanceEnabledDefault,
+      auctionTypes: value.auctionTypes,
+      migrationModes: value.migrationModes,
+      governanceModes: value.governanceModes,
+      governanceEnabled: value.governanceEnabled,
     };
   }
 
@@ -173,18 +185,27 @@ const parseChainConfigJson = (): Record<number, ChainRuntimeConfig> => {
 };
 
 export const loadConfig = (): AppConfig => {
+  const template = dopplerTemplateConfig;
   const apiKey = process.env.API_KEY;
-  const rpcUrl = process.env.RPC_URL;
   const privateKey = process.env.PRIVATE_KEY as `0x${string}` | undefined;
-  const deploymentMode = parseDeploymentMode();
+  const deploymentMode = parseDeploymentMode(template.deploymentMode);
   const redisUrl = process.env.REDIS_URL?.trim() || undefined;
-  const redisKeyPrefix = process.env.REDIS_KEY_PREFIX?.trim() || 'doppler-api';
-  const idempotencyEnabled = parseBoolean(process.env.IDEMPOTENCY_ENABLED, true);
-  const idempotencyBackend = parseIdempotencyBackend();
-  const idempotencyRedisLockTtlMs = parseNumber(process.env.IDEMPOTENCY_REDIS_LOCK_TTL_MS, 900_000);
+  const redisKeyPrefix = parseStringOrFallback(
+    process.env.REDIS_KEY_PREFIX,
+    template.redis.keyPrefix,
+  );
+  const idempotencyEnabled = parseBoolean(
+    process.env.IDEMPOTENCY_ENABLED,
+    template.idempotency.enabled,
+  );
+  const idempotencyBackend = parseIdempotencyBackend(template.idempotency.backend);
+  const idempotencyRedisLockTtlMs = parseNumber(
+    process.env.IDEMPOTENCY_REDIS_LOCK_TTL_MS,
+    template.idempotency.redisLockTtlMs,
+  );
   const idempotencyRedisLockRefreshMs = parseNumber(
     process.env.IDEMPOTENCY_REDIS_LOCK_REFRESH_MS,
-    Math.max(Math.floor(idempotencyRedisLockTtlMs / 3), 1_000),
+    template.idempotency.redisLockRefreshMs,
   );
 
   if (!apiKey) {
@@ -194,37 +215,43 @@ export const loadConfig = (): AppConfig => {
     throw new AppError(500, 'MISSING_ENV', 'PRIVATE_KEY is required');
   }
 
-  const defaultChainId = parseNumber(process.env.DEFAULT_CHAIN_ID, 84532);
-  const parsedChainMap = parseChainConfigJson();
-
-  const chains: Record<number, ChainRuntimeConfig> = { ...parsedChainMap };
+  const defaultChainId = parseInteger(process.env.DEFAULT_CHAIN_ID, template.defaultChainId);
+  const chains = resolveTemplateChains(template);
 
   if (!chains[defaultChainId]) {
-    if (!rpcUrl) {
-      throw new AppError(
-        500,
-        'MISSING_ENV',
-        `RPC_URL is required when CHAIN_CONFIG_JSON does not define default chain ${defaultChainId}`,
-      );
-    }
+    throw new AppError(
+      500,
+      'INVALID_ENV',
+      `DEFAULT_CHAIN_ID ${defaultChainId} is not configured in doppler.config.ts`,
+    );
+  }
 
+  const rpcUrlOverride = process.env.RPC_URL?.trim();
+  if (rpcUrlOverride) {
     chains[defaultChainId] = {
-      chainId: defaultChainId,
-      rpcUrl,
-      defaultNumeraireAddress: process.env.DEFAULT_NUMERAIRE_ADDRESS as `0x${string}` | undefined,
-      auctionTypes: DEFAULT_AUCTION_TYPES,
-      migrationModes: DEFAULT_MIGRATION_TYPES,
-      governanceModes: DEFAULT_GOVERNANCE_MODES,
-      governanceEnabled: true,
+      ...chains[defaultChainId],
+      rpcUrl: rpcUrlOverride,
     };
   }
 
-  const pricingEnabled = parseBoolean(process.env.PRICE_ENABLED, true);
-  const provider = (process.env.PRICE_PROVIDER?.trim() || 'coingecko') as 'coingecko' | 'none';
+  const defaultNumeraireAddressOverride = process.env.DEFAULT_NUMERAIRE_ADDRESS as
+    | `0x${string}`
+    | undefined;
+  if (defaultNumeraireAddressOverride) {
+    chains[defaultChainId] = {
+      ...chains[defaultChainId],
+      defaultNumeraireAddress: defaultNumeraireAddressOverride,
+    };
+  }
+
+  const pricingEnabled = parseBoolean(process.env.PRICE_ENABLED, template.pricing.enabled);
+  const provider = parsePricingProvider(template.pricing.provider);
   const apiKeys = parseStringArray(process.env.API_KEYS);
   const resolvedApiKeys = [...new Set([apiKey, ...apiKeys].filter(Boolean) as string[])];
   const requireIdempotencyKey =
-    deploymentMode === 'shared' ? true : parseBoolean(process.env.IDEMPOTENCY_REQUIRE_KEY, false);
+    deploymentMode === 'shared'
+      ? true
+      : parseBoolean(process.env.IDEMPOTENCY_REQUIRE_KEY, template.idempotency.requireKey);
 
   if (idempotencyBackend === 'redis' && !redisUrl) {
     throw new AppError(500, 'MISSING_ENV', 'REDIS_URL is required when IDEMPOTENCY_BACKEND=redis');
@@ -259,19 +286,19 @@ export const loadConfig = (): AppConfig => {
   }
 
   return {
-    port: parseNumber(process.env.PORT, 3000),
+    port: parseNumber(process.env.PORT, template.port),
     deploymentMode,
     apiKey,
     apiKeys: resolvedApiKeys,
     defaultChainId,
     chains,
     privateKey,
-    logLevel: process.env.LOG_LEVEL || 'info',
-    readyRpcTimeoutMs: parseNumber(process.env.READY_RPC_TIMEOUT_MS, 2000),
-    corsOrigins: parseStringArray(process.env.CORS_ORIGINS),
+    logLevel: parseStringOrFallback(process.env.LOG_LEVEL, template.logLevel),
+    readyRpcTimeoutMs: parseNumber(process.env.READY_RPC_TIMEOUT_MS, template.readyRpcTimeoutMs),
+    corsOrigins: parseOptionalStringArray(process.env.CORS_ORIGINS) ?? [...template.corsOrigins],
     rateLimit: {
-      max: parseNumber(process.env.RATE_LIMIT_MAX, 100),
-      timeWindowMs: parseNumber(process.env.RATE_LIMIT_WINDOW_MS, 60_000),
+      max: parseNumber(process.env.RATE_LIMIT_MAX, template.rateLimit.max),
+      timeWindowMs: parseNumber(process.env.RATE_LIMIT_WINDOW_MS, template.rateLimit.timeWindowMs),
     },
     redis: {
       url: redisUrl,
@@ -281,17 +308,24 @@ export const loadConfig = (): AppConfig => {
       enabled: idempotencyEnabled,
       backend: idempotencyBackend,
       requireKey: requireIdempotencyKey,
-      ttlMs: parseNumber(process.env.IDEMPOTENCY_TTL_MS, 86_400_000),
-      storePath: process.env.IDEMPOTENCY_STORE_PATH || '.data/idempotency-store.json',
+      ttlMs: parseNumber(process.env.IDEMPOTENCY_TTL_MS, template.idempotency.ttlMs),
+      storePath: parseStringOrFallback(
+        process.env.IDEMPOTENCY_STORE_PATH,
+        template.idempotency.storePath,
+      ),
       redisLockTtlMs: idempotencyRedisLockTtlMs,
       redisLockRefreshMs: idempotencyRedisLockRefreshMs,
     },
     pricing: {
       enabled: pricingEnabled,
       provider,
-      baseUrl: process.env.PRICE_BASE_URL || 'https://api.coingecko.com/api/v3',
-      timeoutMs: parseNumber(process.env.PRICE_TIMEOUT_MS, 3000),
-      cacheTtlMs: parseNumber(process.env.PRICE_CACHE_TTL_MS, 15000),
+      baseUrl: parseStringOrFallback(process.env.PRICE_BASE_URL, template.pricing.baseUrl),
+      timeoutMs: parseNumber(process.env.PRICE_TIMEOUT_MS, template.pricing.timeoutMs),
+      cacheTtlMs: parseNumber(process.env.PRICE_CACHE_TTL_MS, template.pricing.cacheTtlMs),
+      coingeckoAssetId: parseStringOrFallback(
+        process.env.PRICE_COINGECKO_ASSET_ID,
+        template.pricing.coingeckoAssetId,
+      ),
       apiKey: process.env.PRICE_API_KEY,
     },
   };

@@ -10,6 +10,9 @@ cp .env.example .env
 npm run dev
 ```
 
+Before running, configure non-secrets in `doppler.config.ts`.
+Use env vars for secrets and runtime overrides.
+
 Container option:
 
 ```bash
