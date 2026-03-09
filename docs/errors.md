@@ -55,6 +55,8 @@ All errors are returned as:
 - `INVALID_FEE_BENEFICIARIES`
 - `IDEMPOTENCY_KEY_REQUIRED`
 - `IDEMPOTENCY_KEY_REUSE_MISMATCH`
+- `IDEMPOTENCY_KEY_IN_DOUBT`
+  - returned as `409` when a previous same-key create attempt may have submitted but did not finalize idempotency state
 
 Dynamic-specific policy notes:
 

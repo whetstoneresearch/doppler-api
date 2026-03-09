@@ -53,6 +53,7 @@ npm run test:live --verbose
 - In shared mode, create endpoints require `Idempotency-Key`.
 - Rate-limit state is Redis-backed; `GET /health` is IP-bucketed (spoofed `x-api-key` does not bypass).
 - Tx submission uses a Redis-backed distributed nonce lock so replicas can safely share one signer.
+- Redis idempotency writes an `in_progress` marker before tx submit and fails closed with `409 IDEMPOTENCY_KEY_IN_DOUBT` if a prior attempt is left in doubt after restart/crash.
 - Shared mode startup fails fast if Redis is unreachable.
 
 ## 2. Required auth
@@ -87,6 +88,7 @@ Auction selection guidance:
 - Use `auction.type="static"` only for networks that do not support Uniswap V4.
 
 Use `Idempotency-Key` on all create requests in shared/prod integrations (required by policy).
+If a retry returns `409 IDEMPOTENCY_KEY_IN_DOUBT`, poll status for the prior launch attempt before deciding to mint a new idempotency key.
 
 ## 4. Minimal request template
 

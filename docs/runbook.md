@@ -42,6 +42,7 @@ Actions:
 Symptoms:
 
 - intermittent send failures, nonce-related errors, pending tx buildup.
+- `409 IDEMPOTENCY_KEY_IN_DOUBT` on create retries after crash/restart.
 
 Actions:
 
@@ -52,6 +53,10 @@ Actions:
    - restart service once to clear transient RPC client state
    - verify no parallel systems outside this deployment are using the same `PRIVATE_KEY`
    - confirm Redis connectivity and consistent `REDIS_KEY_PREFIX` across replicas so the nonce lock is shared.
+5. If `IDEMPOTENCY_KEY_IN_DOUBT` is returned:
+   - do not create with a new idempotency key until prior launch status is resolved
+   - check logs for the original `x-request-id` and tx hash emission
+   - if tx hash is known, poll `GET /v1/launches/:launchId` until confirmed/reverted
 
 ## Incident: RPC degraded
 

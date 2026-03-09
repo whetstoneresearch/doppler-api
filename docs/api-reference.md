@@ -141,6 +141,7 @@ Generic launch creation endpoint (future-compatible).
   - required in shared/prod mode
 - same key + same request payload: returns original response and sets `x-idempotency-replayed: true`
 - same key + different payload: returns `409 IDEMPOTENCY_KEY_REUSE_MISMATCH`
+- if a prior create attempt crashed/restarted after tx submit and left the key `in_progress`, retries fail closed with `409 IDEMPOTENCY_KEY_IN_DOUBT`
 - when `IDEMPOTENCY_REQUIRE_KEY=true` (always true in shared mode), create requests without header return `422 IDEMPOTENCY_KEY_REQUIRED`
 
 #### Error responses
@@ -148,6 +149,7 @@ Generic launch creation endpoint (future-compatible).
 - `401 UNAUTHORIZED`
 - `429 RATE_LIMITED`
 - `422 INVALID_REQUEST` (schema validation) and domain-specific validation errors
+- `409 IDEMPOTENCY_KEY_IN_DOUBT` when a previous same-key create attempt may have submitted but did not finalize idempotency state
 - `501 MIGRATION_NOT_IMPLEMENTED` for unsupported migration modes (for example `uniswapV3`)
 - `500 INTERNAL_ERROR` (message is generic)
 

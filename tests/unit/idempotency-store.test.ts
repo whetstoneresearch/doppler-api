@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 import type { CreateLaunchResponse } from '../../src/core/types';
@@ -13,8 +14,25 @@ const samplePayload = {
   economics: { totalSupply: '1000' },
   governance: { enabled: false, mode: 'noOp' as const },
   migration: { type: 'noOp' as const },
-  auction: { type: 'multicurve' as const, curveConfig: { type: 'preset' as const } },
+  auction: {
+    type: 'multicurve' as const,
+    curveConfig: { type: 'preset' as const },
+  },
 };
+
+const stableStringify = (value: unknown): string => {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  const body = entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',');
+  return `{${body}}`;
+};
+
+const hashPayload = (payload: unknown): string =>
+  createHash('sha256').update(stableStringify(payload)).digest('hex');
 
 const sleep = async (ms: number): Promise<void> =>
   new Promise((resolve) => {
@@ -57,6 +75,12 @@ class FakeRedisClient implements IdempotencyRedisClient {
     this.prune(key);
     const entry = this.store.get(key);
     return entry?.value ?? null;
+  }
+
+  async del(key: string): Promise<number> {
+    this.prune(key);
+    const existed = this.store.delete(key);
+    return existed ? 1 : 0;
   }
 
   async set(
@@ -156,7 +180,10 @@ describe('idempotency store', () => {
           throw new Error('should not be called');
         },
       ),
-    ).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSE_MISMATCH', statusCode: 409 });
+    ).rejects.toMatchObject({
+      code: 'IDEMPOTENCY_KEY_REUSE_MISMATCH',
+      statusCode: 409,
+    });
   });
 
   it('redis backend replays same key and payload', async () => {
@@ -205,7 +232,10 @@ describe('idempotency store', () => {
           throw new Error('should not be called');
         },
       ),
-    ).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSE_MISMATCH', statusCode: 409 });
+    ).rejects.toMatchObject({
+      code: 'IDEMPOTENCY_KEY_REUSE_MISMATCH',
+      statusCode: 409,
+    });
   });
 
   it('redis backend dedupes in-flight requests across store instances', async () => {
@@ -284,5 +314,38 @@ describe('idempotency store', () => {
     expect(first.replayed).toBe(false);
     expect(second.replayed).toBe(true);
     expect(second.response.txHash).toBe(first.response.txHash);
+  });
+
+  it('redis backend fails closed when recovering in-progress key without lock', async () => {
+    const redis = new FakeRedisClient();
+    await redis.set(
+      'test:idempotency:record:crash-window',
+      JSON.stringify({
+        state: 'in_progress',
+        payloadHash: hashPayload(samplePayload),
+        createdAtMs: Date.now(),
+      }),
+      'PX',
+      100_000,
+    );
+
+    const store = new RedisIdempotencyStore({
+      enabled: true,
+      ttlMs: 100_000,
+      redis,
+      keyPrefix: 'test',
+      lockTtlMs: 250,
+      lockRefreshMs: 50,
+      pollIntervalMs: 5,
+    });
+
+    await expect(
+      store.execute('crash-window', samplePayload as any, async () => {
+        throw new Error('should not be called');
+      }),
+    ).rejects.toMatchObject({
+      code: 'IDEMPOTENCY_KEY_IN_DOUBT',
+      statusCode: 409,
+    });
   });
 });

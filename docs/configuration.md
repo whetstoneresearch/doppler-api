@@ -60,6 +60,9 @@ Edit `doppler.config.ts` for:
 - `IDEMPOTENCY_REDIS_LOCK_REFRESH_MS` (default from `doppler.config.ts`)
   - heartbeat interval for refreshing the Redis in-flight lock
   - must be lower than `IDEMPOTENCY_REDIS_LOCK_TTL_MS`
+- Redis-backed idempotency writes an `in_progress` marker before create submit.
+  If a process crashes/restarts before completion, retries with the same key fail closed with
+  `409 IDEMPOTENCY_KEY_IN_DOUBT` until operators verify prior attempt status.
 
 ## Shared mode guardrails
 

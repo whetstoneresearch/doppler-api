@@ -13,6 +13,21 @@ interface IdempotencyRecord {
   createdAtMs: number;
 }
 
+interface RedisInProgressRecord {
+  state: 'in_progress';
+  payloadHash: string;
+  createdAtMs: number;
+}
+
+interface RedisCompletedRecord {
+  state: 'completed';
+  payloadHash: string;
+  response: CreateLaunchResponse;
+  createdAtMs: number;
+}
+
+type RedisIdempotencyRecord = RedisInProgressRecord | RedisCompletedRecord;
+
 interface PersistedStore {
   records: Record<string, IdempotencyRecord>;
 }
@@ -27,6 +42,7 @@ export interface IdempotencyStore {
 
 export interface IdempotencyRedisClient {
   get(key: string): Promise<string | null>;
+  del(key: string): Promise<number>;
   set(
     key: string,
     value: string,
@@ -77,6 +93,14 @@ const delay = async (ms: number): Promise<void> =>
 
 const throwKeyReuseMismatch = (message: string): never => {
   throw new AppError(409, 'IDEMPOTENCY_KEY_REUSE_MISMATCH', message);
+};
+
+const throwInDoubtError = (): never => {
+  throw new AppError(
+    409,
+    'IDEMPOTENCY_KEY_IN_DOUBT',
+    'Idempotency key is in progress from a previous attempt; verify launch status before retrying',
+  );
 };
 
 export class FileIdempotencyStore implements IdempotencyStore {
@@ -229,26 +253,82 @@ export class RedisIdempotencyStore implements IdempotencyStore {
     return payloadHash.length > 0 ? payloadHash : null;
   }
 
-  private async readRecord(key: string): Promise<IdempotencyRecord | null> {
+  private async readRecord(key: string): Promise<RedisIdempotencyRecord | null> {
     const raw = await this.redis.get(this.recordKey(key));
     if (!raw) {
       return null;
     }
 
     try {
-      const parsed = JSON.parse(raw) as Partial<IdempotencyRecord>;
-      if (
-        typeof parsed.payloadHash !== 'string' ||
-        typeof parsed.createdAtMs !== 'number' ||
-        parsed.response === undefined
-      ) {
+      const parsed = JSON.parse(raw) as {
+        state?: unknown;
+        payloadHash?: unknown;
+        createdAtMs?: unknown;
+        response?: unknown;
+      };
+      if (typeof parsed.payloadHash !== 'string' || typeof parsed.createdAtMs !== 'number') {
         return null;
       }
 
-      return parsed as IdempotencyRecord;
+      if (parsed.state === 'in_progress') {
+        return {
+          state: 'in_progress',
+          payloadHash: parsed.payloadHash,
+          createdAtMs: parsed.createdAtMs,
+        };
+      }
+
+      if (parsed.state === 'completed' && parsed.response !== undefined) {
+        return {
+          state: 'completed',
+          payloadHash: parsed.payloadHash,
+          response: parsed.response as CreateLaunchResponse,
+          createdAtMs: parsed.createdAtMs,
+        };
+      }
+
+      // Backward compatibility for records written before explicit state support.
+      if (parsed.response !== undefined) {
+        return {
+          state: 'completed',
+          payloadHash: parsed.payloadHash,
+          response: parsed.response as CreateLaunchResponse,
+          createdAtMs: parsed.createdAtMs,
+        };
+      }
+
+      return null;
     } catch {
       return null;
     }
+  }
+
+  private async writeInProgressRecord(key: string, payloadHash: string): Promise<void> {
+    const record: RedisInProgressRecord = {
+      state: 'in_progress',
+      payloadHash,
+      createdAtMs: Date.now(),
+    };
+    await this.redis.set(this.recordKey(key), JSON.stringify(record), 'PX', this.ttlMs);
+  }
+
+  private async writeCompletedRecord(
+    key: string,
+    payloadHash: string,
+    response: CreateLaunchResponse,
+  ): Promise<void> {
+    const record: RedisCompletedRecord = {
+      state: 'completed',
+      payloadHash,
+      response,
+      createdAtMs: Date.now(),
+    };
+
+    await this.redis.set(this.recordKey(key), JSON.stringify(record), 'PX', this.ttlMs);
+  }
+
+  private async clearRecord(key: string): Promise<void> {
+    await this.redis.del(this.recordKey(key));
   }
 
   private async tryAcquireLock(key: string, payloadHash: string): Promise<string | null> {
@@ -275,7 +355,7 @@ export class RedisIdempotencyStore implements IdempotencyStore {
   private async waitForRecordOrUnlock(
     key: string,
     payloadHash: string,
-  ): Promise<IdempotencyRecord | null> {
+  ): Promise<RedisCompletedRecord | null> {
     const lockKey = this.lockKey(key);
 
     for (;;) {
@@ -286,7 +366,9 @@ export class RedisIdempotencyStore implements IdempotencyStore {
             'Idempotency key was already used with a different request payload',
           );
         }
-        return existing;
+        if (existing.state === 'completed') {
+          return existing;
+        }
       }
 
       const lockValue = await this.redis.get(lockKey);
@@ -337,19 +419,20 @@ export class RedisIdempotencyStore implements IdempotencyStore {
       heartbeatTimer.unref?.();
     }
 
-    const promise = Promise.resolve().then(action);
-    this.inFlight.set(key, { payloadHash, promise });
-
     try {
+      await this.writeInProgressRecord(key, payloadHash);
+      const promise = Promise.resolve().then(action);
+      this.inFlight.set(key, { payloadHash, promise });
       const response = await promise;
-      const record: IdempotencyRecord = {
-        payloadHash,
-        response,
-        createdAtMs: Date.now(),
-      };
-
-      await this.redis.set(this.recordKey(key), JSON.stringify(record), 'PX', this.ttlMs);
+      await this.writeCompletedRecord(key, payloadHash, response);
       return { response, replayed: false };
+    } catch (error) {
+      try {
+        await this.clearRecord(key);
+      } catch {
+        // best-effort cleanup; retries still protected by lock + existing record checks
+      }
+      throw error;
     } finally {
       stopHeartbeat();
       this.inFlight.delete(key);
@@ -376,7 +459,22 @@ export class RedisIdempotencyStore implements IdempotencyStore {
             'Idempotency key was already used with a different request payload',
           );
         }
-        return { response: existing.response, replayed: true };
+
+        if (existing.state === 'completed') {
+          return { response: existing.response, replayed: true };
+        }
+
+        const replay = await this.waitForRecordOrUnlock(key, payloadHash);
+        if (replay) {
+          return { response: replay.response, replayed: true };
+        }
+
+        const afterWait = await this.readRecord(key);
+        if (afterWait?.state === 'in_progress') {
+          throwInDoubtError();
+        }
+
+        continue;
       }
 
       const inFlight = this.inFlight.get(key);
