@@ -15,6 +15,7 @@
     "lint:fix": "oxlint --fix",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
+    "fix": "npm run format && npm run lint:fix",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
     "test": "node scripts/test-runner.mjs",
     "test:unit": "vitest run tests/unit",
