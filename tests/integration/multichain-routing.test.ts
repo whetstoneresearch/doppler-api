@@ -17,7 +17,7 @@ describe('GET /v1/capabilities', () => {
   it('returns per-chain capability matrix', async () => {
     const config: AppConfig = {
       port: 3000,
-      deploymentMode: 'local',
+      deploymentMode: 'standalone',
       apiKey: 'test-key',
       apiKeys: ['test-key'],
       defaultChainId: 84532,

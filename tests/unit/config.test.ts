@@ -54,7 +54,7 @@ describe('shared-environment config guardrails', () => {
 
     expect(config.defaultChainId).toBe(84532);
     expect(config.chains[84532]?.rpcUrl).toBe('https://base-sepolia-rpc.publicnode.com');
-    expect(config.deploymentMode).toBe('local');
+    expect(config.deploymentMode).toBe('standalone');
     expect(config.idempotency.backend).toBe('file');
     expect(config.idempotency.requireKey).toBe(false);
     expect(config.redis.url).toBeUndefined();

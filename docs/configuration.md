@@ -24,7 +24,7 @@ Edit `doppler.config.ts` for:
 
 - `PORT` (default from `doppler.config.ts`)
 - `DEPLOYMENT_MODE` (default from `doppler.config.ts`)
-  - allowed: `local`, `shared`
+  - allowed: `standalone`, `shared`
   - if unset and `NODE_ENV=production`, deployment mode defaults to `shared`
 - `DEFAULT_CHAIN_ID` (must exist in `doppler.config.ts`)
 - `RPC_URL`
@@ -41,11 +41,6 @@ Edit `doppler.config.ts` for:
 - `RATE_LIMIT_MAX` (default from `doppler.config.ts`)
 - `RATE_LIMIT_WINDOW_MS` (default from `doppler.config.ts`)
 
-## Redis environment variables
-
-- `REDIS_URL`
-- `REDIS_KEY_PREFIX` (default from `doppler.config.ts`)
-
 ## Idempotency environment variables
 
 - `IDEMPOTENCY_ENABLED` (default from `doppler.config.ts`)
@@ -60,23 +55,6 @@ Edit `doppler.config.ts` for:
 - `IDEMPOTENCY_REDIS_LOCK_REFRESH_MS` (default from `doppler.config.ts`)
   - heartbeat interval for refreshing the Redis in-flight lock
   - must be lower than `IDEMPOTENCY_REDIS_LOCK_TTL_MS`
-- Redis-backed idempotency writes an `in_progress` marker before create submit.
-  If a process crashes/restarts before completion, retries with the same key fail closed with
-  `409 IDEMPOTENCY_KEY_IN_DOUBT` until operators verify prior attempt status.
-
-## Shared mode guardrails
-
-When `DEPLOYMENT_MODE=shared`:
-
-- `REDIS_URL` is required.
-- `IDEMPOTENCY_ENABLED` must be `true`.
-- `IDEMPOTENCY_BACKEND` must be `redis`.
-- create endpoints require `Idempotency-Key`.
-- rate-limiter state uses Redis for cross-replica consistency.
-- tx nonce submission uses a Redis-backed distributed signer lock for cross-replica coordination.
-- startup fails fast if Redis cannot be reached.
-
-Local mode remains file-backed by default and does not require Redis.
 
 ## Pricing environment variables
 
@@ -126,3 +104,36 @@ chains: {
 - Dynamic launches require `migrationModes` to include `"uniswapV2"` and/or `"uniswapV4"`.
 - `uniswapV3` migration is not supported and returns `501 MIGRATION_NOT_IMPLEMENTED` if requested.
 - If you intentionally want the V3 static path on Base Sepolia for testing, include `"static"` in that chain's `auctionTypes` list.
+
+## Redis environment variables
+
+- `REDIS_URL`
+- `REDIS_KEY_PREFIX` (default from `doppler.config.ts`)
+
+## Deployment mode guidance
+
+- `standalone`: one API instance owns its own local state and does not need cross-instance coordination.
+- `shared`: multiple API instances can serve the same workload safely by coordinating through Redis.
+
+When `DEPLOYMENT_MODE=standalone`:
+
+- Redis is optional.
+- File-backed idempotency is the default.
+- Good fit for one API instance, one signer, and a durable local filesystem.
+- Redis is recommended if you want stronger crash/restart recovery around create requests.
+
+When `DEPLOYMENT_MODE=shared`:
+
+- `REDIS_URL` is required.
+- `IDEMPOTENCY_ENABLED` must be `true`.
+- `IDEMPOTENCY_BACKEND` must be `redis`.
+- create endpoints require `Idempotency-Key`.
+- rate-limiter state uses Redis for cross-replica consistency.
+- tx nonce submission uses a Redis-backed distributed signer lock for cross-replica coordination.
+- startup fails fast if Redis cannot be reached.
+
+`NODE_ENV=production` with no explicit `DEPLOYMENT_MODE` resolves to `shared`.
+
+Redis-backed idempotency writes an `in_progress` marker before create submit.
+If a process crashes/restarts before completion, retries with the same key fail closed with
+`409 IDEMPOTENCY_KEY_IN_DOUBT` until operators verify prior attempt status.

@@ -9,7 +9,7 @@ interface BuildTestServerOptions {
 export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
   const config: AppConfig = {
     port: 3000,
-    deploymentMode: 'local',
+    deploymentMode: 'standalone',
     apiKey: 'test-key',
     apiKeys: ['test-key'],
     defaultChainId: 84532,

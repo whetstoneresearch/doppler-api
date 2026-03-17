@@ -33,7 +33,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Reuse the same key for safe retries of identical create payloads (required in shared/prod mode).
+          description: Reuse the same key for safe retries of identical create payloads (required in shared mode, recommended in standalone mode).
       requestBody:
         required: true
         content:
@@ -70,7 +70,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Reuse the same key for safe retries of identical create payloads (required in shared/prod mode).
+          description: Reuse the same key for safe retries of identical create payloads (required in shared mode, recommended in standalone mode).
       requestBody:
         required: true
         content:
@@ -107,7 +107,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Reuse the same key for safe retries of identical create payloads (required in shared/prod mode).
+          description: Reuse the same key for safe retries of identical create payloads (required in shared mode, recommended in standalone mode).
       requestBody:
         required: true
         content:
@@ -144,7 +144,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Reuse the same key for safe retries of identical create payloads (required in shared/prod mode).
+          description: Reuse the same key for safe retries of identical create payloads (required in shared mode, recommended in standalone mode).
       requestBody:
         required: true
         content:

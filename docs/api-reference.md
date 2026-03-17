@@ -137,8 +137,8 @@ Generic launch creation endpoint (future-compatible).
 #### Idempotency header
 
 - Request header: `Idempotency-Key: <string>`
-  - optional in local mode
-  - required in shared/prod mode
+  - optional in standalone mode
+  - required in shared mode
 - same key + same request payload: returns original response and sets `x-idempotency-replayed: true`
 - same key + different payload: returns `409 IDEMPOTENCY_KEY_REUSE_MISMATCH`
 - if a prior create attempt crashed/restarted after tx submit and left the key `in_progress`, retries fail closed with `409 IDEMPOTENCY_KEY_IN_DOUBT`

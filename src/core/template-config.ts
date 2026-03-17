@@ -1,6 +1,6 @@
 import type { AuctionType, GovernanceMode, MigrationType } from './types';
 
-export type DeploymentMode = 'local' | 'shared';
+export type DeploymentMode = 'standalone' | 'shared';
 export type IdempotencyBackend = 'file' | 'redis';
 export type PriceProvider = 'coingecko' | 'none';
 

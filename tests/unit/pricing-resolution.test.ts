@@ -5,7 +5,7 @@ import type { AppConfig } from '../../src/core/config';
 
 const baseConfig: AppConfig = {
   port: 3000,
-  deploymentMode: 'local',
+  deploymentMode: 'standalone',
   apiKey: 'test',
   apiKeys: ['test'],
   defaultChainId: 84532,

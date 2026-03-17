@@ -92,11 +92,11 @@ const parseDeploymentMode = (fallback: DeploymentMode): DeploymentMode => {
     return fallback;
   }
 
-  if (raw === 'local' || raw === 'shared') {
+  if (raw === 'standalone' || raw === 'shared') {
     return raw;
   }
 
-  throw new AppError(500, 'INVALID_ENV', 'DEPLOYMENT_MODE must be "local" or "shared"');
+  throw new AppError(500, 'INVALID_ENV', 'DEPLOYMENT_MODE must be "standalone" or "shared"');
 };
 
 const parseIdempotencyBackend = (fallback: IdempotencyBackend): IdempotencyBackend => {

@@ -45,21 +45,6 @@ npm run dev
 - Required secrets remain in env: `API_KEY`, `PRIVATE_KEY` (and `REDIS_URL` when needed).
 - The template object is type-checked via `DopplerTemplateConfigV1`; config shape drift fails build/typecheck.
 
-## Deployment modes and Redis
-
-- Local default (`DEPLOYMENT_MODE=local`):
-  - `IDEMPOTENCY_BACKEND=file` (default)
-  - no Redis required
-- Shared/prod (`DEPLOYMENT_MODE=shared`, or `NODE_ENV=production` when `DEPLOYMENT_MODE` is unset):
-  - `REDIS_URL` is required
-  - `IDEMPOTENCY_BACKEND` must be `redis`
-  - create endpoints always require `Idempotency-Key` (`IDEMPOTENCY_REQUIRE_KEY=true` is enforced)
-  - rate-limit state is Redis-backed for cross-replica consistency
-  - nonce submission uses a Redis-backed distributed signer lock for cross-replica coordination
-  - Redis-backed idempotency writes an `in_progress` marker before tx submit to close crash/restart duplicate windows
-  - retries against a stuck `in_progress` marker fail closed with `409 IDEMPOTENCY_KEY_IN_DOUBT`; verify launch status before attempting a new key
-  - Redis in-flight lock uses a heartbeat; tune `IDEMPOTENCY_REDIS_LOCK_TTL_MS` to exceed max expected create duration
-
 ## Current target feature set
 
 - Auction types:
@@ -156,6 +141,38 @@ content-type: application/json
   }
 }
 ```
+
+## Deployment modes and Redis
+
+This repo currently supports two runtime modes:
+
+- `standalone`: one API instance owns its own local state and does not need cross-instance coordination.
+- `shared`: multiple API instances can serve the same workload safely by coordinating through Redis.
+
+- Single-instance / standalone (`DEPLOYMENT_MODE=standalone`)
+  - This is the default typed config mode and the simplest way to run the API.
+  - `IDEMPOTENCY_BACKEND=file` is the default.
+  - Redis is optional.
+  - Good fit for one API instance, one signer, and a durable local filesystem.
+  - Redis is still recommended if you want stronger idempotency recovery around crashes/restarts.
+- Shared / multi-instance (`DEPLOYMENT_MODE=shared`)
+  - Intended for horizontally scaled or production-style shared deployments.
+  - `REDIS_URL` is required.
+  - `IDEMPOTENCY_BACKEND` must be `redis`.
+  - Create endpoints always require `Idempotency-Key` (`IDEMPOTENCY_REQUIRE_KEY=true` is enforced).
+  - Rate-limit state is Redis-backed for cross-replica consistency.
+  - Nonce submission uses a Redis-backed distributed signer lock for cross-replica coordination.
+  - Redis-backed idempotency writes an `in_progress` marker before tx submit to close crash/restart duplicate windows.
+  - Retries against a stuck `in_progress` marker fail closed with `409 IDEMPOTENCY_KEY_IN_DOUBT`; verify launch status before attempting a new key.
+  - Redis in-flight lock uses a heartbeat; tune `IDEMPOTENCY_REDIS_LOCK_TTL_MS` to exceed max expected create duration.
+
+`NODE_ENV=production` with no explicit `DEPLOYMENT_MODE` resolves to `shared`, so Redis becomes required in that case.
+
+### Redis guidance
+
+- Optional: single-instance / standalone deployments that use file-backed idempotency.
+- Recommended: any deployment that wants stronger crash/restart recovery for create requests, even with one instance.
+- Required: any shared deployment, multi-replica deployment, or any setup that explicitly sets `IDEMPOTENCY_BACKEND=redis`.
 
 ## Curve configuration examples
 
