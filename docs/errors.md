@@ -16,14 +16,21 @@ All errors are returned as:
 
 - `details` is optional.
 - Validation failures return `422 INVALID_REQUEST` with structured zod details.
+- 5xx responses return a generic client-safe message (`"Internal server error"`).
+  Full diagnostics remain in server logs.
 
 ## Common status codes
 
 - `401` unauthorized (`x-api-key` missing/invalid)
+- `429` rate limit exceeded (`RATE_LIMITED`)
 - `422` validation or business-rule failure
 - `501` planned but not implemented functionality
 - `502` upstream or chain lookup failures
 - `500` internal errors
+
+## Operational
+
+- `RATE_LIMITED`
 
 ## Known domain error codes
 
@@ -48,6 +55,8 @@ All errors are returned as:
 - `INVALID_FEE_BENEFICIARIES`
 - `IDEMPOTENCY_KEY_REQUIRED`
 - `IDEMPOTENCY_KEY_REUSE_MISMATCH`
+- `IDEMPOTENCY_KEY_IN_DOUBT`
+  - returned as `409` when a previous same-key create attempt may have submitted but did not finalize idempotency state
 
 Dynamic-specific policy notes:
 
@@ -75,6 +84,12 @@ Dynamic-specific policy notes:
 ### Config
 
 - `MISSING_ENV`
-- `INVALID_CHAIN_CONFIG_JSON`
-- `INVALID_CHAIN_ID`
+- `INVALID_ENV`
+- `REDIS_UNAVAILABLE`
 - `UNSUPPORTED_CHAIN`
+
+Shared-mode guardrail notes:
+
+- `DEPLOYMENT_MODE=shared` requires `REDIS_URL`.
+- `DEPLOYMENT_MODE=shared` requires `IDEMPOTENCY_ENABLED=true` and `IDEMPOTENCY_BACKEND=redis`.
+- startup returns `REDIS_UNAVAILABLE` if Redis is configured but unreachable.

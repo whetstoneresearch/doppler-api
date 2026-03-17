@@ -17,6 +17,7 @@ describe('GET /v1/capabilities', () => {
   it('returns per-chain capability matrix', async () => {
     const config: AppConfig = {
       port: 3000,
+      deploymentMode: 'local',
       apiKey: 'test-key',
       apiKeys: ['test-key'],
       defaultChainId: 84532,
@@ -28,11 +29,17 @@ describe('GET /v1/capabilities', () => {
         max: 100,
         timeWindowMs: 60_000,
       },
+      redis: {
+        keyPrefix: 'doppler-api-test',
+      },
       idempotency: {
         enabled: true,
+        backend: 'file',
         requireKey: false,
         ttlMs: 86_400_000,
         storePath: '.test-results/test-idempotency.json',
+        redisLockTtlMs: 900_000,
+        redisLockRefreshMs: 300_000,
       },
       pricing: {
         enabled: true,
@@ -40,6 +47,7 @@ describe('GET /v1/capabilities', () => {
         baseUrl: 'https://api.coingecko.com/api/v3',
         timeoutMs: 1000,
         cacheTtlMs: 1000,
+        coingeckoAssetId: 'ethereum',
       },
       chains: {
         84532: {
@@ -112,7 +120,13 @@ describe('GET /v1/capabilities', () => {
 
     app = await buildServer(services);
 
-    const response = await app.inject({ method: 'GET', url: '/v1/capabilities' });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/capabilities',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+    });
 
     expect(response.statusCode).toBe(200);
     const body = response.json() as {

@@ -2,9 +2,11 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
+import Redis from 'ioredis';
 import { fileURLToPath } from 'node:url';
 
 import { loadConfig, type AppConfig } from '../core/config';
+import { AppError } from '../core/errors';
 import { createLogger } from '../core/logger';
 import { MetricsRegistry } from '../core/metrics';
 import authPlugin from './plugins/auth';
@@ -12,7 +14,7 @@ import errorHandlerPlugin from './plugins/error-handler';
 import requestLoggerPlugin from './plugins/request-logger';
 import { ChainRegistry } from '../infra/chain/registry';
 import { DopplerSdkRegistry } from '../infra/doppler/sdk-client';
-import { IdempotencyStore } from '../infra/idempotency/store';
+import { createIdempotencyStore, type IdempotencyStore } from '../infra/idempotency/store';
 import { TxSubmitter } from '../infra/tx/submitter';
 import { PricingService } from '../modules/pricing/service';
 import { LaunchService } from '../modules/launches/service';
@@ -32,6 +34,7 @@ export interface AppServices {
   metrics: MetricsRegistry;
   chainRegistry: ChainRegistry;
   sdkRegistry: DopplerSdkRegistry;
+  redisClient?: Redis;
   pricingService: PricingService;
   launchService: LaunchService;
   statusService: StatusService;
@@ -39,15 +42,60 @@ export interface AppServices {
   idempotencyStore: IdempotencyStore;
 }
 
+const usesRedis = (config: AppConfig): boolean =>
+  config.deploymentMode === 'shared' || config.idempotency.backend === 'redis';
+
+const createRedisClient = (config: AppConfig): Redis | undefined => {
+  if (!usesRedis(config)) {
+    return undefined;
+  }
+
+  if (!config.redis.url) {
+    throw new AppError(
+      500,
+      'MISSING_ENV',
+      'REDIS_URL is required when Redis-backed state is enabled',
+    );
+  }
+
+  return new Redis(config.redis.url, {
+    connectTimeout: 5000,
+    maxRetriesPerRequest: 1,
+  });
+};
+
+const normalizeHeader = (value: string | string[] | undefined): string | undefined => {
+  if (Array.isArray(value)) {
+    return value[0] || undefined;
+  }
+  return value || undefined;
+};
+
+const routeAuthDisabled = (request: any): boolean => {
+  const routeConfig = (request.routeOptions?.config ?? request.routeConfig) as
+    | { auth?: boolean }
+    | undefined;
+  return routeConfig?.auth === false;
+};
+
 export const buildServices = (config: AppConfig): AppServices => {
   const metrics = new MetricsRegistry();
   const chainRegistry = new ChainRegistry(config);
   const sdkRegistry = new DopplerSdkRegistry(chainRegistry.list());
-  const txSubmitter = new TxSubmitter();
-  const idempotencyStore = new IdempotencyStore({
+  const redisClient = createRedisClient(config);
+  const txSubmitter = new TxSubmitter({
+    redis: redisClient,
+    redisKeyPrefix: config.redis.keyPrefix,
+  });
+  const idempotencyStore = createIdempotencyStore({
     enabled: config.idempotency.enabled,
+    backend: config.idempotency.backend,
     ttlMs: config.idempotency.ttlMs,
     path: config.idempotency.storePath,
+    redis: redisClient,
+    redisKeyPrefix: config.redis.keyPrefix,
+    redisLockTtlMs: config.idempotency.redisLockTtlMs,
+    redisLockRefreshMs: config.idempotency.redisLockRefreshMs,
   });
   const pricingService = new PricingService(config);
   const launchService = new LaunchService({
@@ -65,6 +113,7 @@ export const buildServices = (config: AppConfig): AppServices => {
     metrics,
     chainRegistry,
     sdkRegistry,
+    redisClient,
     pricingService,
     launchService,
     statusService,
@@ -76,25 +125,71 @@ export const buildServices = (config: AppConfig): AppServices => {
 export const buildServer = async (services?: AppServices) => {
   const resolvedServices = services ?? buildServices(loadConfig());
   const logger = createLogger(resolvedServices.config.logLevel);
+  const usesRedisRateLimit = resolvedServices.config.deploymentMode === 'shared';
+  const allowedApiKeys = new Set(resolvedServices.config.apiKeys);
 
-  const app = Fastify({ logger });
+  if (usesRedisRateLimit && !resolvedServices.redisClient) {
+    throw new AppError(500, 'MISSING_ENV', 'Shared deployments require Redis-backed rate limiting');
+  }
+
+  if (usesRedisRateLimit) {
+    try {
+      await resolvedServices.redisClient?.ping();
+    } catch (error) {
+      throw new AppError(
+        500,
+        'REDIS_UNAVAILABLE',
+        'Shared deployments require reachable Redis at startup',
+        error,
+      );
+    }
+  }
+
+  const app = Fastify({ loggerInstance: logger });
 
   await app.register(sensible);
   await app.register(cors, {
     origin:
       resolvedServices.config.corsOrigins.length > 0 ? resolvedServices.config.corsOrigins : false,
   });
-  await app.register(rateLimit, {
+  const rateLimitOptions: Record<string, unknown> = {
     max: resolvedServices.config.rateLimit.max,
     timeWindow: resolvedServices.config.rateLimit.timeWindowMs,
-    keyGenerator: (request) => {
-      const key = request.headers['x-api-key'];
-      return Array.isArray(key) ? key[0] || request.ip : key || request.ip;
+    keyGenerator: (request: any) => {
+      if (routeAuthDisabled(request)) {
+        return `ip:${request.ip}`;
+      }
+
+      const apiKey = normalizeHeader(request.headers['x-api-key']);
+      if (apiKey && allowedApiKeys.has(apiKey)) {
+        return `api-key:${apiKey}`;
+      }
+
+      return `ip:${request.ip}`;
     },
-  });
+  };
+
+  if (usesRedisRateLimit) {
+    rateLimitOptions.redis = resolvedServices.redisClient;
+    rateLimitOptions.nameSpace = `${resolvedServices.config.redis.keyPrefix}:rate-limit:`;
+  }
+
+  await app.register(rateLimit, rateLimitOptions);
+
+  if (resolvedServices.redisClient) {
+    app.addHook('onClose', async () => {
+      try {
+        await resolvedServices.redisClient?.quit();
+      } catch {
+        resolvedServices.redisClient?.disconnect();
+      }
+    });
+  }
 
   await app.register(errorHandlerPlugin);
-  await app.register(requestLoggerPlugin, { metrics: resolvedServices.metrics });
+  await app.register(requestLoggerPlugin, {
+    metrics: resolvedServices.metrics,
+  });
   await app.register(authPlugin, { apiKeys: resolvedServices.config.apiKeys });
 
   await registerHealthRoute(app);

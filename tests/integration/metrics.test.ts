@@ -16,8 +16,16 @@ describe('GET /metrics', () => {
     app = await buildTestServer();
 
     await app.inject({ method: 'GET', url: '/health' });
-    await app.inject({ method: 'GET', url: '/ready' });
-    const metricsResponse = await app.inject({ method: 'GET', url: '/metrics' });
+    await app.inject({
+      method: 'GET',
+      url: '/ready',
+      headers: { 'x-api-key': 'test-key' },
+    });
+    const metricsResponse = await app.inject({
+      method: 'GET',
+      url: '/metrics',
+      headers: { 'x-api-key': 'test-key' },
+    });
 
     expect(metricsResponse.statusCode).toBe(200);
     expect(metricsResponse.headers['x-request-id']).toBeDefined();

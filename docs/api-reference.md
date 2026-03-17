@@ -10,13 +10,21 @@ Base URL (local): `http://localhost:3000`
   - `POST /v1/launches/static`
   - `POST /v1/launches/dynamic`
   - `GET /v1/launches/:launchId`
+  - `GET /v1/capabilities`
+  - `GET /ready`
+  - `GET /metrics`
 - Header:
   - `x-api-key: <API_KEY>`
 - Not required on:
   - `GET /health`
-  - `GET /ready`
-  - `GET /v1/capabilities`
-  - `GET /metrics`
+
+## Error behavior
+
+- Error envelope shape: `{ error: { code, message, details? } }`
+- Rate limiting returns `429 RATE_LIMITED`.
+- `GET /health` is rate-limited by client IP (spoofed `x-api-key` values are ignored for bucketing).
+- For all `5xx` responses, `message` is intentionally generic (`"Internal server error"`);
+  use server logs plus `x-request-id` for diagnostics.
 
 ## Implemented endpoints
 
@@ -128,16 +136,22 @@ Generic launch creation endpoint (future-compatible).
 
 #### Idempotency header
 
-- Optional request header: `Idempotency-Key: <string>`
+- Request header: `Idempotency-Key: <string>`
+  - optional in local mode
+  - required in shared/prod mode
 - same key + same request payload: returns original response and sets `x-idempotency-replayed: true`
 - same key + different payload: returns `409 IDEMPOTENCY_KEY_REUSE_MISMATCH`
-- when `IDEMPOTENCY_REQUIRE_KEY=true`, create requests without header return `422 IDEMPOTENCY_KEY_REQUIRED`
+- if a prior create attempt crashed/restarted after tx submit and left the key `in_progress`, retries fail closed with `409 IDEMPOTENCY_KEY_IN_DOUBT`
+- when `IDEMPOTENCY_REQUIRE_KEY=true` (always true in shared mode), create requests without header return `422 IDEMPOTENCY_KEY_REQUIRED`
 
 #### Error responses
 
 - `401 UNAUTHORIZED`
+- `429 RATE_LIMITED`
 - `422 INVALID_REQUEST` (schema validation) and domain-specific validation errors
+- `409 IDEMPOTENCY_KEY_IN_DOUBT` when a previous same-key create attempt may have submitted but did not finalize idempotency state
 - `501 MIGRATION_NOT_IMPLEMENTED` for unsupported migration modes (for example `uniswapV3`)
+- `500 INTERNAL_ERROR` (message is generic)
 
 ---
 
@@ -190,10 +204,11 @@ Returns current launch transaction status.
 #### Error responses
 
 - `401 UNAUTHORIZED`
+- `429 RATE_LIMITED`
 - `422 INVALID_LAUNCH_ID`
 - `502 CHAIN_LOOKUP_FAILED`
 - `502 CREATE_EVENT_NOT_FOUND`
-- `500 INTERNAL_ERROR` (unexpected)
+- `500 INTERNAL_ERROR` (message is generic)
 
 ---
 
@@ -213,6 +228,11 @@ Governance support is chain-specific. Check `governanceModes` and `governanceEna
   - `migrationModes`
   - `governanceModes`
   - `governanceEnabled`
+
+#### Error responses
+
+- `401 UNAUTHORIZED`
+- `429 RATE_LIMITED`
 
 ---
 
@@ -239,6 +259,12 @@ Dependency readiness probe (RPC checks for configured chains).
 - body:
   - `status: "ready" | "degraded"`
   - `checks[]: { chainId, ok, latestBlock? , error? }`
+  - when `ok=false`, `error` is intentionally generic (`"dependency unavailable"`)
+
+#### Error responses
+
+- `401 UNAUTHORIZED`
+- `429 RATE_LIMITED`
 
 ---
 
@@ -253,6 +279,11 @@ Basic service metrics snapshot for operational visibility.
 - `http.totalRequests`
 - `http.byStatusClass`
 - `http.avgDurationMs`
+
+#### Error responses
+
+- `401 UNAUTHORIZED`
+- `429 RATE_LIMITED`
 
 ## Request/response examples
 

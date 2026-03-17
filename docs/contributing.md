@@ -4,8 +4,8 @@
 
 This project uses:
 
-- ESLint for code quality
-- Prettier for formatting
+- Oxlint for code quality
+- Oxfmt for formatting
 - Vitest for test coverage
 
 ## Local workflow

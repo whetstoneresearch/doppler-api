@@ -6,7 +6,7 @@ export const registerMetricsRoute = async (
   fastify: FastifyInstance<any, any, any, any>,
   metrics: MetricsRegistry,
 ) => {
-  fastify.get('/metrics', { config: { auth: false } }, async () => {
+  fastify.get('/metrics', async () => {
     return metrics.snapshot();
   });
 };

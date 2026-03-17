@@ -892,7 +892,7 @@ const runMulticurveLaunchAndVerify = async (
       await chain.publicClient.getBlockNumber();
     } catch (error) {
       throw new Error(
-        `Live RPC is unreachable at ${chain.config.rpcUrl}. Set RPC_URL/CHAIN_CONFIG_JSON to a reachable endpoint before running live tests.`,
+        `Live RPC is unreachable at ${chain.config.rpcUrl}. Set the chain rpcUrl in doppler.config.ts (or override with RPC_URL) before running live tests.`,
         { cause: error as Error },
       );
     }
@@ -1362,7 +1362,7 @@ const runStaticLaunchAndVerify = async (args?: {
       await chain.publicClient.getBlockNumber();
     } catch (error) {
       throw new Error(
-        `Live RPC is unreachable at ${chain.config.rpcUrl}. Set RPC_URL/CHAIN_CONFIG_JSON to a reachable endpoint before running live tests.`,
+        `Live RPC is unreachable at ${chain.config.rpcUrl}. Set the chain rpcUrl in doppler.config.ts (or override with RPC_URL) before running live tests.`,
         { cause: error as Error },
       );
     }
@@ -1729,7 +1729,7 @@ const runDynamicLaunchAndVerify = async (args?: {
       await chain.publicClient.getBlockNumber();
     } catch (error) {
       throw new Error(
-        `Live RPC is unreachable at ${chain.config.rpcUrl}. Set RPC_URL/CHAIN_CONFIG_JSON to a reachable endpoint before running live tests.`,
+        `Live RPC is unreachable at ${chain.config.rpcUrl}. Set the chain rpcUrl in doppler.config.ts (or override with RPC_URL) before running live tests.`,
         { cause: error as Error },
       );
     }
@@ -1992,7 +1992,7 @@ const runCustomCurveLaunchAndVerify = async () => {
       await chain.publicClient.getBlockNumber();
     } catch (error) {
       throw new Error(
-        `Live RPC is unreachable at ${chain.config.rpcUrl}. Set RPC_URL/CHAIN_CONFIG_JSON to a reachable endpoint before running live tests.`,
+        `Live RPC is unreachable at ${chain.config.rpcUrl}. Set the chain rpcUrl in doppler.config.ts (or override with RPC_URL) before running live tests.`,
         { cause: error as Error },
       );
     }
@@ -2218,7 +2218,7 @@ const runCustomCurveWithRandomVestingAndAllocations = async () => {
       await chain.publicClient.getBlockNumber();
     } catch (error) {
       throw new Error(
-        `Live RPC is unreachable at ${chain.config.rpcUrl}. Set RPC_URL/CHAIN_CONFIG_JSON to a reachable endpoint before running live tests.`,
+        `Live RPC is unreachable at ${chain.config.rpcUrl}. Set the chain rpcUrl in doppler.config.ts (or override with RPC_URL) before running live tests.`,
         { cause: error as Error },
       );
     }
