@@ -135,6 +135,30 @@ class FakeRedisClient implements IdempotencyRedisClient {
   }
 }
 
+class FlakyCompletedWriteRedisClient extends FakeRedisClient {
+  private failCompletedWriteOnce = true;
+
+  override async set(
+    key: string,
+    value: string,
+    mode: 'PX',
+    durationMs: number,
+    setMode?: 'NX',
+  ): Promise<'OK' | null> {
+    if (
+      setMode !== 'NX' &&
+      key.includes(':record:') &&
+      value.includes('"state":"completed"') &&
+      this.failCompletedWriteOnce
+    ) {
+      this.failCompletedWriteOnce = false;
+      throw new Error('simulated redis write failure after launch success');
+    }
+
+    return super.set(key, value, mode, durationMs, setMode);
+  }
+}
+
 describe('idempotency store', () => {
   it('file backend replays same key and payload', async () => {
     const runId = Date.now().toString();
@@ -347,5 +371,39 @@ describe('idempotency store', () => {
       code: 'IDEMPOTENCY_KEY_IN_DOUBT',
       statusCode: 409,
     });
+  });
+
+  it('redis backend fails closed when completed record write fails after action success', async () => {
+    const redis = new FlakyCompletedWriteRedisClient();
+    const store = new RedisIdempotencyStore({
+      enabled: true,
+      ttlMs: 100_000,
+      redis,
+      keyPrefix: 'test',
+      lockTtlMs: 250,
+      lockRefreshMs: 50,
+      pollIntervalMs: 5,
+    });
+
+    let actionExecutions = 0;
+
+    await expect(
+      store.execute('completed-write-failure', samplePayload as any, async () => {
+        actionExecutions += 1;
+        return buildResponse('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+      }),
+    ).rejects.toThrow('simulated redis write failure after launch success');
+
+    await expect(
+      store.execute('completed-write-failure', samplePayload as any, async () => {
+        actionExecutions += 1;
+        return buildResponse('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+      }),
+    ).rejects.toMatchObject({
+      code: 'IDEMPOTENCY_KEY_IN_DOUBT',
+      statusCode: 409,
+    });
+
+    expect(actionExecutions).toBe(1);
   });
 });

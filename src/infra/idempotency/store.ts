@@ -396,6 +396,7 @@ export class RedisIdempotencyStore implements IdempotencyStore {
     action: () => Promise<CreateLaunchResponse>,
   ): Promise<{ response: CreateLaunchResponse; replayed: boolean }> {
     let heartbeatTimer: NodeJS.Timeout | undefined;
+    let actionCompleted = false;
     const stopHeartbeat = () => {
       if (!heartbeatTimer) {
         return;
@@ -424,13 +425,16 @@ export class RedisIdempotencyStore implements IdempotencyStore {
       const promise = Promise.resolve().then(action);
       this.inFlight.set(key, { payloadHash, promise });
       const response = await promise;
+      actionCompleted = true;
       await this.writeCompletedRecord(key, payloadHash, response);
       return { response, replayed: false };
     } catch (error) {
-      try {
-        await this.clearRecord(key);
-      } catch {
-        // best-effort cleanup; retries still protected by lock + existing record checks
+      if (!actionCompleted) {
+        try {
+          await this.clearRecord(key);
+        } catch {
+          // best-effort cleanup; retries still protected by lock + existing record checks
+        }
       }
       throw error;
     } finally {
