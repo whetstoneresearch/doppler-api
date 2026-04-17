@@ -49,6 +49,16 @@ describe('GET /v1/capabilities', () => {
         cacheTtlMs: 1000,
         coingeckoAssetId: 'ethereum',
       },
+      solana: {
+        enabled: false,
+        defaultNetwork: 'solanaDevnet',
+        devnetRpcUrl: 'http://127.0.0.1:8899',
+        devnetWsUrl: 'ws://127.0.0.1:8900',
+        confirmTimeoutMs: 60_000,
+        useAlt: false,
+        priceMode: 'required',
+        coingeckoAssetId: 'solana',
+      },
       chains: {
         84532: {
           chainId: 84532,
@@ -106,6 +116,12 @@ describe('GET /v1/capabilities', () => {
         isEnabled: () => true,
         getProviderName: () => 'coingecko',
       } as any,
+      solanaLaunchService: {
+        getReadiness: async () => ({ enabled: false, ok: true, checks: [] }),
+        createLaunch: async () => {
+          throw new Error('not used');
+        },
+      } as any,
       launchService: {
         createLaunch: async () => {
           throw new Error('not used');
@@ -137,6 +153,15 @@ describe('GET /v1/capabilities', () => {
         multicurveInitializers: string[];
       }>;
       pricing: { provider: string };
+      solana: {
+        enabled: boolean;
+        supportedNetworks: string[];
+        unsupportedNetworks: string[];
+        dedicatedRouteInputAliases: string[];
+        creationOnly: boolean;
+        numeraireAddress: string;
+        priceResolutionModes: string[];
+      };
     };
     expect(body.chains).toHaveLength(2);
     expect(body.pricing.provider).toBe('coingecko');
@@ -147,5 +172,142 @@ describe('GET /v1/capabilities', () => {
     expect(byChain.get(8453)?.governanceEnabled).toBe(true);
     expect(byChain.get(8453)?.governanceModes).toEqual(['noOp', 'default']);
     expect(byChain.get(8453)?.multicurveInitializers).toEqual(['standard']);
+    expect(body.solana).toEqual({
+      enabled: false,
+      supportedNetworks: [],
+      unsupportedNetworks: ['solanaDevnet', 'solanaMainnetBeta'],
+      dedicatedRouteInputAliases: ['devnet', 'mainnet-beta'],
+      creationOnly: true,
+      numeraireAddress: 'So11111111111111111111111111111111111111112',
+      priceResolutionModes: ['request'],
+    });
+  });
+
+  it('reports Solana creation capabilities when enabled', async () => {
+    const config: AppConfig = {
+      port: 3000,
+      deploymentMode: 'standalone',
+      apiKey: 'test-key',
+      apiKeys: ['test-key'],
+      defaultChainId: 84532,
+      privateKey: '0x59c6995e998f97a5a0044966f0945386f3f6f3d1063f4042afe30de8f34a4c9e',
+      logLevel: 'silent',
+      readyRpcTimeoutMs: 1000,
+      corsOrigins: [],
+      rateLimit: {
+        max: 100,
+        timeWindowMs: 60_000,
+      },
+      redis: {
+        keyPrefix: 'doppler-api-test',
+      },
+      idempotency: {
+        enabled: true,
+        backend: 'file',
+        requireKey: false,
+        ttlMs: 86_400_000,
+        storePath: '.test-results/test-idempotency.json',
+        redisLockTtlMs: 900_000,
+        redisLockRefreshMs: 300_000,
+      },
+      pricing: {
+        enabled: true,
+        provider: 'coingecko',
+        baseUrl: 'https://api.coingecko.com/api/v3',
+        timeoutMs: 1000,
+        cacheTtlMs: 1000,
+        coingeckoAssetId: 'ethereum',
+      },
+      solana: {
+        enabled: true,
+        defaultNetwork: 'solanaDevnet',
+        devnetRpcUrl: 'http://127.0.0.1:8899',
+        devnetWsUrl: 'ws://127.0.0.1:8900',
+        confirmTimeoutMs: 60_000,
+        useAlt: true,
+        altAddress: '7uG2R7ZBTVMcpnSUsctNkYheAQ7EzWLKQEiC5EvhczHx',
+        priceMode: 'coingecko',
+        fixedNumerairePriceUsd: 123.45,
+        coingeckoAssetId: 'solana',
+      },
+      chains: {
+        84532: {
+          chainId: 84532,
+          rpcUrl: 'http://localhost:8545',
+          defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
+          auctionTypes: ['multicurve'],
+          migrationModes: ['noOp'],
+          governanceModes: ['noOp'],
+          governanceEnabled: false,
+        },
+      },
+    };
+
+    const fakeChain = {
+      chainId: 84532,
+      config: config.chains[84532],
+      publicClient: { getBlockNumber: async () => 1n },
+      walletClient: {},
+      addresses: { airlock: '0x0000000000000000000000000000000000000001' },
+    } as any;
+
+    const services: AppServices = {
+      config,
+      metrics: new MetricsRegistry(),
+      chainRegistry: {
+        defaultChainId: 84532,
+        get: () => fakeChain,
+        list: () => [fakeChain],
+      } as any,
+      sdkRegistry: {} as any,
+      txSubmitter: {} as any,
+      idempotencyStore: {
+        execute: async (_key: string, _payload: unknown, action: () => Promise<unknown>) => ({
+          response: await action(),
+          replayed: false,
+        }),
+      } as any,
+      pricingService: {
+        isEnabled: () => true,
+        getProviderName: () => 'coingecko',
+      } as any,
+      solanaLaunchService: {
+        getReadiness: async () => ({ enabled: true, ok: true, network: 'solanaDevnet', checks: [] }),
+        createLaunch: async () => {
+          throw new Error('not used');
+        },
+      } as any,
+      launchService: {
+        createLaunch: async () => {
+          throw new Error('not used');
+        },
+      } as any,
+      statusService: {
+        getLaunchStatus: async () => {
+          throw new Error('not used');
+        },
+      } as any,
+    };
+
+    app = await buildServer(services);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/capabilities',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().solana).toEqual({
+      enabled: true,
+      supportedNetworks: ['solanaDevnet'],
+      unsupportedNetworks: ['solanaMainnetBeta'],
+      dedicatedRouteInputAliases: ['devnet', 'mainnet-beta'],
+      creationOnly: true,
+      numeraireAddress: 'So11111111111111111111111111111111111111112',
+      priceResolutionModes: ['request', 'fixed', 'coingecko'],
+    });
   });
 });

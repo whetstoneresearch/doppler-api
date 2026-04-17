@@ -41,6 +41,16 @@ describe('server startup', () => {
         cacheTtlMs: 1000,
         coingeckoAssetId: 'ethereum',
       },
+      solana: {
+        enabled: false,
+        defaultNetwork: 'solanaDevnet',
+        devnetRpcUrl: 'http://127.0.0.1:8899',
+        devnetWsUrl: 'ws://127.0.0.1:8900',
+        confirmTimeoutMs: 60_000,
+        useAlt: false,
+        priceMode: 'required',
+        coingeckoAssetId: 'solana',
+      },
       chains: {
         84532: {
           chainId: 84532,
@@ -83,6 +93,12 @@ describe('server startup', () => {
       pricingService: {
         isEnabled: () => false,
         getProviderName: () => 'none',
+      } as any,
+      solanaLaunchService: {
+        getReadiness: async () => ({ enabled: false, ok: true, checks: [] }),
+        createLaunch: async () => {
+          throw new Error('not used');
+        },
       } as any,
       launchService: {
         createLaunch: async () => {

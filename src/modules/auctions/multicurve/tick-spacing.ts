@@ -2,7 +2,7 @@ import {
   DEFAULT_MULTICURVE_LOWER_TICKS,
   DEFAULT_MULTICURVE_UPPER_TICKS,
   TICK_SPACINGS,
-} from '@whetstone-research/doppler-sdk';
+} from '@whetstone-research/doppler-sdk/evm';
 
 const PRESET_INDEX: Record<'low' | 'medium' | 'high', number> = {
   low: 0,

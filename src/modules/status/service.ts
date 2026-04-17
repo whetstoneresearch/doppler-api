@@ -3,7 +3,7 @@ import {
   airlockAbi,
   computePoolId,
   v4MulticurveInitializerAbi,
-} from '@whetstone-research/doppler-sdk';
+} from '@whetstone-research/doppler-sdk/evm';
 import { TransactionNotFoundError, decodeAbiParameters, decodeFunctionData } from 'viem';
 
 import { AppError } from '../../core/errors';

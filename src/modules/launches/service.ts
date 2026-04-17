@@ -1,5 +1,5 @@
 import { AppError } from '../../core/errors';
-import type { CreateLaunchResponse } from '../../core/types';
+import type { CreateAnyLaunchResponse, CreateLaunchResponse } from '../../core/types';
 import type { ChainRegistry } from '../../infra/chain/registry';
 import type { DopplerSdkRegistry } from '../../infra/doppler/sdk-client';
 import type { IdempotencyStore } from '../../infra/idempotency/store';
@@ -15,6 +15,10 @@ import type {
 import { createDynamicLaunch } from '../auctions/dynamic/service';
 import { createMulticurveLaunch } from '../auctions/multicurve/service';
 import { createStaticLaunch } from '../auctions/static/service';
+import {
+  SolanaLaunchService,
+  type CreateSolanaLaunchRequestInput,
+} from './solana';
 
 interface LaunchServiceDeps {
   chainRegistry: ChainRegistry;
@@ -23,6 +27,7 @@ interface LaunchServiceDeps {
   txSubmitter: TxSubmitter;
   idempotencyStore: IdempotencyStore;
   requireIdempotencyKey: boolean;
+  solanaLaunchService: SolanaLaunchService;
 }
 
 export class LaunchService {
@@ -32,6 +37,7 @@ export class LaunchService {
   private readonly txSubmitter: TxSubmitter;
   private readonly idempotencyStore: IdempotencyStore;
   private readonly requireIdempotencyKey: boolean;
+  private readonly solanaLaunchService: SolanaLaunchService;
 
   constructor(deps: LaunchServiceDeps) {
     this.chainRegistry = deps.chainRegistry;
@@ -40,11 +46,17 @@ export class LaunchService {
     this.txSubmitter = deps.txSubmitter;
     this.idempotencyStore = deps.idempotencyStore;
     this.requireIdempotencyKey = deps.requireIdempotencyKey;
+    this.solanaLaunchService = deps.solanaLaunchService;
   }
 
   private async createLaunchInternal(
-    input: CreateLaunchRequestInput,
-  ): Promise<CreateLaunchResponse> {
+    input: CreateLaunchRequestInput | CreateSolanaLaunchRequestInput,
+    idempotencyKey?: string,
+  ): Promise<CreateAnyLaunchResponse> {
+    if ('network' in input) {
+      return this.solanaLaunchService.createLaunch(input, idempotencyKey);
+    }
+
     const chain = this.chainRegistry.get(input.chainId);
 
     ensureAuctionSupported(input.auction.type, chain.config);
@@ -87,13 +99,13 @@ export class LaunchService {
   }
 
   async createLaunch(input: CreateLaunchRequestInput): Promise<CreateLaunchResponse> {
-    return this.createLaunchInternal(input);
+    return this.createLaunchInternal(input) as Promise<CreateLaunchResponse>;
   }
 
   async createLaunchWithIdempotency(args: {
-    input: CreateLaunchRequestInput;
+    input: CreateLaunchRequestInput | CreateSolanaLaunchRequestInput;
     idempotencyKey?: string;
-  }): Promise<{ response: CreateLaunchResponse; replayed: boolean }> {
+  }): Promise<{ response: CreateAnyLaunchResponse; replayed: boolean }> {
     const key = args.idempotencyKey?.trim();
     if (this.requireIdempotencyKey && !key) {
       throw new AppError(
@@ -109,7 +121,7 @@ export class LaunchService {
     }
 
     return this.idempotencyStore.execute(key, args.input, () =>
-      this.createLaunchInternal(args.input),
+      this.createLaunchInternal(args.input, key),
     );
   }
 }

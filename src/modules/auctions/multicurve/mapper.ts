@@ -1,4 +1,4 @@
-import { WAD, type BeneficiaryData } from '@whetstone-research/doppler-sdk';
+import { WAD, type BeneficiaryData } from '@whetstone-research/doppler-sdk/evm';
 
 import { AppError } from '../../../core/errors';
 import type { CreateLaunchRequestInput } from '../../launches/schema';

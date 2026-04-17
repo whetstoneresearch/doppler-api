@@ -9,6 +9,7 @@ This project is in active development & not ready for production use.
 ## Endpoints
 
 - `POST /v1/launches`
+- `POST /v1/solana/launches`
 - `POST /v1/launches/multicurve` (alias)
 - `POST /v1/launches/static` (alias)
 - `POST /v1/launches/dynamic` (alias)
@@ -60,6 +61,13 @@ npm run dev
   - `noOp` for multicurve/static
   - `uniswapV2` and `uniswapV4` for dynamic
   - `uniswapV3` is not supported and returns `501 MIGRATION_NOT_IMPLEMENTED`
+- Solana:
+  - create via `POST /v1/solana/launches`
+  - `POST /v1/launches` also accepts Solana when `network` is `solanaDevnet` or `solanaMainnetBeta`
+  - create-only in this iteration
+  - only `solanaDevnet` is executable
+  - only WSOL is supported as numeraire
+  - strict request shape; unsupported EVM-only fields are rejected
 - Governance: `enabled=false` is the active profile, eg. `noOp`
 - Token allocation profile:
   - Default: 100% of `totalSupply` is allocated to the multicurve market.
@@ -75,10 +83,13 @@ npm run dev
 
 ## Launch ID format
 
-`<chainId>:<txHash>`
+- EVM: `<chainId>:<txHash>`
+- Solana: base58 launch PDA
 
-Example:
-`84532:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+Examples:
+
+- `84532:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- `8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP`
 
 ## Create launch example
 
@@ -138,6 +149,49 @@ content-type: application/json
     "initializer": {
       "type": "standard"
     }
+  }
+}
+```
+
+## Solana create example
+
+### Request
+
+```http
+POST /v1/solana/launches
+x-api-key: <API_KEY>
+Idempotency-Key: <UNIQUE_KEY>
+content-type: application/json
+```
+
+```json
+{
+  "network": "devnet",
+  "tokenMetadata": {
+    "name": "My Solana Token",
+    "symbol": "MSOL",
+    "tokenURI": "ipfs://my-solana-token"
+  },
+  "economics": {
+    "totalSupply": "1000000000"
+  },
+  "pricing": {
+    "numerairePriceUsd": 150
+  },
+  "governance": false,
+  "migration": {
+    "type": "noOp"
+  },
+  "auction": {
+    "type": "xyk",
+    "curveConfig": {
+      "type": "range",
+      "marketCapStartUsd": 100,
+      "marketCapEndUsd": 1000
+    },
+    "curveFeeBps": 25,
+    "allowBuy": true,
+    "allowSell": true
   }
 }
 ```
@@ -290,6 +344,36 @@ Dynamic is intended for assets with well-known value that benefit from maximally
 }
 ```
 
+### Solana success response (`200`)
+
+```json
+{
+  "launchId": "8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP",
+  "network": "solanaDevnet",
+  "signature": "5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J",
+  "explorerUrl": "https://explorer.solana.com/tx/5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J?cluster=devnet",
+  "predicted": {
+    "tokenAddress": "6QWeT6FpJrm8AF1btu6WH2k2Xhq6t5vbheKVfQavmeoZ",
+    "launchAuthorityAddress": "E7Ud4m8S7fC2YdUQdL7p9V2sRrMfQjQ9fA5spuR4T9gQ",
+    "baseVaultAddress": "9xQeWvG816bUx9EPjHmaT23yvVMHh2eHq9cYqB9Yg6xT",
+    "quoteVaultAddress": "J1veWvV6BF8L7rN8D66zCFAaj6MqFmoVoeAQMtkP8dwF"
+  },
+  "effectiveConfig": {
+    "tokensForSale": "1000000000",
+    "allocationAmount": "0",
+    "allocationLockMode": "none",
+    "numeraireAddress": "So11111111111111111111111111111111111111112",
+    "numerairePriceUsd": 150,
+    "curveVirtualBase": "1000000000",
+    "curveVirtualQuote": "100000000",
+    "curveFeeBps": 25,
+    "allowBuy": true,
+    "allowSell": true,
+    "tokenDecimals": 9
+  }
+}
+```
+
 ## Status examples
 
 ### Pending (`200`)
@@ -358,14 +442,23 @@ Dynamic is intended for assets with well-known value that benefit from maximally
       "governanceModes": ["noOp", "default"],
       "governanceEnabled": true
     }
-  ]
+  ],
+  "solana": {
+    "enabled": true,
+    "supportedNetworks": ["solanaDevnet"],
+    "unsupportedNetworks": ["solanaMainnetBeta"],
+    "dedicatedRouteInputAliases": ["devnet", "mainnet-beta"],
+    "creationOnly": true,
+    "numeraireAddress": "So11111111111111111111111111111111111111112",
+    "priceResolutionModes": ["request", "fixed", "coingecko"]
+  }
 }
 ```
 
 ## Health and readiness
 
 - `GET /health`: process liveness
-- `GET /ready`: dependency readiness (chain RPC checks, requires `x-api-key`)
+- `GET /ready`: dependency readiness (EVM chain RPC checks plus Solana readiness, requires `x-api-key`)
 - `GET /metrics`: service metrics snapshot (requires `x-api-key`)
 - degraded readiness checks return a generic error string (`"dependency unavailable"`) to avoid leaking upstream internals
 
@@ -377,6 +470,12 @@ Example `GET /health`:
 
 ## Validation and defaults
 
+- Solana create-only rules:
+  - use `POST /v1/solana/launches` or `POST /v1/launches` with `network: "solanaDevnet" | "solanaMainnetBeta"`
+  - short Solana aliases are accepted only on the dedicated route
+  - `launchId` is a launch PDA and no Solana `statusUrl` is returned
+  - only WSOL is supported as numeraire
+  - Solana rejects unsupported EVM-only fields instead of ignoring them
 - `economics.tokensForSale` is optional:
   - if omitted, `tokensForSale = totalSupply` (100% sold to market).
   - if provided, it must be `> 0` and `<= totalSupply`.
@@ -455,9 +554,16 @@ npm run test:live:multicurve
 npm run test:live:multicurve:defaults
 npm run test:live:fees
 npm run test:live:governance
-npm run test:live --verbose
+npm run test:live:solana
+npm run test:live:solana:devnet
+npm run test:live:solana:defaults
+npm run test:live:solana:random
+npm run test:live:solana:failing
+LIVE_TEST_VERBOSE=true npm run test:live
 ```
 
 `test:live` performs real on-chain creation and verification when `LIVE_TEST_ENABLE=true` and funded credentials are configured.
-By default, live output is concise (launch summary table). Use `--verbose` for full per-launch parameter and verification tables.
+By default, live output is concise (launch summary table). Set `LIVE_TEST_VERBOSE=true` for full per-launch parameter and verification tables.
 Live launch tests run sequentially to avoid nonce conflicts from a single funded signer.
+`test:live` remains the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet matrix.
+Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR`, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, and enough SOL for account creation; override the readiness estimate with `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` when needed.

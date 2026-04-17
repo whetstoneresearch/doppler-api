@@ -3,15 +3,13 @@ info:
   title: Doppler Launch API
   version: 0.1.0
   description: |
-    REST API for creating Doppler launches with multicurve, dynamic, and static support.
+    REST API for creating Doppler launches across EVM and Solana create flows.
     v1 deployment profile supports:
-    - multicurve/static with noOp migration
-    - dynamic with uniswapV2 or uniswapV4 migration
-    - binary governance toggle (no governance or default token-holder governance using OpenZeppelin Governor)
-    Prefer multicurve on V4-capable chains; static is a compatibility path.
-    Multicurve initializer modes: standard, scheduled, decay, rehype.
-    tokensForSale is configurable; when omitted it defaults to totalSupply (100% market allocation).
-    Any remainder (totalSupply - tokensForSale) is non-market allocation and uses vesting defaults.
+    - EVM multicurve/static with noOp migration
+    - EVM dynamic with uniswapV2 or uniswapV4 migration
+    - Solana devnet XYK create-only launches on /v1/solana/launches or /v1/launches
+    - binary governance toggle for EVM only
+    Prefer multicurve on V4-capable EVM chains; static is a compatibility path.
 servers:
   - url: http://localhost:3000
 security:
@@ -25,7 +23,7 @@ paths:
   /v1/launches:
     post:
       tags: [Launches]
-      summary: Create a launch
+      summary: Create an EVM or Solana launch
       operationId: createLaunch
       parameters:
         - name: Idempotency-Key
@@ -39,14 +37,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateLaunchRequest'
+              oneOf:
+                - $ref: '#/components/schemas/CreateLaunchRequest'
+                - $ref: '#/components/schemas/GenericSolanaCreateLaunchRequest'
       responses:
         '200':
           description: Launch submitted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreateLaunchResponse'
+                oneOf:
+                  - $ref: '#/components/schemas/CreateLaunchResponse'
+                  - $ref: '#/components/schemas/SolanaCreateLaunchResponse'
         '401':
           $ref: '#/components/responses/Error'
         '429':
@@ -55,9 +57,54 @@ paths:
           $ref: '#/components/responses/Error'
         '501':
           $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
         '500':
           $ref: '#/components/responses/Error'
         '409':
+          $ref: '#/components/responses/Error'
+  /v1/solana/launches:
+    post:
+      tags: [Launches]
+      summary: Create a Solana launch
+      operationId: createSolanaLaunch
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Reuse the same key for safe retries of identical create payloads (required in shared mode, recommended in standalone mode).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DedicatedSolanaCreateLaunchRequest'
+      responses:
+        '200':
+          description: Solana launch submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SolanaCreateLaunchResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '501':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '500':
           $ref: '#/components/responses/Error'
   /v1/launches/multicurve:
     post:
@@ -697,8 +744,139 @@ components:
         - $ref: '#/components/schemas/MulticurveAuction'
         - $ref: '#/components/schemas/StaticAuction'
         - $ref: '#/components/schemas/DynamicAuction'
+    SolanaNetwork:
+      type: string
+      enum: [solanaDevnet, solanaMainnetBeta]
+    DedicatedSolanaNetwork:
+      type: string
+      enum: [devnet, mainnet-beta]
+    SolanaAddress:
+      type: string
+    SolanaTokenMetadata:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 32
+        symbol:
+          type: string
+          minLength: 1
+          maxLength: 10
+        tokenURI:
+          type: string
+          minLength: 1
+          maxLength: 200
+      required: [name, symbol, tokenURI]
+    SolanaEconomics:
+      type: object
+      additionalProperties: false
+      properties:
+        totalSupply:
+          type: string
+          pattern: '^\d+$'
+      required: [totalSupply]
+    SolanaPairing:
+      type: object
+      additionalProperties: false
+      properties:
+        numeraireAddress:
+          $ref: '#/components/schemas/SolanaAddress'
+    SolanaPricing:
+      type: object
+      additionalProperties: false
+      properties:
+        numerairePriceUsd:
+          type: number
+          exclusiveMinimum: 0
+    SolanaMigration:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: noOp
+      required: [type]
+    SolanaCurveConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: range
+        marketCapStartUsd:
+          type: number
+          exclusiveMinimum: 0
+        marketCapEndUsd:
+          type: number
+          exclusiveMinimum: 0
+      required: [type, marketCapStartUsd, marketCapEndUsd]
+    SolanaAuction:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: xyk
+        curveConfig:
+          $ref: '#/components/schemas/SolanaCurveConfig'
+        curveFeeBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        allowBuy:
+          type: boolean
+        allowSell:
+          type: boolean
+      required: [type, curveConfig]
+    DedicatedSolanaCreateLaunchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        network:
+          $ref: '#/components/schemas/DedicatedSolanaNetwork'
+        tokenMetadata:
+          $ref: '#/components/schemas/SolanaTokenMetadata'
+        economics:
+          $ref: '#/components/schemas/SolanaEconomics'
+        pairing:
+          $ref: '#/components/schemas/SolanaPairing'
+        pricing:
+          $ref: '#/components/schemas/SolanaPricing'
+        governance:
+          type: boolean
+          enum: [false]
+        migration:
+          $ref: '#/components/schemas/SolanaMigration'
+        auction:
+          $ref: '#/components/schemas/SolanaAuction'
+      required: [tokenMetadata, economics, auction]
+    GenericSolanaCreateLaunchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        network:
+          $ref: '#/components/schemas/SolanaNetwork'
+        tokenMetadata:
+          $ref: '#/components/schemas/SolanaTokenMetadata'
+        economics:
+          $ref: '#/components/schemas/SolanaEconomics'
+        pairing:
+          $ref: '#/components/schemas/SolanaPairing'
+        pricing:
+          $ref: '#/components/schemas/SolanaPricing'
+        governance:
+          type: boolean
+          enum: [false]
+        migration:
+          $ref: '#/components/schemas/SolanaMigration'
+        auction:
+          $ref: '#/components/schemas/SolanaAuction'
+      required: [network, tokenMetadata, economics, auction]
     CreateLaunchRequest:
       type: object
+      additionalProperties: false
       properties:
         chainId:
           type: integer
@@ -843,6 +1021,72 @@ components:
               feeBeneficiariesSource,
             ]
       required: [launchId, chainId, txHash, statusUrl, predicted, effectiveConfig]
+    SolanaCreateLaunchResponse:
+      type: object
+      properties:
+        launchId:
+          type: string
+          description: Base58 launch PDA
+        network:
+          $ref: '#/components/schemas/SolanaNetwork'
+        signature:
+          type: string
+        explorerUrl:
+          type: string
+        predicted:
+          type: object
+          properties:
+            tokenAddress:
+              $ref: '#/components/schemas/SolanaAddress'
+            launchAuthorityAddress:
+              $ref: '#/components/schemas/SolanaAddress'
+            baseVaultAddress:
+              $ref: '#/components/schemas/SolanaAddress'
+            quoteVaultAddress:
+              $ref: '#/components/schemas/SolanaAddress'
+          required:
+            [tokenAddress, launchAuthorityAddress, baseVaultAddress, quoteVaultAddress]
+        effectiveConfig:
+          type: object
+          properties:
+            tokensForSale:
+              type: string
+            allocationAmount:
+              type: string
+            allocationLockMode:
+              type: string
+              enum: [none]
+            numeraireAddress:
+              $ref: '#/components/schemas/SolanaAddress'
+            numerairePriceUsd:
+              type: number
+            curveVirtualBase:
+              type: string
+            curveVirtualQuote:
+              type: string
+            curveFeeBps:
+              type: integer
+            allowBuy:
+              type: boolean
+            allowSell:
+              type: boolean
+            tokenDecimals:
+              type: integer
+          required:
+            [
+              tokensForSale,
+              allocationAmount,
+              allocationLockMode,
+              numeraireAddress,
+              numerairePriceUsd,
+              curveVirtualBase,
+              curveVirtualQuote,
+              curveFeeBps,
+              allowBuy,
+              allowSell,
+              tokenDecimals,
+            ]
+      required: [launchId, network, signature, explorerUrl, predicted, effectiveConfig]
     LaunchStatusResult:
       type: object
       properties:
@@ -928,7 +1172,43 @@ components:
                 governanceModes,
                 governanceEnabled,
               ]
-      required: [defaultChainId, pricing, chains]
+        solana:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            supportedNetworks:
+              type: array
+              items:
+                $ref: '#/components/schemas/SolanaNetwork'
+            unsupportedNetworks:
+              type: array
+              items:
+                $ref: '#/components/schemas/SolanaNetwork'
+            dedicatedRouteInputAliases:
+              type: array
+              items:
+                $ref: '#/components/schemas/DedicatedSolanaNetwork'
+            creationOnly:
+              type: boolean
+            numeraireAddress:
+              $ref: '#/components/schemas/SolanaAddress'
+            priceResolutionModes:
+              type: array
+              items:
+                type: string
+                enum: [request, fixed, coingecko]
+          required:
+            [
+              enabled,
+              supportedNetworks,
+              unsupportedNetworks,
+              dedicatedRouteInputAliases,
+              creationOnly,
+              numeraireAddress,
+              priceResolutionModes,
+            ]
+      required: [defaultChainId, pricing, chains, solana]
     ReadyCheck:
       type: object
       properties:
@@ -941,6 +1221,17 @@ components:
         error:
           type: string
       required: [chainId, ok]
+    SolanaReadyCheck:
+      type: object
+      properties:
+        name:
+          type: string
+          enum: [rpcReachable, latestBlockhash, initializerConfig, addressLookupTable]
+        ok:
+          type: boolean
+        error:
+          type: string
+      required: [name, ok]
     ReadyResponse:
       type: object
       properties:
@@ -951,7 +1242,22 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ReadyCheck'
-      required: [status, checks]
+        solana:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            ok:
+              type: boolean
+            network:
+              type: string
+              enum: [solanaDevnet]
+            checks:
+              type: array
+              items:
+                $ref: '#/components/schemas/SolanaReadyCheck'
+          required: [enabled, ok, checks]
+      required: [status, checks, solana]
     MetricsResponse:
       type: object
       properties:

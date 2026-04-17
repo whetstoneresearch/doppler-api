@@ -37,6 +37,16 @@ const baseConfig: AppConfig = {
     cacheTtlMs: 1000,
     coingeckoAssetId: 'ethereum',
   },
+  solana: {
+    enabled: false,
+    defaultNetwork: 'solanaDevnet',
+    devnetRpcUrl: 'http://127.0.0.1:8899',
+    devnetWsUrl: 'ws://127.0.0.1:8900',
+    confirmTimeoutMs: 60_000,
+    useAlt: false,
+    priceMode: 'required',
+    coingeckoAssetId: 'solana',
+  },
   chains: {
     84532: {
       chainId: 84532,

@@ -1,4 +1,4 @@
-import { airlockAbi, type MigrationConfig } from '@whetstone-research/doppler-sdk';
+import { airlockAbi, type MigrationConfig } from '@whetstone-research/doppler-sdk/evm';
 import { parseUnits } from 'viem';
 
 import { AppError } from '../../../core/errors';

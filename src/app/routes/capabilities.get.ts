@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 
+import type { AppConfig } from '../../core/config';
 import type { ChainRegistry } from '../../infra/chain/registry';
+import { SOLANA_CONSTANTS } from '../../modules/launches/solana';
 import type { PricingService } from '../../modules/pricing/service';
 
 const resolveMulticurveInitializers = (chain: ReturnType<ChainRegistry['list']>[number]) => {
@@ -21,10 +23,19 @@ const resolveMulticurveInitializers = (chain: ReturnType<ChainRegistry['list']>[
 
 export const registerCapabilitiesRoute = async (
   fastify: FastifyInstance<any, any, any, any>,
+  config: AppConfig,
   chainRegistry: ChainRegistry,
   pricingService: PricingService,
 ) => {
   fastify.get('/v1/capabilities', async () => {
+    const solanaPriceResolutionModes: Array<'request' | 'fixed' | 'coingecko'> = ['request'];
+    if (config.solana.fixedNumerairePriceUsd !== undefined) {
+      solanaPriceResolutionModes.push('fixed');
+    }
+    if (config.solana.priceMode === 'coingecko') {
+      solanaPriceResolutionModes.push('coingecko');
+    }
+
     return {
       defaultChainId: chainRegistry.defaultChainId,
       pricing: {
@@ -37,10 +48,21 @@ export const registerCapabilitiesRoute = async (
         multicurveInitializers: chain.config.auctionTypes.includes('multicurve')
           ? resolveMulticurveInitializers(chain)
           : [],
-        migrationModes: chain.config.migrationModes,
-        governanceModes: chain.config.governanceModes,
-        governanceEnabled: chain.config.governanceEnabled,
-      })),
+          migrationModes: chain.config.migrationModes,
+          governanceModes: chain.config.governanceModes,
+          governanceEnabled: chain.config.governanceEnabled,
+        })),
+      solana: {
+        enabled: config.solana.enabled,
+        supportedNetworks: config.solana.enabled ? ['solanaDevnet'] : [],
+        unsupportedNetworks: config.solana.enabled
+          ? ['solanaMainnetBeta']
+          : ['solanaDevnet', 'solanaMainnetBeta'],
+        dedicatedRouteInputAliases: ['devnet', 'mainnet-beta'],
+        creationOnly: true,
+        numeraireAddress: SOLANA_CONSTANTS.wsolMintAddress,
+        priceResolutionModes: solanaPriceResolutionModes,
+      },
     };
   });
 };

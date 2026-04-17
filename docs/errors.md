@@ -16,29 +16,25 @@ All errors are returned as:
 
 - `details` is optional.
 - Validation failures return `422 INVALID_REQUEST` with structured zod details.
-- 5xx responses return a generic client-safe message (`"Internal server error"`).
-  Full diagnostics remain in server logs.
+- `5xx` responses return a generic client-safe message (`"Internal server error"`).
 
 ## Common status codes
 
-- `401` unauthorized (`x-api-key` missing/invalid)
-- `429` rate limit exceeded (`RATE_LIMITED`)
+- `401` unauthorized
+- `409` idempotency or in-doubt create failure
 - `422` validation or business-rule failure
-- `501` planned but not implemented functionality
-- `502` upstream or chain lookup failures
+- `429` rate limit exceeded
+- `501` unsupported but intentionally scaffolded functionality
+- `502` upstream, simulation, or submission failure
 - `500` internal errors
 
-## Operational
-
-- `RATE_LIMITED`
-
-## Known domain error codes
+## Known error codes
 
 ### Authentication
 
 - `UNAUTHORIZED`
 
-### Launch creation and policy
+### EVM launch creation and policy
 
 - `AUCTION_TYPE_UNSUPPORTED`
 - `MIGRATION_NOT_IMPLEMENTED`
@@ -46,23 +42,28 @@ All errors are returned as:
 - `GOVERNANCE_MODE_UNSUPPORTED`
 - `NUMERAIRE_REQUIRED`
 - `INVALID_ECONOMICS`
-  - includes allocation errors such as:
-    - `tokensForSale` below 20% market minimum when using split allocations
-    - non-market allocation sums not matching `totalSupply - tokensForSale`
-    - duplicate non-market allocation addresses
-    - more than 10 allocation addresses
 - `INVALID_BIGINT`
 - `INVALID_FEE_BENEFICIARIES`
-- `IDEMPOTENCY_KEY_REQUIRED`
-- `IDEMPOTENCY_KEY_REUSE_MISMATCH`
-- `IDEMPOTENCY_KEY_IN_DOUBT`
-  - returned as `409` when a previous same-key create attempt may have submitted but did not finalize idempotency state
 
-Dynamic-specific policy notes:
+### Solana creation
 
-- Dynamic launches require `migration.type="uniswapV2"` or `migration.type="uniswapV4"`.
-- `migration.type="uniswapV4"` requires `migration.fee` and `migration.tickSpacing`.
-- `migration.type="uniswapV3"` currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
+- `SOLANA_NETWORK_UNSUPPORTED`
+  - returned when Solana is disabled or `solanaMainnetBeta` is requested
+- `SOLANA_NUMERAIRE_UNSUPPORTED`
+  - only WSOL is supported in this iteration
+- `SOLANA_NUMERAIRE_PRICE_REQUIRED`
+  - no request override, fixed price, or CoinGecko price was available
+- `SOLANA_INVALID_METADATA`
+- `SOLANA_INVALID_CURVE`
+- `SOLANA_NOT_READY`
+  - readiness gates failed before create
+- `SOLANA_SIMULATION_FAILED`
+  - returned when simulation fails before submit
+- `SOLANA_SUBMISSION_FAILED`
+  - returned when submit fails or a submitted transaction is later rejected
+- `SOLANA_LAUNCH_IN_DOUBT`
+  - returned as `409` when submit succeeded but confirmation remained ambiguous
+  - includes `details: { launchId, signature, explorerUrl }`
 
 ### Pricing
 
@@ -81,6 +82,15 @@ Dynamic-specific policy notes:
 - `CREATE_EVENT_NOT_FOUND`
 - `CREATE_TX_DECODE_FAILED`
 
+### Idempotency
+
+- `IDEMPOTENCY_KEY_REQUIRED`
+- `IDEMPOTENCY_KEY_REUSE_MISMATCH`
+- `IDEMPOTENCY_KEY_IN_DOUBT`
+  - EVM retry failed closed because an earlier same-key request may have submitted
+- `SOLANA_LAUNCH_IN_DOUBT`
+  - same-key Solana retries fail closed with the original in-doubt details
+
 ### Config
 
 - `MISSING_ENV`
@@ -88,8 +98,7 @@ Dynamic-specific policy notes:
 - `REDIS_UNAVAILABLE`
 - `UNSUPPORTED_CHAIN`
 
-Shared-mode guardrail notes:
+## Operational notes
 
-- `DEPLOYMENT_MODE=shared` requires `REDIS_URL`.
-- `DEPLOYMENT_MODE=shared` requires `IDEMPOTENCY_ENABLED=true` and `IDEMPOTENCY_BACKEND=redis`.
-- startup returns `REDIS_UNAVAILABLE` if Redis is configured but unreachable.
+- `GET /ready` intentionally sanitizes dependency failure messages to `"dependency unavailable"`.
+- Shared mode requires Redis-backed idempotency and reachable Redis at startup.

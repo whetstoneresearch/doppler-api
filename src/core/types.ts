@@ -1,5 +1,6 @@
 export type HexAddress = `0x${string}`;
 export type HexHash = `0x${string}`;
+export type SolanaNetwork = 'solanaDevnet' | 'solanaMainnetBeta';
 
 export type GovernanceMode = 'noOp' | 'default' | 'custom';
 export type MigrationType = 'noOp' | 'uniswapV2' | 'uniswapV3' | 'uniswapV4';
@@ -218,6 +219,38 @@ export interface CreateLaunchResponse {
   effectiveConfig: EffectiveLaunchConfig;
 }
 
+export interface CreateSolanaLaunchPredicted {
+  tokenAddress: string;
+  launchAuthorityAddress: string;
+  baseVaultAddress: string;
+  quoteVaultAddress: string;
+}
+
+export interface SolanaEffectiveLaunchConfig {
+  tokensForSale: string;
+  allocationAmount: string;
+  allocationLockMode: 'none';
+  numeraireAddress: string;
+  numerairePriceUsd: number;
+  curveVirtualBase: string;
+  curveVirtualQuote: string;
+  curveFeeBps: number;
+  allowBuy: boolean;
+  allowSell: boolean;
+  tokenDecimals: number;
+}
+
+export interface CreateSolanaLaunchResponse {
+  launchId: string;
+  network: SolanaNetwork;
+  signature: string;
+  explorerUrl: string;
+  predicted: CreateSolanaLaunchPredicted;
+  effectiveConfig: SolanaEffectiveLaunchConfig;
+}
+
+export type CreateAnyLaunchResponse = CreateLaunchResponse | CreateSolanaLaunchResponse;
+
 export type LaunchStatus = 'pending' | 'confirmed' | 'reverted' | 'not_found';
 
 export interface LaunchResult {
@@ -258,4 +291,13 @@ export interface CapabilitiesResponse {
     provider: string;
   };
   chains: ChainCapability[];
+  solana?: {
+    enabled: boolean;
+    supportedNetworks: SolanaNetwork[];
+    unsupportedNetworks: SolanaNetwork[];
+    dedicatedRouteInputAliases: Array<'devnet' | 'mainnet-beta'>;
+    creationOnly: true;
+    numeraireAddress: string;
+    priceResolutionModes: Array<'request' | 'fixed' | 'coingecko'>;
+  };
 }

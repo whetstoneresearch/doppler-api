@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 
 import type { ChainRegistry } from '../../infra/chain/registry';
+import type { SolanaLaunchService } from '../../modules/launches/solana';
 
 const READY_CHECK_FAILURE_MESSAGE = 'dependency unavailable';
 
@@ -19,10 +20,11 @@ const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T
 export const registerReadyRoute = async (
   fastify: FastifyInstance<any, any, any, any>,
   chainRegistry: ChainRegistry,
+  solanaLaunchService: SolanaLaunchService,
   timeoutMs: number,
 ) => {
   fastify.get('/ready', async (request, reply) => {
-    const checks = await Promise.all(
+    const chainChecks = await Promise.all(
       chainRegistry.list().map(async (chain) => {
         try {
           const block = await withTimeout(chain.publicClient.getBlockNumber(), timeoutMs);
@@ -41,14 +43,17 @@ export const registerReadyRoute = async (
       }),
     );
 
-    const ok = checks.every((check) => check.ok);
+    const solana = await solanaLaunchService.getReadiness();
+
+    const ok = chainChecks.every((check) => check.ok) && solana.ok;
     if (!ok) {
       reply.status(503);
     }
 
     return {
       status: ok ? 'ready' : 'degraded',
-      checks,
+      checks: chainChecks,
+      solana,
     };
   });
 };
