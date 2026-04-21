@@ -53,6 +53,33 @@ LIVE_TEST_VERBOSE=true npm run test:live
 - `test:live` is the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet create matrix.
 - Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR`, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, and enough SOL for launch account creation. Use `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` to tune the readiness gate.
 
+Lint, format, and typecheck:
+
+```bash
+npm run lint           # oxlint --deny-warnings
+npm run format:check   # oxfmt --check
+npm run typecheck      # tsc --noEmit
+npm run check          # format:check + lint + typecheck + test
+npm run fix            # format + lint:fix
+```
+
+Git hooks are managed by [lefthook](https://lefthook.dev) (`lefthook.yml`):
+
+- `pre-commit` formats staged files with `oxfmt`, runs `oxlint --fix --deny-warnings` on staged JS/TS, restages fixes, then runs `tsc --noEmit` when TS files are staged.
+- `pre-push` runs `format:check`, `lint`, `typecheck`, and `test:unit` in parallel.
+
+Hooks install via the `prepare` script on `npm install`; run `npx lefthook install` to install manually. Use `git commit --no-verify` to bypass for a single commit (discouraged).
+
+## 1c. Shared/prod mode requirements
+
+- Set `DEPLOYMENT_MODE=shared` (or run with `NODE_ENV=production` and no explicit deployment mode).
+- Set `REDIS_URL` and `IDEMPOTENCY_BACKEND=redis`.
+- In shared mode, create endpoints require `Idempotency-Key`.
+- Rate-limit state is Redis-backed; `GET /health` is IP-bucketed (spoofed `x-api-key` does not bypass).
+- Tx submission uses a Redis-backed distributed nonce lock so replicas can safely share one signer.
+- Redis idempotency writes an `in_progress` marker before tx submit and fails closed with `409 IDEMPOTENCY_KEY_IN_DOUBT` if a prior attempt is left in doubt after restart/crash.
+- Shared mode startup fails fast if Redis is unreachable.
+
 ## 2. Required auth
 
 Include API key header on all endpoints except `GET /health`:

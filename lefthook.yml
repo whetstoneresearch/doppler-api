@@ -1,0 +1,33 @@
+# Lefthook config — runs fast checks before each commit.
+# Docs: https://lefthook.dev/configuration/
+
+assert_lefthook_installed: true
+
+pre-commit:
+  parallel: false
+  jobs:
+    - name: oxfmt
+      glob: '*.{js,jsx,ts,tsx,mjs,cjs,mts,cts,json,jsonc,md,yml,yaml}'
+      run: npx --no -- oxfmt --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
+
+    - name: oxlint
+      glob: '*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}'
+      run: npx --no -- oxlint --fix --deny-warnings {staged_files}
+      stage_fixed: true
+
+    - name: typecheck
+      glob: '*.{ts,tsx,mts,cts}'
+      run: npm run typecheck
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: format-check
+      run: npm run format:check
+    - name: lint
+      run: npm run lint
+    - name: typecheck
+      run: npm run typecheck
+    - name: unit-tests
+      run: npm run test:unit

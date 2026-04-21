@@ -567,3 +567,31 @@ By default, live output is concise (launch summary table). Set `LIVE_TEST_VERBOS
 Live launch tests run sequentially to avoid nonce conflicts from a single funded signer.
 `test:live` remains the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet matrix.
 Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR`, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, and enough SOL for account creation; override the readiness estimate with `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` when needed.
+
+## Lint, format, and git hooks
+
+Tooling:
+
+- `oxlint` (`oxlint.config.ts`) — fast Rust-based ESLint replacement.
+- `oxfmt` (`oxfmt.config.ts`) — fast Rust-based Prettier replacement.
+- `lefthook` (`lefthook.yml`) — runs the formatter, linter, and typecheck against staged files before each commit.
+
+Both `oxlint.config.ts` and `oxfmt.config.ts` use `defineConfig` from their respective packages for full type-checking and editor autocomplete. TypeScript configs require Node ≥22.18 (covered by `.nvmrc` / `engines.node`).
+
+Scripts:
+
+```bash
+npm run lint           # oxlint --deny-warnings
+npm run lint:fix       # oxlint --fix
+npm run format         # oxfmt (write)
+npm run format:check   # oxfmt --check
+npm run fix            # format + lint:fix
+npm run check          # format:check + lint + typecheck + test
+```
+
+Git hooks (managed by [lefthook](https://lefthook.dev)):
+
+- `pre-commit` — formats staged files with `oxfmt`, runs `oxlint --fix --deny-warnings` on staged JS/TS, restages fixed files, and runs `tsc --noEmit` when TypeScript files are staged.
+- `pre-push` — runs `format:check`, `lint`, `typecheck`, and `test:unit` in parallel.
+
+Hooks install automatically via the `prepare` script when running `npm install`. To install manually run `npx lefthook install`. To bypass for a single commit, use `git commit --no-verify` (discouraged).
