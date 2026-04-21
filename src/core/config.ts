@@ -186,9 +186,7 @@ const parseSolanaDefaultNetwork = (
   );
 };
 
-const parseSolanaPriceMode = (
-  value: string | undefined,
-): 'required' | 'fixed' | 'coingecko' => {
+const parseSolanaPriceMode = (value: string | undefined): 'required' | 'fixed' | 'coingecko' => {
   const raw = value?.trim().toLowerCase() || 'required';
   if (raw === 'required' || raw === 'fixed' || raw === 'coingecko') {
     return raw;

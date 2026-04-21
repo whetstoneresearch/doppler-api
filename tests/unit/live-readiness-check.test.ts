@@ -79,9 +79,7 @@ describe('live readiness check', () => {
     });
 
     expect(requirement).not.toBeNull();
-    expect(formatSolAmount(requirement!.requiredLamports)).toBe(
-      formatSolAmount(60_000_000n),
-    );
+    expect(formatSolAmount(requirement!.requiredLamports)).toBe(formatSolAmount(60_000_000n));
     expect(requirement!.reason).toContain(
       `estimate: 2 launch tx * ${DEFAULT_LIVE_ESTIMATED_TX_COST_SOL} SOL + ${DEFAULT_LIVE_ESTIMATED_OVERHEAD_SOL} SOL overhead`,
     );

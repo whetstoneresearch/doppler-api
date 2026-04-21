@@ -24,10 +24,7 @@ import { z } from 'zod';
 
 import type { AppConfig } from '../../core/config';
 import { AppError } from '../../core/errors';
-import type {
-  CreateSolanaLaunchResponse,
-  SolanaNetwork,
-} from '../../core/types';
+import type { CreateSolanaLaunchResponse, SolanaNetwork } from '../../core/types';
 import type { PricingService } from '../pricing/service';
 
 const U64_MAX = 18_446_744_073_709_551_615n;
@@ -44,16 +41,14 @@ const positiveFiniteNumberSchema = z
   .number()
   .refine((value) => Number.isFinite(value) && value > 0, 'must be a positive number');
 
-const solanaAddressSchema = z
-  .string()
-  .refine((value) => {
-    try {
-      address(value);
-      return true;
-    } catch {
-      return false;
-    }
-  }, 'must be a valid Solana address');
+const solanaAddressSchema = z.string().refine((value) => {
+  try {
+    address(value);
+    return true;
+  } catch {
+    return false;
+  }
+}, 'must be a valid Solana address');
 
 const u64StringSchema = z
   .string()
@@ -227,9 +222,7 @@ export const deriveSolanaLaunchSeed = (
     return randomBytes(32);
   }
 
-  return createHash('sha256')
-    .update(`solana-launch:${network}:${idempotencyKey}`)
-    .digest();
+  return createHash('sha256').update(`solana-launch:${network}:${idempotencyKey}`).digest();
 };
 
 const buildExplorerUrl = (network: SolanaNetwork, signature: string): string => {

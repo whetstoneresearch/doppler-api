@@ -272,7 +272,12 @@ describe('GET /v1/capabilities', () => {
         getProviderName: () => 'coingecko',
       } as any,
       solanaLaunchService: {
-        getReadiness: async () => ({ enabled: true, ok: true, network: 'solanaDevnet', checks: [] }),
+        getReadiness: async () => ({
+          enabled: true,
+          ok: true,
+          network: 'solanaDevnet',
+          checks: [],
+        }),
         createLaunch: async () => {
           throw new Error('not used');
         },

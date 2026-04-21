@@ -222,7 +222,12 @@ export class FileIdempotencyStore implements IdempotencyStore {
         throwKeyReuseMismatch('Idempotency key was already used with a different request payload');
       }
       if (existing.state === 'in_doubt') {
-        throw new AppError(409, existing.error.code, existing.error.message, existing.error.details);
+        throw new AppError(
+          409,
+          existing.error.code,
+          existing.error.message,
+          existing.error.details,
+        );
       }
       return { response: existing.response, replayed: true };
     }
@@ -581,18 +586,18 @@ export class RedisIdempotencyStore implements IdempotencyStore {
         }
 
         if (existing.state === 'in_doubt') {
-          throw new AppError(409, existing.error.code, existing.error.message, existing.error.details);
+          throw new AppError(
+            409,
+            existing.error.code,
+            existing.error.message,
+            existing.error.details,
+          );
         }
 
         const replay = await this.waitForRecordOrUnlock(key, payloadHash);
         if (replay) {
           if (replay.state === 'in_doubt') {
-            throw new AppError(
-              409,
-              replay.error.code,
-              replay.error.message,
-              replay.error.details,
-            );
+            throw new AppError(409, replay.error.code, replay.error.message, replay.error.details);
           }
           return { response: replay.response, replayed: true };
         }
@@ -624,12 +629,7 @@ export class RedisIdempotencyStore implements IdempotencyStore {
       const replay = await this.waitForRecordOrUnlock(key, payloadHash);
       if (replay) {
         if (replay.state === 'in_doubt') {
-          throw new AppError(
-            409,
-            replay.error.code,
-            replay.error.message,
-            replay.error.details,
-          );
+          throw new AppError(409, replay.error.code, replay.error.message, replay.error.details);
         }
         return { response: replay.response, replayed: true };
       }

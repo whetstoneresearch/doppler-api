@@ -148,8 +148,7 @@ export const buildLiveSolanaBalanceRequirement = (args: {
     return null;
   }
 
-  const estimatedTxCostSol =
-    args.estimatedTxCostSol?.trim() || DEFAULT_LIVE_ESTIMATED_TX_COST_SOL;
+  const estimatedTxCostSol = args.estimatedTxCostSol?.trim() || DEFAULT_LIVE_ESTIMATED_TX_COST_SOL;
   const estimatedOverheadSol =
     args.estimatedOverheadSol?.trim() || DEFAULT_LIVE_ESTIMATED_OVERHEAD_SOL;
   const estimatedTxCostLamports = parseSolAmount(

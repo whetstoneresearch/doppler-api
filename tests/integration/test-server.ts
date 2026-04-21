@@ -207,7 +207,8 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
     return {
       launchId: '8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
       network: payload?.network ?? 'solanaDevnet',
-      signature: '5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J',
+      signature:
+        '5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J',
       explorerUrl:
         'https://explorer.solana.com/tx/5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J?cluster=devnet',
       predicted: {
@@ -321,7 +322,11 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
       createLaunch: async (payload?: { governance?: unknown }) => {
         return resolveLaunchResponse(payload);
       },
-      createLaunchWithIdempotency: async (payload?: { governance?: unknown; input?: unknown; idempotencyKey?: string }) => {
+      createLaunchWithIdempotency: async (payload?: {
+        governance?: unknown;
+        input?: unknown;
+        idempotencyKey?: string;
+      }) => {
         const key = payload?.idempotencyKey?.trim();
         const input = payload?.input;
 

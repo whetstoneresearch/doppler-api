@@ -1044,8 +1044,7 @@ components:
               $ref: '#/components/schemas/SolanaAddress'
             quoteVaultAddress:
               $ref: '#/components/schemas/SolanaAddress'
-          required:
-            [tokenAddress, launchAuthorityAddress, baseVaultAddress, quoteVaultAddress]
+          required: [tokenAddress, launchAuthorityAddress, baseVaultAddress, quoteVaultAddress]
         effectiveConfig:
           type: object
           properties:

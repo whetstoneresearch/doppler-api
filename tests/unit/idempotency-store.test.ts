@@ -62,18 +62,13 @@ const buildResponse = (txHash: `0x${string}`): CreateLaunchResponse => ({
 });
 
 const buildSolanaInDoubtError = () =>
-  new AppError(
-    409,
-    'SOLANA_LAUNCH_IN_DOUBT',
-    'Solana launch confirmation is in doubt',
-    {
-      launchId: '8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
-      signature:
-        '5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J',
-      explorerUrl:
-        'https://explorer.solana.com/tx/5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J?cluster=devnet',
-    },
-  );
+  new AppError(409, 'SOLANA_LAUNCH_IN_DOUBT', 'Solana launch confirmation is in doubt', {
+    launchId: '8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
+    signature:
+      '5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J',
+    explorerUrl:
+      'https://explorer.solana.com/tx/5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J?cluster=devnet',
+  });
 
 class FakeRedisClient implements IdempotencyRedisClient {
   private readonly store = new Map<string, { value: string; expiresAtMs: number }>();

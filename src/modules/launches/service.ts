@@ -15,10 +15,7 @@ import type {
 import { createDynamicLaunch } from '../auctions/dynamic/service';
 import { createMulticurveLaunch } from '../auctions/multicurve/service';
 import { createStaticLaunch } from '../auctions/static/service';
-import {
-  SolanaLaunchService,
-  type CreateSolanaLaunchRequestInput,
-} from './solana';
+import { SolanaLaunchService, type CreateSolanaLaunchRequestInput } from './solana';
 
 interface LaunchServiceDeps {
   chainRegistry: ChainRegistry;

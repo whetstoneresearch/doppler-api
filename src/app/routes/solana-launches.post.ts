@@ -1,9 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 
 import type { SolanaNetwork } from '../../core/types';
-import {
-  parseDedicatedSolanaCreateLaunchRequest,
-} from '../../modules/launches/solana';
+import { parseDedicatedSolanaCreateLaunchRequest } from '../../modules/launches/solana';
 import type { LaunchService } from '../../modules/launches/service';
 
 export const registerCreateSolanaLaunchRoute = async (

@@ -32,9 +32,7 @@ const SOLANA_ACCOUNT_COMMITMENT = { commitment: 'confirmed' as const };
 const SOLANA_NON_WSOL_ADDRESS = '11111111111111111111111111111111';
 
 type SolanaLiveRoute = 'dedicated' | 'generic';
-type SolanaLivePayload =
-  | DedicatedSolanaCreateLaunchRequestInput
-  | CreateSolanaLaunchRequestInput;
+type SolanaLivePayload = DedicatedSolanaCreateLaunchRequestInput | CreateSolanaLaunchRequestInput;
 
 const sleep = (ms: number) =>
   new Promise((resolve) => {
@@ -45,7 +43,10 @@ const nextTokenMetadata = (prefix: string) => {
   const suffix = randomBytes(3).toString('hex').toUpperCase();
   return {
     name: `SOL ${prefix} ${suffix}`.slice(0, 32),
-    symbol: `${prefix.replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 4)}${suffix}`.slice(0, 10),
+    symbol: `${prefix
+      .replace(/[^a-z0-9]/gi, '')
+      .toUpperCase()
+      .slice(0, 4)}${suffix}`.slice(0, 10),
     tokenURI: `ipfs://live-solana/${prefix.toLowerCase()}/${Date.now()}-${suffix.toLowerCase()}`,
   };
 };
@@ -62,7 +63,11 @@ const assertSolanaAccountExists = async (
   rpc: ReturnType<typeof createSolanaRpc>,
   accountAddress: string,
 ): Promise<void> => {
-  const account = await fetchEncodedAccount(rpc, address(accountAddress), SOLANA_ACCOUNT_COMMITMENT);
+  const account = await fetchEncodedAccount(
+    rpc,
+    address(accountAddress),
+    SOLANA_ACCOUNT_COMMITMENT,
+  );
   assertAccountExists(account);
 };
 
@@ -77,7 +82,9 @@ const waitForConfirmedSignature = async (
     const status = statuses.value[0];
 
     if (status?.err) {
-      throw new Error(`Solana signature ${signature} failed after submission: ${JSON.stringify(status.err)}`);
+      throw new Error(
+        `Solana signature ${signature} failed after submission: ${JSON.stringify(status.err)}`,
+      );
     }
 
     if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') {
@@ -141,7 +148,9 @@ const verifySuccessfulSolanaLaunch = async (args: {
     });
 
     if (firstResponse.statusCode !== 200) {
-      throw new Error(`Unexpected Solana live response (${firstResponse.statusCode}): ${firstResponse.body}`);
+      throw new Error(
+        `Unexpected Solana live response (${firstResponse.statusCode}): ${firstResponse.body}`,
+      );
     }
 
     const body = firstResponse.json() as CreateSolanaLaunchResponse;
@@ -376,7 +385,9 @@ export const registerSolanaLiveScenarios = () => {
     'SOLANA DEVNET Random Parameters',
     ['solana', 'solana-devnet', 'solana-random'],
     async () => {
-      const totalSupply = (2_000_000_000n + BigInt(Math.floor(Math.random() * 18_000_000_000))).toString();
+      const totalSupply = (
+        2_000_000_000n + BigInt(Math.floor(Math.random() * 18_000_000_000))
+      ).toString();
       const marketCapStartUsd = 75 + Math.floor(Math.random() * 425);
       const marketCapEndUsd = marketCapStartUsd * (4 + Math.floor(Math.random() * 9));
       const curveFeeBps = Math.floor(Math.random() * 101);

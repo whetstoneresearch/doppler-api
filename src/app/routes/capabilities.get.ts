@@ -48,10 +48,10 @@ export const registerCapabilitiesRoute = async (
         multicurveInitializers: chain.config.auctionTypes.includes('multicurve')
           ? resolveMulticurveInitializers(chain)
           : [],
-          migrationModes: chain.config.migrationModes,
-          governanceModes: chain.config.governanceModes,
-          governanceEnabled: chain.config.governanceEnabled,
-        })),
+        migrationModes: chain.config.migrationModes,
+        governanceModes: chain.config.governanceModes,
+        governanceEnabled: chain.config.governanceEnabled,
+      })),
       solana: {
         enabled: config.solana.enabled,
         supportedNetworks: config.solana.enabled ? ['solanaDevnet'] : [],
