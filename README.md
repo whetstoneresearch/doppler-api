@@ -444,3 +444,31 @@ npm run test:live --verbose
 `test:live` performs real on-chain creation and verification when `LIVE_TEST_ENABLE=true` and funded credentials are configured.
 By default, live output is concise (launch summary table). Use `--verbose` for full per-launch parameter and verification tables.
 Live launch tests run sequentially to avoid nonce conflicts from a single funded signer.
+
+## Lint, format, and git hooks
+
+Tooling:
+
+- `oxlint` (`oxlint.config.ts`) — fast Rust-based ESLint replacement.
+- `oxfmt` (`oxfmt.config.ts`) — fast Rust-based Prettier replacement.
+- `lefthook` (`lefthook.yml`) — runs the formatter, linter, and typecheck against staged files before each commit.
+
+Both `oxlint.config.ts` and `oxfmt.config.ts` use `defineConfig` from their respective packages for full type-checking and editor autocomplete. TypeScript configs require Node ≥22.18 (covered by `.nvmrc` / `engines.node`).
+
+Scripts:
+
+```bash
+npm run lint           # oxlint --deny-warnings
+npm run lint:fix       # oxlint --fix
+npm run format         # oxfmt (write)
+npm run format:check   # oxfmt --check
+npm run fix            # format + lint:fix
+npm run check          # format:check + lint + typecheck + test
+```
+
+Git hooks (managed by [lefthook](https://lefthook.dev)):
+
+- `pre-commit` — formats staged files with `oxfmt`, runs `oxlint --fix --deny-warnings` on staged JS/TS, restages fixed files, and runs `tsc --noEmit` when TypeScript files are staged.
+- `pre-push` — runs `format:check`, `lint`, `typecheck`, and `test:unit` in parallel.
+
+Hooks install automatically via the `prepare` script when running `npm install`. To install manually run `npx lefthook install`. To bypass for a single commit, use `git commit --no-verify` (discouraged).

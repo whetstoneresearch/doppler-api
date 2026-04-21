@@ -46,6 +46,23 @@ npm run test:live --verbose
 - Add `--verbose` to print per-launch parameter + onchain verification tables.
 - Live launch creation tests run sequentially to avoid nonce conflicts for one signer.
 
+Lint, format, and typecheck:
+
+```bash
+npm run lint           # oxlint --deny-warnings
+npm run format:check   # oxfmt --check
+npm run typecheck      # tsc --noEmit
+npm run check          # format:check + lint + typecheck + test
+npm run fix            # format + lint:fix
+```
+
+Git hooks are managed by [lefthook](https://lefthook.dev) (`lefthook.yml`):
+
+- `pre-commit` formats staged files with `oxfmt`, runs `oxlint --fix --deny-warnings` on staged JS/TS, restages fixes, then runs `tsc --noEmit` when TS files are staged.
+- `pre-push` runs `format:check`, `lint`, `typecheck`, and `test:unit` in parallel.
+
+Hooks install via the `prepare` script on `npm install`; run `npx lefthook install` to install manually. Use `git commit --no-verify` to bypass for a single commit (discouraged).
+
 ## 1c. Shared/prod mode requirements
 
 - Set `DEPLOYMENT_MODE=shared` (or run with `NODE_ENV=production` and no explicit deployment mode).
