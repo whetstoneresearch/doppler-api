@@ -1,7 +1,7 @@
 import 'dotenv/config';
 
 import { AppError } from './errors';
-import type { AuctionType, GovernanceMode, MigrationType } from './types';
+import type { AuctionType, GovernanceMode, MigrationType, SolanaNetwork } from './types';
 import { dopplerTemplateConfig } from '../../doppler.config';
 import type {
   DeploymentMode,
@@ -20,6 +20,21 @@ export interface ChainRuntimeConfig {
   migrationModes: MigrationType[];
   governanceModes: GovernanceMode[];
   governanceEnabled: boolean;
+}
+
+export interface SolanaRuntimeConfig {
+  enabled: boolean;
+  defaultNetwork: SolanaNetwork;
+  devnetRpcUrl: string;
+  devnetWsUrl: string;
+  mainnetBetaRpcUrl?: string;
+  mainnetBetaWsUrl?: string;
+  keypairBytes?: Uint8Array;
+  confirmTimeoutMs: number;
+  altAddress?: string;
+  priceMode: 'required' | 'fixed' | 'coingecko';
+  fixedNumerairePriceUsd?: number;
+  coingeckoAssetId: string;
 }
 
 export interface AppConfig {
@@ -59,6 +74,7 @@ export interface AppConfig {
     coingeckoAssetId: string;
     apiKey?: string;
   };
+  solana: SolanaRuntimeConfig;
 }
 
 const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
@@ -73,6 +89,19 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
   if (!value) return fallback;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const parseOptionalPositiveNumber = (value: string | undefined): number | undefined => {
+  if (value === undefined || value.trim() === '') {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new AppError(500, 'INVALID_ENV', `Expected a positive number but received ${value}`);
+  }
+
+  return parsed;
 };
 
 const parseStringArray = (value: string | undefined): string[] => {
@@ -92,11 +121,11 @@ const parseDeploymentMode = (fallback: DeploymentMode): DeploymentMode => {
     return fallback;
   }
 
-  if (raw === 'local' || raw === 'shared') {
+  if (raw === 'standalone' || raw === 'shared') {
     return raw;
   }
 
-  throw new AppError(500, 'INVALID_ENV', 'DEPLOYMENT_MODE must be "local" or "shared"');
+  throw new AppError(500, 'INVALID_ENV', 'DEPLOYMENT_MODE must be "standalone" or "shared"');
 };
 
 const parseIdempotencyBackend = (fallback: IdempotencyBackend): IdempotencyBackend => {
@@ -134,6 +163,77 @@ const parseStringOrFallback = (value: string | undefined, fallback: string): str
   if (value === undefined) return fallback;
   const trimmed = value.trim();
   return trimmed === '' ? fallback : trimmed;
+};
+
+const parseSolanaDefaultNetwork = (
+  value: string | undefined,
+  fallback: SolanaNetwork,
+): SolanaNetwork => {
+  const raw = value?.trim();
+  if (!raw) {
+    return fallback;
+  }
+
+  if (raw === 'solanaDevnet' || raw === 'solanaMainnetBeta') {
+    return raw;
+  }
+
+  throw new AppError(
+    500,
+    'INVALID_ENV',
+    'SOLANA_DEFAULT_NETWORK must be "solanaDevnet" or "solanaMainnetBeta"',
+  );
+};
+
+const parseSolanaPriceMode = (value: string | undefined): 'required' | 'fixed' | 'coingecko' => {
+  const raw = value?.trim().toLowerCase() || 'required';
+  if (raw === 'required' || raw === 'fixed' || raw === 'coingecko') {
+    return raw;
+  }
+
+  throw new AppError(
+    500,
+    'INVALID_ENV',
+    'SOLANA_PRICE_MODE must be "required", "fixed", or "coingecko"',
+  );
+};
+
+const parseSolanaKeypairBytes = (value: string | undefined): Uint8Array | undefined => {
+  if (value === undefined || value.trim() === '') {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new AppError(
+      500,
+      'INVALID_ENV',
+      'SOLANA_KEYPAIR must be a JSON array containing 64 secret-key bytes',
+    );
+  }
+
+  if (!Array.isArray(parsed) || parsed.length !== 64) {
+    throw new AppError(
+      500,
+      'INVALID_ENV',
+      'SOLANA_KEYPAIR must be a JSON array containing 64 secret-key bytes',
+    );
+  }
+
+  const bytes = parsed.map((entry) => {
+    if (!Number.isInteger(entry) || entry < 0 || entry > 255) {
+      throw new AppError(
+        500,
+        'INVALID_ENV',
+        'SOLANA_KEYPAIR must contain only byte values between 0 and 255',
+      );
+    }
+    return entry;
+  });
+
+  return Uint8Array.from(bytes);
 };
 
 const parseOptionalStringArray = (value: string | undefined): string[] | undefined => {
@@ -285,6 +385,49 @@ export const loadConfig = (): AppConfig => {
     }
   }
 
+  const solanaEnabled = parseBoolean(process.env.SOLANA_ENABLED, false);
+  const solanaDefaultNetwork = parseSolanaDefaultNetwork(
+    process.env.SOLANA_DEFAULT_NETWORK,
+    'solanaDevnet',
+  );
+  const solanaPriceMode = parseSolanaPriceMode(process.env.SOLANA_PRICE_MODE);
+  const solanaKeypairBytes = parseSolanaKeypairBytes(process.env.SOLANA_KEYPAIR);
+  const solanaFixedNumerairePriceUsd =
+    solanaPriceMode === 'required'
+      ? undefined
+      : parseOptionalPositiveNumber(process.env.SOLANA_FIXED_NUMERAIRE_PRICE_USD);
+  const solanaAltAddress = process.env.SOLANA_DEVNET_ALT_ADDRESS?.trim() || undefined;
+
+  if (solanaEnabled) {
+    if (!solanaKeypairBytes) {
+      throw new AppError(500, 'MISSING_ENV', 'SOLANA_KEYPAIR is required when SOLANA_ENABLED=true');
+    }
+
+    if (!process.env.SOLANA_DEVNET_RPC_URL?.trim()) {
+      throw new AppError(
+        500,
+        'MISSING_ENV',
+        'SOLANA_DEVNET_RPC_URL is required when SOLANA_ENABLED=true',
+      );
+    }
+
+    if (!process.env.SOLANA_DEVNET_WS_URL?.trim()) {
+      throw new AppError(
+        500,
+        'MISSING_ENV',
+        'SOLANA_DEVNET_WS_URL is required when SOLANA_ENABLED=true',
+      );
+    }
+
+    if (solanaPriceMode === 'fixed' && solanaFixedNumerairePriceUsd === undefined) {
+      throw new AppError(
+        500,
+        'MISSING_ENV',
+        'SOLANA_FIXED_NUMERAIRE_PRICE_USD is required when SOLANA_PRICE_MODE=fixed',
+      );
+    }
+  }
+
   return {
     port: parseNumber(process.env.PORT, template.port),
     deploymentMode,
@@ -327,6 +470,26 @@ export const loadConfig = (): AppConfig => {
         template.pricing.coingeckoAssetId,
       ),
       apiKey: process.env.PRICE_API_KEY,
+    },
+    solana: {
+      enabled: solanaEnabled,
+      defaultNetwork: solanaDefaultNetwork,
+      devnetRpcUrl: parseStringOrFallback(
+        process.env.SOLANA_DEVNET_RPC_URL,
+        'https://api.devnet.solana.com',
+      ),
+      devnetWsUrl: parseStringOrFallback(
+        process.env.SOLANA_DEVNET_WS_URL,
+        'wss://api.devnet.solana.com',
+      ),
+      mainnetBetaRpcUrl: process.env.SOLANA_MAINNET_BETA_RPC_URL?.trim() || undefined,
+      mainnetBetaWsUrl: process.env.SOLANA_MAINNET_BETA_WS_URL?.trim() || undefined,
+      keypairBytes: solanaKeypairBytes,
+      confirmTimeoutMs: parseInteger(process.env.SOLANA_CONFIRM_TIMEOUT_MS, 60_000),
+      altAddress: solanaAltAddress,
+      priceMode: solanaPriceMode,
+      fixedNumerairePriceUsd: solanaFixedNumerairePriceUsd,
+      coingeckoAssetId: parseStringOrFallback(process.env.SOLANA_COINGECKO_ASSET_ID, 'solana'),
     },
   };
 };

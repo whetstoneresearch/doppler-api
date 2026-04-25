@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
+import { AppError } from '../../src/core/errors';
 import type { CreateLaunchResponse } from '../../src/core/types';
 import {
   FileIdempotencyStore,
@@ -59,6 +60,19 @@ const buildResponse = (txHash: `0x${string}`): CreateLaunchResponse => ({
     feeBeneficiariesSource: 'default',
   },
 });
+
+const buildSolanaInDoubtError = () =>
+<<<<<<< HEAD
+  new AppError(409, 'SOLANA_LAUNCH_IN_DOUBT', 'Solana launch confirmation is in doubt', {
+=======
+  new AppError(409, 'IDEMPOTENCY_KEY_IN_DOUBT', 'Solana launch confirmation is in doubt', {
+>>>>>>> efb1cd8 (wip: pr review feedback, alt required, use zod, misc improvements. note devnet protocol+sdk are stale, hence failing tests. awaiting redeployment/rerelease)
+    launchId: '8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
+    signature:
+      '5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J',
+    explorerUrl:
+      'https://explorer.solana.com/tx/5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J?cluster=devnet',
+  });
 
 class FakeRedisClient implements IdempotencyRedisClient {
   private readonly store = new Map<string, { value: string; expiresAtMs: number }>();
@@ -178,7 +192,9 @@ describe('idempotency store', () => {
 
     expect(first.replayed).toBe(false);
     expect(second.replayed).toBe(true);
-    expect(second.response.txHash).toBe(first.response.txHash);
+    expect((second.response as CreateLaunchResponse).txHash).toBe(
+      (first.response as CreateLaunchResponse).txHash,
+    );
   });
 
   it('file backend rejects same key with different payload', async () => {
@@ -229,7 +245,9 @@ describe('idempotency store', () => {
 
     expect(first.replayed).toBe(false);
     expect(second.replayed).toBe(true);
-    expect(second.response.txHash).toBe(first.response.txHash);
+    expect((second.response as CreateLaunchResponse).txHash).toBe(
+      (first.response as CreateLaunchResponse).txHash,
+    );
   });
 
   it('redis backend rejects same key with different payload', async () => {
@@ -295,7 +313,9 @@ describe('idempotency store', () => {
     expect(actionExecutions).toBe(1);
     expect(first.replayed).toBe(false);
     expect(second.replayed).toBe(true);
-    expect(second.response.txHash).toBe(first.response.txHash);
+    expect((second.response as CreateLaunchResponse).txHash).toBe(
+      (first.response as CreateLaunchResponse).txHash,
+    );
   });
 
   it('redis lock heartbeat prevents duplicate execution after lock TTL window', async () => {
@@ -337,7 +357,9 @@ describe('idempotency store', () => {
     expect(actionExecutions).toBe(1);
     expect(first.replayed).toBe(false);
     expect(second.replayed).toBe(true);
-    expect(second.response.txHash).toBe(first.response.txHash);
+    expect((second.response as CreateLaunchResponse).txHash).toBe(
+      (first.response as CreateLaunchResponse).txHash,
+    );
   });
 
   it('redis backend fails closed when recovering in-progress key without lock', async () => {
@@ -405,5 +427,99 @@ describe('idempotency store', () => {
     });
 
     expect(actionExecutions).toBe(1);
+  });
+
+  it('file backend persists Solana in-doubt results and fails closed on retry', async () => {
+    const runId = (Date.now() + 2).toString();
+    const store = new FileIdempotencyStore({
+      enabled: true,
+      ttlMs: 100_000,
+      path: `.test-results/idempotency-unit-test-solana-${runId}.json`,
+    });
+
+    await expect(
+      store.execute('solana-in-doubt', samplePayload as any, async () => {
+        throw buildSolanaInDoubtError();
+      }),
+    ).rejects.toMatchObject({
+      code: 'IDEMPOTENCY_KEY_IN_DOUBT',
+      statusCode: 409,
+    });
+
+    await expect(
+      store.execute('solana-in-doubt', samplePayload as any, async () => {
+        throw new Error('should not be called');
+      }),
+    ).rejects.toMatchObject({
+      code: 'IDEMPOTENCY_KEY_IN_DOUBT',
+      statusCode: 409,
+      details: {
+        launchId: '8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
+      },
+    });
+  });
+
+  it('file backend does not persist non-idempotency Solana errors that happen to include launch details', async () => {
+    const runId = (Date.now() + 3).toString();
+    const store = new FileIdempotencyStore({
+      enabled: true,
+      ttlMs: 100_000,
+      path: `.test-results/idempotency-unit-test-solana-non-persisted-${runId}.json`,
+    });
+
+    await expect(
+      store.execute('solana-non-persisted', samplePayload as any, async () => {
+        throw new AppError(
+          409,
+          'SOLANA_SIMULATION_FAILED',
+          'Solana launch simulation failed',
+          buildSolanaInDoubtError().details,
+        );
+      }),
+    ).rejects.toMatchObject({
+      code: 'SOLANA_SIMULATION_FAILED',
+      statusCode: 409,
+    });
+
+    const retried = await store.execute('solana-non-persisted', samplePayload as any, async () =>
+      buildResponse('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+    );
+
+    expect(retried.replayed).toBe(false);
+    expect((retried.response as CreateLaunchResponse).txHash).toBe(
+      '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    );
+  });
+
+  it('redis backend persists Solana in-doubt results and fails closed on retry', async () => {
+    const redis = new FakeRedisClient();
+    const store = new RedisIdempotencyStore({
+      enabled: true,
+      ttlMs: 100_000,
+      redis,
+      keyPrefix: 'test',
+    });
+
+    await expect(
+      store.execute('solana-in-doubt', samplePayload as any, async () => {
+        throw buildSolanaInDoubtError();
+      }),
+    ).rejects.toMatchObject({
+      code: 'IDEMPOTENCY_KEY_IN_DOUBT',
+      statusCode: 409,
+    });
+
+    await expect(
+      store.execute('solana-in-doubt', samplePayload as any, async () => {
+        throw new Error('should not be called');
+      }),
+    ).rejects.toMatchObject({
+      code: 'IDEMPOTENCY_KEY_IN_DOUBT',
+      statusCode: 409,
+      details: {
+        signature:
+          '5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J',
+      },
+    });
   });
 });

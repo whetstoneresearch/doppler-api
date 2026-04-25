@@ -3,94 +3,139 @@
 Runtime configuration is TypeScript-first:
 
 - Canonical non-secret settings live in `doppler.config.ts`.
-- Secrets and operational runtime overrides come from environment variables.
+- Secrets and runtime overrides come from environment variables.
 - The template object in `doppler.config.ts` must satisfy `DopplerTemplateConfigV1`.
-  If the shape drifts, `npm run typecheck` / `npm run build` fails.
 
 ## Canonical typed config
 
 Edit `doppler.config.ts` for:
 
-- chain map and per-chain capabilities
-- default chain selection
-- non-secret service defaults (port, logging, idempotency defaults, pricing defaults)
+- EVM chain map and per-chain capabilities
+- default EVM chain selection
+- non-secret service defaults (port, logging, idempotency, pricing)
 
 ## Required environment variables
 
 - `API_KEY`
 - `PRIVATE_KEY`
 
-## Optional environment overrides
+## Optional core environment overrides
 
-- `PORT` (default from `doppler.config.ts`)
-- `DEPLOYMENT_MODE` (default from `doppler.config.ts`)
-  - allowed: `local`, `shared`
-  - if unset and `NODE_ENV=production`, deployment mode defaults to `shared`
-- `DEFAULT_CHAIN_ID` (must exist in `doppler.config.ts`)
+- `PORT`
+- `DEPLOYMENT_MODE`
+  - allowed: `standalone`, `shared`
+  - defaults to `shared` when `NODE_ENV=production` and no explicit mode is set
+- `DEFAULT_CHAIN_ID`
 - `RPC_URL`
-  - overrides `rpcUrl` for `DEFAULT_CHAIN_ID` only
+  - overrides the configured RPC only for `DEFAULT_CHAIN_ID`
 - `DEFAULT_NUMERAIRE_ADDRESS`
-  - overrides `defaultNumeraireAddress` for `DEFAULT_CHAIN_ID` only
-- `READY_RPC_TIMEOUT_MS` (default from `doppler.config.ts`)
-- `LOG_LEVEL` (default from `doppler.config.ts`)
+  - overrides the configured numeraire only for `DEFAULT_CHAIN_ID`
+- `READY_RPC_TIMEOUT_MS`
+- `LOG_LEVEL`
 - `CORS_ORIGINS`
-  - Comma-separated allowlist.
-  - Empty means CORS is disabled.
 - `API_KEYS`
-  - Optional comma-separated additional API keys.
-- `RATE_LIMIT_MAX` (default from `doppler.config.ts`)
-- `RATE_LIMIT_WINDOW_MS` (default from `doppler.config.ts`)
-
-## Redis environment variables
-
-- `REDIS_URL`
-- `REDIS_KEY_PREFIX` (default from `doppler.config.ts`)
+- `RATE_LIMIT_MAX`
+- `RATE_LIMIT_WINDOW_MS`
 
 ## Idempotency environment variables
 
-- `IDEMPOTENCY_ENABLED` (default from `doppler.config.ts`)
-- `IDEMPOTENCY_BACKEND` (default from `doppler.config.ts`, allowed: `file`, `redis`)
-- `IDEMPOTENCY_REQUIRE_KEY` (default from `doppler.config.ts`)
+- `IDEMPOTENCY_ENABLED`
+- `IDEMPOTENCY_BACKEND`
+  - allowed: `file`, `redis`
+- `IDEMPOTENCY_REQUIRE_KEY`
   - forced to `true` when `DEPLOYMENT_MODE=shared`
-- `IDEMPOTENCY_TTL_MS` (default from `doppler.config.ts`)
-- `IDEMPOTENCY_STORE_PATH` (default from `doppler.config.ts`)
-- `IDEMPOTENCY_REDIS_LOCK_TTL_MS` (default from `doppler.config.ts`)
-  - TTL for cross-replica in-flight idempotency lock
-  - set this to at least your max expected create-launch duration
-- `IDEMPOTENCY_REDIS_LOCK_REFRESH_MS` (default from `doppler.config.ts`)
-  - heartbeat interval for refreshing the Redis in-flight lock
-  - must be lower than `IDEMPOTENCY_REDIS_LOCK_TTL_MS`
-- Redis-backed idempotency writes an `in_progress` marker before create submit.
-  If a process crashes/restarts before completion, retries with the same key fail closed with
-  `409 IDEMPOTENCY_KEY_IN_DOUBT` until operators verify prior attempt status.
+- `IDEMPOTENCY_TTL_MS`
+- `IDEMPOTENCY_STORE_PATH`
+- `IDEMPOTENCY_REDIS_LOCK_TTL_MS`
+- `IDEMPOTENCY_REDIS_LOCK_REFRESH_MS`
 
-## Shared mode guardrails
-
-When `DEPLOYMENT_MODE=shared`:
-
-- `REDIS_URL` is required.
-- `IDEMPOTENCY_ENABLED` must be `true`.
-- `IDEMPOTENCY_BACKEND` must be `redis`.
-- create endpoints require `Idempotency-Key`.
-- rate-limiter state uses Redis for cross-replica consistency.
-- tx nonce submission uses a Redis-backed distributed signer lock for cross-replica coordination.
-- startup fails fast if Redis cannot be reached.
-
-Local mode remains file-backed by default and does not require Redis.
+Redis-backed idempotency writes `in_progress` markers for EVM flows and also persists Solana
+`IDEMPOTENCY_KEY_IN_DOUBT` results so retries fail closed with the original error details.
 
 ## Pricing environment variables
 
-- `PRICE_ENABLED` (default from `doppler.config.ts`)
-- `PRICE_PROVIDER` (default from `doppler.config.ts`)
-- `PRICE_BASE_URL` (default from `doppler.config.ts`)
-- `PRICE_TIMEOUT_MS` (default from `doppler.config.ts`)
-- `PRICE_CACHE_TTL_MS` (default from `doppler.config.ts`)
-- `PRICE_API_KEY` (optional)
-- `PRICE_COINGECKO_ASSET_ID` (default from `doppler.config.ts`)
+- `PRICE_ENABLED`
+- `PRICE_PROVIDER`
+- `PRICE_BASE_URL`
+- `PRICE_TIMEOUT_MS`
+- `PRICE_CACHE_TTL_MS`
+- `PRICE_API_KEY`
+- `PRICE_COINGECKO_ASSET_ID`
 
-## Multichain configuration
+## Solana environment variables
 
-Define chains directly in `doppler.config.ts`:
+- `SOLANA_ENABLED`
+- `SOLANA_DEFAULT_NETWORK`
+  - allowed: `solanaDevnet`, `solanaMainnetBeta`
+  - this uses canonical internal names only
+- `SOLANA_DEVNET_RPC_URL`
+- `SOLANA_DEVNET_WS_URL`
+- `SOLANA_MAINNET_BETA_RPC_URL`
+  - optional scaffolded setting
+- `SOLANA_MAINNET_BETA_WS_URL`
+  - optional scaffolded setting
+- `SOLANA_KEYPAIR`
+  - JSON array of 64 secret-key bytes for the payer
+- `SOLANA_CONFIRM_TIMEOUT_MS`
+  - confirmation wait before returning `409 IDEMPOTENCY_KEY_IN_DOUBT`
+- `SOLANA_DEVNET_ALT_ADDRESS`
+  - optional override for the default devnet ALT used on launch transactions
+- `SOLANA_PRICE_MODE`
+  - allowed: `required`, `fixed`, `coingecko`
+- `SOLANA_FIXED_NUMERAIRE_PRICE_USD`
+  - required when `SOLANA_PRICE_MODE=fixed`
+- `SOLANA_COINGECKO_ASSET_ID`
+  - defaults to `solana`
+
+### Solana startup guardrails
+
+When `SOLANA_ENABLED=true`, startup fails fast for static config errors:
+
+- missing `SOLANA_KEYPAIR`
+- missing `SOLANA_DEVNET_RPC_URL`
+- missing `SOLANA_DEVNET_WS_URL`
+- invalid `SOLANA_KEYPAIR` format
+- invalid `SOLANA_DEFAULT_NETWORK`
+- invalid `SOLANA_PRICE_MODE`
+- missing `SOLANA_FIXED_NUMERAIRE_PRICE_USD` when `SOLANA_PRICE_MODE=fixed`
+
+### Solana runtime notes
+
+- Only `solanaDevnet` is executable in this API profile.
+- `solanaMainnetBeta` is scaffolded in config and capabilities but returns `501 SOLANA_NETWORK_UNSUPPORTED`.
+- WSOL is the only supported Solana numeraire.
+- Launch transactions always use the deployed devnet ALT unless `SOLANA_DEVNET_ALT_ADDRESS` overrides it.
+- Solana price resolution precedence is:
+  1. request `pricing.numerairePriceUsd`
+  2. `SOLANA_FIXED_NUMERAIRE_PRICE_USD`
+  3. CoinGecko using `SOLANA_COINGECKO_ASSET_ID`
+  4. otherwise `422 SOLANA_NUMERAIRE_PRICE_REQUIRED`
+
+## Live test environment variables
+
+- `LIVE_TEST_ENABLE`
+- `LIVE_TEST_VERBOSE`
+- `LIVE_NUMERAIRE_PRICE_USD`
+- `LIVE_TEST_MIN_BALANCE_ETH`
+- `LIVE_TEST_ESTIMATED_TX_COST_ETH`
+- `LIVE_TEST_ESTIMATED_OVERHEAD_ETH`
+- `LIVE_TEST_MIN_BALANCE_SOL`
+- `LIVE_TEST_ESTIMATED_TX_COST_SOL`
+- `LIVE_TEST_ESTIMATED_OVERHEAD_SOL`
+
+### Solana live test notes
+
+- `npm run test:live:solana` runs the full Solana devnet matrix.
+- `npm run test:live:solana:devnet` is an explicit devnet alias.
+- `npm run test:live:solana:defaults` runs the basic/default Solana create coverage.
+- `npm run test:live:solana:random` runs randomized Solana parameter coverage.
+- `npm run test:live:solana:failing` runs Solana route/policy failures without submitting launches.
+- Set `LIVE_TEST_VERBOSE=true` for full per-launch output instead of the concise summary mode.
+- The Solana readiness gate estimates required payer balance in SOL; override it with `LIVE_TEST_MIN_BALANCE_SOL` or tune the per-launch estimate with `LIVE_TEST_ESTIMATED_TX_COST_SOL` and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL`.
+
+## Multichain EVM configuration
+
+Define EVM chains directly in `doppler.config.ts`:
 
 ```ts
 chains: {
@@ -113,16 +158,34 @@ chains: {
 }
 ```
 
-### Notes
+### EVM notes
 
 - Keys must be numeric chain IDs.
-- `DEFAULT_CHAIN_ID` must reference an existing key in `doppler.config.ts`.
-- `RPC_URL` only overrides the configured `rpcUrl` for `DEFAULT_CHAIN_ID`.
-- `launchId` is always `<chainId>:<txHash>` to preserve cross-chain identity.
-- `governance` create behavior is binary:
-  - `false` or omitted uses no governance
-  - `true` uses default token-holder governance (OpenZeppelin Governor) via the governance factory when `governanceModes` includes `default` and `governanceEnabled=true`
-- Recommendation: configure `auctionTypes` with `["multicurve", "dynamic"]` for V4-capable deployments and reserve `["static"]` for networks without Uniswap V4 support.
-- Dynamic launches require `migrationModes` to include `"uniswapV2"` and/or `"uniswapV4"`.
-- `uniswapV3` migration is not supported and returns `501 MIGRATION_NOT_IMPLEMENTED` if requested.
-- If you intentionally want the V3 static path on Base Sepolia for testing, include `"static"` in that chain's `auctionTypes` list.
+- `DEFAULT_CHAIN_ID` must reference an existing configured EVM chain.
+- `launchId` is `<chainId>:<txHash>` for EVM launches.
+- `RPC_URL` only overrides the default chain's RPC.
+- `uniswapV3` migration is not supported and returns `501 MIGRATION_NOT_IMPLEMENTED`.
+
+## Redis environment variables
+
+- `REDIS_URL`
+- `REDIS_KEY_PREFIX`
+
+## Deployment mode guidance
+
+- `standalone`: one API instance owns its own local state.
+- `shared`: multiple API instances coordinate through Redis.
+
+When `DEPLOYMENT_MODE=standalone`:
+
+- Redis is optional.
+- File-backed idempotency is the default.
+
+When `DEPLOYMENT_MODE=shared`:
+
+- `REDIS_URL` is required.
+- `IDEMPOTENCY_ENABLED` must be `true`.
+- `IDEMPOTENCY_BACKEND` must be `redis`.
+- create endpoints require `Idempotency-Key`.
+- rate-limiter state uses Redis for cross-replica consistency.
+- startup fails fast if Redis cannot be reached.

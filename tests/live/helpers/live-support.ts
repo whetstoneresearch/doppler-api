@@ -4,7 +4,7 @@ import {
   computePoolId,
   decayMulticurveInitializerHookAbi,
   v4MulticurveInitializerAbi,
-} from '@whetstone-research/doppler-sdk';
+} from '@whetstone-research/doppler-sdk/evm';
 import { decodeAbiParameters, decodeFunctionData, parseEther, zeroAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { randomBytes } from 'node:crypto';
@@ -28,12 +28,17 @@ type LiveScenarioGroup =
   | 'multicurve-defaults'
   | 'fees'
   | 'negative'
-  | 'governance';
+  | 'governance'
+  | 'solana'
+  | 'solana-devnet'
+  | 'solana-defaults'
+  | 'solana-random'
+  | 'solana-failing';
 
 const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
   if (!runLive) return false;
 
-  if (liveFilter === 'all') return true;
+  if (liveFilter === 'all') return !groups.includes('solana');
   if (liveFilter === 'static') return groups.includes('static');
   if (liveFilter === 'dynamic') return groups.includes('dynamic');
   if (liveFilter === 'migration-v2') return groups.includes('migration-v2');
@@ -47,6 +52,11 @@ const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
   if (liveFilter === 'fees') return groups.includes('fees');
   if (liveFilter === 'governance') return groups.includes('governance');
   if (liveFilter === 'negative') return groups.includes('negative');
+  if (liveFilter === 'solana') return groups.includes('solana');
+  if (liveFilter === 'solana-devnet') return groups.includes('solana-devnet');
+  if (liveFilter === 'solana-defaults') return groups.includes('solana-defaults');
+  if (liveFilter === 'solana-random') return groups.includes('solana-random');
+  if (liveFilter === 'solana-failing') return groups.includes('solana-failing');
   return true;
 };
 

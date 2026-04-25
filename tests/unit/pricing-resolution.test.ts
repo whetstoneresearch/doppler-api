@@ -5,7 +5,7 @@ import type { AppConfig } from '../../src/core/config';
 
 const baseConfig: AppConfig = {
   port: 3000,
-  deploymentMode: 'local',
+  deploymentMode: 'standalone',
   apiKey: 'test',
   apiKeys: ['test'],
   defaultChainId: 84532,
@@ -36,6 +36,15 @@ const baseConfig: AppConfig = {
     timeoutMs: 1000,
     cacheTtlMs: 1000,
     coingeckoAssetId: 'ethereum',
+  },
+  solana: {
+    enabled: false,
+    defaultNetwork: 'solanaDevnet',
+    devnetRpcUrl: 'http://127.0.0.1:8899',
+    devnetWsUrl: 'ws://127.0.0.1:8900',
+    confirmTimeoutMs: 60_000,
+    priceMode: 'required',
+    coingeckoAssetId: 'solana',
   },
   chains: {
     84532: {

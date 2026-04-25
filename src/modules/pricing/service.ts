@@ -84,4 +84,26 @@ export class PricingService {
     this.cache.set(cacheKey, { value, expiresAt: now + this.cacheTtlMs });
     return value;
   }
+
+  async getUsdPriceByAssetId(assetId: string): Promise<number> {
+    if (!this.provider?.getUsdPriceByAssetId) {
+      throw new AppError(
+        422,
+        'PRICE_REQUIRED',
+        'Auto pricing is disabled or unavailable; provide pricing.numerairePriceUsd in the request',
+      );
+    }
+
+    const cacheKey = `asset:${assetId}`;
+    const cached = this.cache.get(cacheKey);
+    const now = Date.now();
+
+    if (cached && cached.expiresAt > now) {
+      return cached.value;
+    }
+
+    const value = await this.provider.getUsdPriceByAssetId(assetId);
+    this.cache.set(cacheKey, { value, expiresAt: now + this.cacheTtlMs });
+    return value;
+  }
 }

@@ -2,8 +2,14 @@ import { parseEther } from 'viem';
 import { describe, expect, it } from 'vitest';
 import {
   buildLiveBalanceRequirement,
+  buildLiveSolanaBalanceRequirement,
   DEFAULT_LIVE_ESTIMATED_OVERHEAD_ETH,
+  DEFAULT_LIVE_ESTIMATED_OVERHEAD_SOL,
   DEFAULT_LIVE_ESTIMATED_TX_COST_ETH,
+  DEFAULT_LIVE_ESTIMATED_TX_COST_SOL,
+  estimateLiveSolanaLaunchCount,
+  formatSolAmount,
+  isSolanaLiveFilter,
   estimateLiveLaunchCount,
 } from '../live/readiness-check';
 
@@ -23,6 +29,17 @@ describe('live readiness check', () => {
 
   it('falls back to all estimate for unknown filters', () => {
     expect(estimateLiveLaunchCount('unknown-filter')).toBe(19);
+  });
+
+  it('estimates Solana launch counts and filter detection', () => {
+    expect(estimateLiveSolanaLaunchCount('solana')).toBe(5);
+    expect(estimateLiveSolanaLaunchCount('solana-devnet')).toBe(5);
+    expect(estimateLiveSolanaLaunchCount('solana-defaults')).toBe(3);
+    expect(estimateLiveSolanaLaunchCount('solana-random')).toBe(1);
+    expect(estimateLiveSolanaLaunchCount('solana-failing')).toBe(0);
+    expect(isSolanaLiveFilter('solana')).toBe(true);
+    expect(isSolanaLiveFilter('solana-devnet')).toBe(true);
+    expect(isSolanaLiveFilter('multicurve')).toBe(false);
   });
 
   it('computes estimated required wei using defaults', () => {
@@ -56,6 +73,33 @@ describe('live readiness check', () => {
     expect(requirement!.reason).toContain('LIVE_TEST_MIN_BALANCE_ETH=0.25');
   });
 
+  it('computes estimated required lamports using Solana defaults', () => {
+    const requirement = buildLiveSolanaBalanceRequirement({
+      liveFilter: 'solana-defaults',
+    });
+
+    expect(requirement).not.toBeNull();
+<<<<<<< HEAD
+    expect(formatSolAmount(requirement!.requiredLamports)).toBe(formatSolAmount(60_000_000n));
+=======
+    expect(formatSolAmount(requirement!.requiredLamports)).toBe(formatSolAmount(85_000_000n));
+>>>>>>> efb1cd8 (wip: pr review feedback, alt required, use zod, misc improvements. note devnet protocol+sdk are stale, hence failing tests. awaiting redeployment/rerelease)
+    expect(requirement!.reason).toContain(
+      `estimate: 3 launch tx * ${DEFAULT_LIVE_ESTIMATED_TX_COST_SOL} SOL + ${DEFAULT_LIVE_ESTIMATED_OVERHEAD_SOL} SOL overhead`,
+    );
+  });
+
+  it('honors explicit minimum Solana balance override', () => {
+    const requirement = buildLiveSolanaBalanceRequirement({
+      liveFilter: 'solana-failing',
+      minBalanceSol: '0.5',
+    });
+
+    expect(requirement).not.toBeNull();
+    expect(formatSolAmount(requirement!.requiredLamports)).toBe('0.5');
+    expect(requirement!.reason).toContain('LIVE_TEST_MIN_BALANCE_SOL=0.5');
+  });
+
   it('throws for invalid minimum balance values', () => {
     expect(() =>
       buildLiveBalanceRequirement({
@@ -63,5 +107,14 @@ describe('live readiness check', () => {
         minBalanceEth: 'not-a-number',
       }),
     ).toThrow(/LIVE_TEST_MIN_BALANCE_ETH/);
+  });
+
+  it('throws for invalid minimum Solana balance values', () => {
+    expect(() =>
+      buildLiveSolanaBalanceRequirement({
+        liveFilter: 'solana',
+        minBalanceSol: 'not-a-number',
+      }),
+    ).toThrow(/LIVE_TEST_MIN_BALANCE_SOL/);
   });
 });

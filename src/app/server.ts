@@ -18,11 +18,13 @@ import { createIdempotencyStore, type IdempotencyStore } from '../infra/idempote
 import { TxSubmitter } from '../infra/tx/submitter';
 import { PricingService } from '../modules/pricing/service';
 import { LaunchService } from '../modules/launches/service';
+import { SolanaLaunchService } from '../modules/launches/solana';
 import { StatusService } from '../modules/status/service';
 import { registerCreateLaunchRoute } from './routes/launches.post';
 import { registerCreateMulticurveAliasRoute } from './routes/launches-multicurve.post';
 import { registerCreateStaticAliasRoute } from './routes/launches-static.post';
 import { registerCreateDynamicAliasRoute } from './routes/launches-dynamic.post';
+import { registerCreateSolanaLaunchRoute } from './routes/solana-launches.post';
 import { registerLaunchStatusRoute } from './routes/launches-status.get';
 import { registerHealthRoute } from './routes/health.get';
 import { registerReadyRoute } from './routes/ready.get';
@@ -36,6 +38,7 @@ export interface AppServices {
   sdkRegistry: DopplerSdkRegistry;
   redisClient?: Redis;
   pricingService: PricingService;
+  solanaLaunchService: SolanaLaunchService;
   launchService: LaunchService;
   statusService: StatusService;
   txSubmitter: TxSubmitter;
@@ -98,6 +101,7 @@ export const buildServices = (config: AppConfig): AppServices => {
     redisLockRefreshMs: config.idempotency.redisLockRefreshMs,
   });
   const pricingService = new PricingService(config);
+  const solanaLaunchService = new SolanaLaunchService({ config, pricingService });
   const launchService = new LaunchService({
     chainRegistry,
     sdkRegistry,
@@ -105,6 +109,7 @@ export const buildServices = (config: AppConfig): AppServices => {
     txSubmitter,
     idempotencyStore,
     requireIdempotencyKey: config.idempotency.requireKey,
+    solanaLaunchService,
   });
   const statusService = new StatusService({ chainRegistry, sdkRegistry });
 
@@ -115,6 +120,7 @@ export const buildServices = (config: AppConfig): AppServices => {
     sdkRegistry,
     redisClient,
     pricingService,
+    solanaLaunchService,
     launchService,
     statusService,
     txSubmitter,
@@ -196,15 +202,22 @@ export const buildServer = async (services?: AppServices) => {
   await registerReadyRoute(
     app,
     resolvedServices.chainRegistry,
+    resolvedServices.solanaLaunchService,
     resolvedServices.config.readyRpcTimeoutMs,
   );
   await registerCapabilitiesRoute(
     app,
+    resolvedServices.config,
     resolvedServices.chainRegistry,
     resolvedServices.pricingService,
   );
   await registerMetricsRoute(app, resolvedServices.metrics);
   await registerCreateLaunchRoute(app, resolvedServices.launchService);
+  await registerCreateSolanaLaunchRoute(
+    app,
+    resolvedServices.launchService,
+    resolvedServices.config.solana.defaultNetwork,
+  );
   await registerCreateMulticurveAliasRoute(app, resolvedServices.launchService);
   await registerCreateStaticAliasRoute(app, resolvedServices.launchService);
   await registerCreateDynamicAliasRoute(app, resolvedServices.launchService);

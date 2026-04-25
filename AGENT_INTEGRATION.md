@@ -39,12 +39,19 @@ npm run test:live:multicurve
 npm run test:live:multicurve:defaults
 npm run test:live:fees
 npm run test:live:governance
-npm run test:live --verbose
+npm run test:live:solana
+npm run test:live:solana:devnet
+npm run test:live:solana:defaults
+npm run test:live:solana:random
+npm run test:live:solana:failing
+LIVE_TEST_VERBOSE=true npm run test:live
 ```
 
 - Live tests are concise by default and print a launch summary table.
-- Add `--verbose` to print per-launch parameter + onchain verification tables.
+- Set `LIVE_TEST_VERBOSE=true` to print per-launch parameter + onchain verification tables.
 - Live launch creation tests run sequentially to avoid nonce conflicts for one signer.
+- `test:live` is the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet create matrix.
+- Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR`, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, and enough SOL for launch account creation. Use `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` to tune the readiness gate.
 
 Lint, format, and typecheck:
 
@@ -89,6 +96,8 @@ Include API key header on all endpoints except `GET /health`:
 
 ## 3. One launch flow
 
+EVM flow:
+
 1. Call `POST /v1/launches`.
    - Optional aliases:
    - `POST /v1/launches/multicurve` (forces `auction.type="multicurve"`)
@@ -98,14 +107,22 @@ Include API key header on all endpoints except `GET /health`:
 3. Poll `GET /v1/launches/:launchId` every 3-5 seconds.
 4. Stop when status is `confirmed` or `reverted`.
 
+Solana flow:
+
+1. Call `POST /v1/solana/launches` or `POST /v1/launches` with `network: "solanaDevnet" | "solanaMainnetBeta"`.
+2. Save `launchId`, `signature`, and `explorerUrl`.
+3. Do not poll `GET /v1/launches/:launchId`; Solana launch status is returned only from create responses.
+4. If the API returns `409 IDEMPOTENCY_KEY_IN_DOUBT`, use the returned `signature` and `explorerUrl` to reconcile the prior attempt before creating a new request.
+
 Auction selection guidance:
 
 - Default to `auction.type="multicurve"` whenever the target chain supports Uniswap V4.
 - Use `auction.type="dynamic"` for high value assets that need maximally capital-efficient price discovery.
 - Use `auction.type="static"` only for networks that do not support Uniswap V4.
 
-Use `Idempotency-Key` on all create requests in shared/prod integrations (required by policy).
+Use `Idempotency-Key` on all create requests in shared integrations (required by policy and recommended in standalone mode).
 If a retry returns `409 IDEMPOTENCY_KEY_IN_DOUBT`, poll status for the prior launch attempt before deciding to mint a new idempotency key.
+If a Solana retry returns `409 IDEMPOTENCY_KEY_IN_DOUBT`, fail closed and reconcile by signature instead of retrying blindly.
 
 ## 4. Minimal request template
 
@@ -136,6 +153,67 @@ If a retry returns `409 IDEMPOTENCY_KEY_IN_DOUBT`, poll status for the prior lau
     },
     "initializer": {
       "type": "standard"
+    }
+  }
+}
+```
+
+## 4a. Solana minimal request template
+
+Use the dedicated route with short aliases:
+
+```json
+{
+  "network": "devnet",
+  "tokenMetadata": {
+    "name": "My Solana Token",
+    "symbol": "MSOL",
+    "tokenURI": "ipfs://metadata"
+  },
+  "economics": {
+    "totalSupply": "1000000000"
+  },
+  "pricing": {
+    "numerairePriceUsd": 150
+  },
+  "governance": false,
+  "migration": {
+    "type": "noOp"
+  },
+  "auction": {
+    "type": "xyk",
+    "curveConfig": {
+      "type": "range",
+      "marketCapStartUsd": 100,
+      "marketCapEndUsd": 1000
+    }
+  }
+}
+```
+
+Use the generic route only with canonical prefixed networks:
+
+```json
+{
+  "network": "solanaDevnet",
+  "tokenMetadata": {
+    "name": "My Solana Token",
+    "symbol": "MSOL",
+    "tokenURI": "ipfs://metadata"
+  },
+  "economics": {
+    "totalSupply": "1000000000"
+  },
+  "governance": false,
+  "migration": {
+    "type": "noOp"
+  },
+  "auction": {
+    "type": "xyk",
+    "curveConfig": {
+      "type": "range",
+      "marketCapStartUsd": 100,
+      "marketCapEndUsd": 1000
     }
   }
 }
@@ -194,6 +272,25 @@ Use this when you want intentional market-cap bands and allocation shares instea
   }
 }
 ```
+
+## 5. Deployment modes and Redis
+
+- `standalone`: one API instance owns its own local state and does not need cross-instance coordination.
+- `shared`: multiple API instances can serve the same workload safely by coordinating through Redis.
+
+- Standalone mode:
+  - Set `DEPLOYMENT_MODE=standalone`.
+  - Redis is optional.
+  - Good fit for one API instance, one signer, and durable local storage.
+  - Redis is recommended if you want stronger crash/restart recovery for create requests.
+- Shared mode:
+  - Set `DEPLOYMENT_MODE=shared` (or run with `NODE_ENV=production` and no explicit deployment mode).
+  - Set `REDIS_URL` and `IDEMPOTENCY_BACKEND=redis`.
+  - In shared mode, create endpoints require `Idempotency-Key`.
+  - Rate-limit state is Redis-backed; `GET /health` is IP-bucketed (spoofed `x-api-key` does not bypass).
+  - Tx submission uses a Redis-backed distributed nonce lock so replicas can safely share one signer.
+  - Redis idempotency writes an `in_progress` marker before tx submit and fails closed with `409 IDEMPOTENCY_KEY_IN_DOUBT` if a prior attempt is left in doubt after restart/crash.
+  - Shared mode startup fails fast if Redis is unreachable.
 
 ## 4c. Sale split template (20% sale / 80% non-market allocation)
 
@@ -390,10 +487,17 @@ Custom-curve rules agents should enforce before submit:
 
 ## 5. What to expect in create response
 
-- `launchId`: stable tracking key (`<chainId>:<txHash>`)
-- `txHash`: onchain tx hash
-- `predicted.tokenAddress` and `predicted.poolId`: simulation outputs
-- `effectiveConfig`: defaults actually used by API
+- EVM:
+  - `launchId`: stable tracking key (`<chainId>:<txHash>`)
+  - `txHash`: onchain tx hash
+  - `predicted.tokenAddress` and `predicted.poolId`: simulation outputs
+  - `effectiveConfig`: defaults actually used by API
+- Solana:
+  - `launchId`: base58 launch PDA
+  - `signature`: submitted transaction signature
+  - `explorerUrl`: direct explorer link
+  - `predicted`: SDK-derived token / authority / vault addresses
+  - `effectiveConfig`: resolved WSOL price, reserve split, and derived XYK reserves
 
 ## 6. Status handling rules
 
@@ -401,11 +505,21 @@ Custom-curve rules agents should enforce before submit:
 - `confirmed`: use `result.tokenAddress` and `result.poolId`.
 - `reverted`: treat as failed launch and surface `error.code/message`.
 - `not_found`: retry briefly, then fail.
+- Solana launches do not have a status route.
 
 ## 7. Important defaults
 
-- `economics.tokensForSale` defaults to `totalSupply`.
-- if `tokensForSale < totalSupply`, market sale must be at least 20% of total supply.
+- Solana rules:
+  - use `POST /v1/solana/launches` for short `network` aliases (`devnet`, `mainnet-beta`)
+  - use `POST /v1/launches` for Solana only when `network` is `solanaDevnet` or `solanaMainnetBeta`
+  - only `solanaDevnet` is executable; `solanaMainnetBeta` returns `501 SOLANA_NETWORK_UNSUPPORTED`
+  - only WSOL is supported as numeraire
+  - Solana price resolution precedence is request override, fixed env price, then CoinGecko
+  - unsupported EVM-shaped fields are rejected instead of ignored
+- `economics.baseForDistribution` and `economics.baseForLiquidity` default to `0`.
+- `baseForDistribution + baseForLiquidity` must be less than `totalSupply`.
+- `effectiveConfig.tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`.
+- `effectiveConfig.allocationAmount = baseForDistribution`.
 - Multicurve initializer defaults to `standard` (implemented as scheduled with `startTime=0`).
 - Supported multicurve initializer modes:
   - `standard`
@@ -467,6 +581,16 @@ curl -X POST http://localhost:3000/v1/launches \
   -H "x-api-key: $API_KEY" \
   -H "Idempotency-Key: launch-$(date +%s)" \
   -d @launch.json
+```
+
+Solana create:
+
+```bash
+curl -X POST http://localhost:3000/v1/solana/launches \
+  -H 'content-type: application/json' \
+  -H "x-api-key: $API_KEY" \
+  -H "Idempotency-Key: solana-launch-$(date +%s)" \
+  -d @solana-launch.json
 ```
 
 Status:

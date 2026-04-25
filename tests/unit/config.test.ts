@@ -27,6 +27,18 @@ const resetEnv = (overrides: Record<string, string | undefined> = {}): void => {
     'IDEMPOTENCY_REDIS_LOCK_TTL_MS',
     'IDEMPOTENCY_REDIS_LOCK_REFRESH_MS',
     'PRICE_COINGECKO_ASSET_ID',
+    'SOLANA_ENABLED',
+    'SOLANA_DEFAULT_NETWORK',
+    'SOLANA_DEVNET_RPC_URL',
+    'SOLANA_DEVNET_WS_URL',
+    'SOLANA_MAINNET_BETA_RPC_URL',
+    'SOLANA_MAINNET_BETA_WS_URL',
+    'SOLANA_KEYPAIR',
+    'SOLANA_CONFIRM_TIMEOUT_MS',
+    'SOLANA_DEVNET_ALT_ADDRESS',
+    'SOLANA_PRICE_MODE',
+    'SOLANA_FIXED_NUMERAIRE_PRICE_USD',
+    'SOLANA_COINGECKO_ASSET_ID',
   ];
 
   for (const key of keysToUnset) {
@@ -54,7 +66,7 @@ describe('shared-environment config guardrails', () => {
 
     expect(config.defaultChainId).toBe(84532);
     expect(config.chains[84532]?.rpcUrl).toBe('https://base-sepolia-rpc.publicnode.com');
-    expect(config.deploymentMode).toBe('local');
+    expect(config.deploymentMode).toBe('standalone');
     expect(config.idempotency.backend).toBe('file');
     expect(config.idempotency.requireKey).toBe(false);
     expect(config.redis.url).toBeUndefined();
@@ -82,6 +94,17 @@ describe('shared-environment config guardrails', () => {
     const config = loadConfig();
 
     expect(config.pricing.coingeckoAssetId).toBe('usd-coin');
+  });
+
+  it('loads canonical Solana defaults and Solana CoinGecko asset id', () => {
+    resetEnv();
+
+    const config = loadConfig();
+
+    expect(config.solana.defaultNetwork).toBe('solanaDevnet');
+    expect(config.solana.devnetRpcUrl).toBe('https://api.devnet.solana.com');
+    expect(config.solana.devnetWsUrl).toBe('wss://api.devnet.solana.com');
+    expect(config.solana.coingeckoAssetId).toBe('solana');
   });
 
   it('fails fast when DEFAULT_CHAIN_ID is not in typed config', () => {
@@ -138,6 +161,40 @@ describe('shared-environment config guardrails', () => {
 
     expect(() => loadConfig()).toThrow(
       'IDEMPOTENCY_REDIS_LOCK_REFRESH_MS must be less than IDEMPOTENCY_REDIS_LOCK_TTL_MS',
+    );
+  });
+
+  it('rejects invalid Solana keypair env values', () => {
+    resetEnv({
+      SOLANA_KEYPAIR: '[1,2,3]',
+    });
+
+    expect(() => loadConfig()).toThrow(
+      'SOLANA_KEYPAIR must be a JSON array containing 64 secret-key bytes',
+    );
+  });
+
+  it('fails fast when Solana is enabled without a keypair', () => {
+    resetEnv({
+      SOLANA_ENABLED: 'true',
+      SOLANA_DEVNET_RPC_URL: 'http://127.0.0.1:8899',
+      SOLANA_DEVNET_WS_URL: 'ws://127.0.0.1:8900',
+    });
+
+    expect(() => loadConfig()).toThrow('SOLANA_KEYPAIR is required when SOLANA_ENABLED=true');
+  });
+
+  it('fails fast when fixed Solana pricing is enabled without a fixed price', () => {
+    resetEnv({
+      SOLANA_ENABLED: 'true',
+      SOLANA_DEVNET_RPC_URL: 'http://127.0.0.1:8899',
+      SOLANA_DEVNET_WS_URL: 'ws://127.0.0.1:8900',
+      SOLANA_KEYPAIR: JSON.stringify(Array.from({ length: 64 }, (_, index) => index)),
+      SOLANA_PRICE_MODE: 'fixed',
+    });
+
+    expect(() => loadConfig()).toThrow(
+      'SOLANA_FIXED_NUMERAIRE_PRICE_USD is required when SOLANA_PRICE_MODE=fixed',
     );
   });
 });
