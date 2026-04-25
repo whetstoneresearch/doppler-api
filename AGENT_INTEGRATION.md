@@ -111,8 +111,8 @@ Solana flow:
 
 1. Call `POST /v1/solana/launches` or `POST /v1/launches` with `network: "solanaDevnet" | "solanaMainnetBeta"`.
 2. Save `launchId`, `signature`, and `explorerUrl`.
-3. Do not poll `GET /v1/launches/:launchId`; Solana is create-only in this iteration.
-4. If the API returns `409 SOLANA_LAUNCH_IN_DOUBT`, use the returned `signature` and `explorerUrl` to reconcile the prior attempt before creating a new request.
+3. Do not poll `GET /v1/launches/:launchId`; Solana launch status is returned only from create responses.
+4. If the API returns `409 IDEMPOTENCY_KEY_IN_DOUBT`, use the returned `signature` and `explorerUrl` to reconcile the prior attempt before creating a new request.
 
 Auction selection guidance:
 
@@ -122,7 +122,7 @@ Auction selection guidance:
 
 Use `Idempotency-Key` on all create requests in shared integrations (required by policy and recommended in standalone mode).
 If a retry returns `409 IDEMPOTENCY_KEY_IN_DOUBT`, poll status for the prior launch attempt before deciding to mint a new idempotency key.
-If a Solana retry returns `409 SOLANA_LAUNCH_IN_DOUBT`, fail closed and reconcile by signature instead of retrying blindly.
+If a Solana retry returns `409 IDEMPOTENCY_KEY_IN_DOUBT`, fail closed and reconcile by signature instead of retrying blindly.
 
 ## 4. Minimal request template
 
@@ -497,7 +497,7 @@ Custom-curve rules agents should enforce before submit:
   - `signature`: submitted transaction signature
   - `explorerUrl`: direct explorer link
   - `predicted`: SDK-derived token / authority / vault addresses
-  - `effectiveConfig`: resolved WSOL price and derived XYK reserves
+  - `effectiveConfig`: resolved WSOL price, reserve split, and derived XYK reserves
 
 ## 6. Status handling rules
 
@@ -505,7 +505,7 @@ Custom-curve rules agents should enforce before submit:
 - `confirmed`: use `result.tokenAddress` and `result.poolId`.
 - `reverted`: treat as failed launch and surface `error.code/message`.
 - `not_found`: retry briefly, then fail.
-- Solana launches do not have a status route in this iteration.
+- Solana launches do not have a status route.
 
 ## 7. Important defaults
 
@@ -516,8 +516,10 @@ Custom-curve rules agents should enforce before submit:
   - only WSOL is supported as numeraire
   - Solana price resolution precedence is request override, fixed env price, then CoinGecko
   - unsupported EVM-shaped fields are rejected instead of ignored
-- `economics.tokensForSale` defaults to `totalSupply`.
-- if `tokensForSale < totalSupply`, market sale must be at least 20% of total supply.
+- `economics.baseForDistribution` and `economics.baseForLiquidity` default to `0`.
+- `baseForDistribution + baseForLiquidity` must be less than `totalSupply`.
+- `effectiveConfig.tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`.
+- `effectiveConfig.allocationAmount = baseForDistribution`.
 - Multicurve initializer defaults to `standard` (implemented as scheduled with `startTime=0`).
 - Supported multicurve initializer modes:
   - `standard`

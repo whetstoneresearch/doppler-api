@@ -18,9 +18,9 @@ const estimatedLaunchesByFilter: Record<string, { evm: number; solana: number }>
   fees: { evm: 3, solana: 0 },
   governance: { evm: 3, solana: 0 },
   negative: { evm: 0, solana: 0 },
-  solana: { evm: 0, solana: 4 },
-  'solana-devnet': { evm: 0, solana: 4 },
-  'solana-defaults': { evm: 0, solana: 2 },
+  solana: { evm: 0, solana: 5 },
+  'solana-devnet': { evm: 0, solana: 5 },
+  'solana-defaults': { evm: 0, solana: 3 },
   'solana-random': { evm: 0, solana: 1 },
   'solana-failing': { evm: 0, solana: 0 },
 };

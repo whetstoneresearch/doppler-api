@@ -43,8 +43,12 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/sensible": "^6.0.4",
+<<<<<<< HEAD
     "@solana/kit": "^6.3.1",
     "@whetstone-research/doppler-sdk": "^1.0.7",
+=======
+    "@whetstone-research/doppler-sdk": "^1.0.8",
+>>>>>>> efb1cd8 (wip: pr review feedback, alt required, use zod, misc improvements. note devnet protocol+sdk are stale, hence failing tests. awaiting redeployment/rerelease)
     "dotenv": "^16.4.5",
     "fastify": "^5.8.1",
     "fastify-plugin": "^5.1.0",

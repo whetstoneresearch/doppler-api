@@ -34,7 +34,7 @@ All errors are returned as:
 
 - `UNAUTHORIZED`
 
-### EVM launch creation and policy
+### Launch creation and policy
 
 - `AUCTION_TYPE_UNSUPPORTED`
 - `MIGRATION_NOT_IMPLEMENTED`
@@ -50,7 +50,7 @@ All errors are returned as:
 - `SOLANA_NETWORK_UNSUPPORTED`
   - returned when Solana is disabled or `solanaMainnetBeta` is requested
 - `SOLANA_NUMERAIRE_UNSUPPORTED`
-  - only WSOL is supported in this iteration
+  - only WSOL is supported
 - `SOLANA_NUMERAIRE_PRICE_REQUIRED`
   - no request override, fixed price, or CoinGecko price was available
 - `SOLANA_INVALID_METADATA`
@@ -61,7 +61,7 @@ All errors are returned as:
   - returned when simulation fails before submit
 - `SOLANA_SUBMISSION_FAILED`
   - returned when submit fails or a submitted transaction is later rejected
-- `SOLANA_LAUNCH_IN_DOUBT`
+- `IDEMPOTENCY_KEY_IN_DOUBT`
   - returned as `409` when submit succeeded but confirmation remained ambiguous
   - includes `details: { launchId, signature, explorerUrl }`
 
@@ -87,9 +87,8 @@ All errors are returned as:
 - `IDEMPOTENCY_KEY_REQUIRED`
 - `IDEMPOTENCY_KEY_REUSE_MISMATCH`
 - `IDEMPOTENCY_KEY_IN_DOUBT`
-  - EVM retry failed closed because an earlier same-key request may have submitted
-- `SOLANA_LAUNCH_IN_DOUBT`
-  - same-key Solana retries fail closed with the original in-doubt details
+  - same-key retries fail closed when an earlier request may have submitted
+  - Solana confirmation retries include `details: { launchId, signature, explorerUrl }`
 
 ### Config
 

@@ -229,6 +229,8 @@ export interface CreateSolanaLaunchPredicted {
 export interface SolanaEffectiveLaunchConfig {
   tokensForSale: string;
   allocationAmount: string;
+  baseForDistribution: string;
+  baseForLiquidity: string;
   allocationLockMode: 'none';
   numeraireAddress: string;
   numerairePriceUsd: number;

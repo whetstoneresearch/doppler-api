@@ -106,6 +106,8 @@ const verifySuccessfulSolanaLaunch = async (args: {
   expectedAllowBuy?: boolean;
   expectedAllowSell?: boolean;
   expectedNumerairePriceUsd?: number;
+  expectedBaseForDistribution?: string;
+  expectedBaseForLiquidity?: string;
 }) => {
   const summary: {
     config: string;
@@ -156,13 +158,22 @@ const verifySuccessfulSolanaLaunch = async (args: {
     const body = firstResponse.json() as CreateSolanaLaunchResponse;
     submittedSignature = body.signature;
     explorerUrl = body.explorerUrl;
+    const expectedBaseForDistribution = args.expectedBaseForDistribution ?? '0';
+    const expectedBaseForLiquidity = args.expectedBaseForLiquidity ?? '0';
+    const expectedTokensForSale = (
+      BigInt(args.payload.economics.totalSupply) -
+      BigInt(expectedBaseForDistribution) -
+      BigInt(expectedBaseForLiquidity)
+    ).toString();
 
     expect(body.network).toBe('solanaDevnet');
     expect(body.launchId).not.toContain(':');
     expect(body.signature).toBeTruthy();
     expect(body.explorerUrl).toContain(body.signature);
-    expect(body.effectiveConfig.tokensForSale).toBe(args.payload.economics.totalSupply);
-    expect(body.effectiveConfig.allocationAmount).toBe('0');
+    expect(body.effectiveConfig.tokensForSale).toBe(expectedTokensForSale);
+    expect(body.effectiveConfig.allocationAmount).toBe(expectedBaseForDistribution);
+    expect(body.effectiveConfig.baseForDistribution).toBe(expectedBaseForDistribution);
+    expect(body.effectiveConfig.baseForLiquidity).toBe(expectedBaseForLiquidity);
     expect(body.effectiveConfig.allocationLockMode).toBe('none');
     expect(body.effectiveConfig.numeraireAddress).toBe(String(SOLANA_CONSTANTS.wsolMintAddress));
     expect(body.effectiveConfig.tokenDecimals).toBe(SOLANA_CONSTANTS.tokenDecimals);
@@ -376,6 +387,45 @@ export const registerSolanaLiveScenarios = () => {
           },
         },
         expectedNumerairePriceUsd: 160,
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET Reserve Split',
+    ['solana', 'solana-devnet', 'solana-defaults'],
+    async () => {
+      await verifySuccessfulSolanaLaunch({
+        configLabel: 'SOLANA DEVNET Reserve Split',
+        route: 'dedicated',
+        payload: {
+          network: 'devnet',
+          tokenMetadata: nextTokenMetadata('reserve'),
+          economics: {
+            totalSupply: '1000000000',
+            baseForDistribution: '100000000',
+            baseForLiquidity: '150000000',
+          },
+          pricing: {
+            numerairePriceUsd: 150,
+          },
+          governance: false,
+          migration: {
+            type: 'noOp',
+          },
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 100,
+              marketCapEndUsd: 1000,
+            },
+          },
+        },
+        expectedNumerairePriceUsd: 150,
+        expectedBaseForDistribution: '100000000',
+        expectedBaseForLiquidity: '150000000',
       });
     },
     SOLANA_LIVE_TIMEOUT_MS,

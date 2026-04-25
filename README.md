@@ -64,7 +64,7 @@ npm run dev
 - Solana:
   - create via `POST /v1/solana/launches`
   - `POST /v1/launches` also accepts Solana when `network` is `solanaDevnet` or `solanaMainnetBeta`
-  - create-only in this iteration
+  - Solana create endpoints do not expose a status route
   - only `solanaDevnet` is executable
   - only WSOL is supported as numeraire
   - strict request shape; unsupported EVM-only fields are rejected
@@ -361,6 +361,8 @@ Dynamic is intended for assets with well-known value that benefit from maximally
   "effectiveConfig": {
     "tokensForSale": "1000000000",
     "allocationAmount": "0",
+    "baseForDistribution": "0",
+    "baseForLiquidity": "0",
     "allocationLockMode": "none",
     "numeraireAddress": "So11111111111111111111111111111111111111112",
     "numerairePriceUsd": 150,
@@ -476,20 +478,14 @@ Example `GET /health`:
   - `launchId` is a launch PDA and no Solana `statusUrl` is returned
   - only WSOL is supported as numeraire
   - Solana rejects unsupported EVM-only fields instead of ignoring them
-- `economics.tokensForSale` is optional:
-  - if omitted, `tokensForSale = totalSupply` (100% sold to market).
-  - if provided, it must be `> 0` and `<= totalSupply`.
-  - if `tokensForSale < totalSupply`, it must be at least `20%` of `totalSupply`.
-- Non-market allocation is automatic:
-  - `allocationAmount = totalSupply - tokensForSale`.
-  - default recipient is `userAddress`.
-  - default lock mode is `vest` for `90` days when non-market allocation exists.
-  - lock modes: `vest`, `unlock`, `vault`.
-- Optional explicit split across recipients:
-  - `economics.allocations.recipients` supports up to `10` unique allocation recipients.
-  - no duplicate addresses are allowed.
-  - allocation amounts must sum exactly to `totalSupply - tokensForSale`.
-  - if allocations are provided and `tokensForSale` is omitted, API derives `tokensForSale`.
+- `economics.baseForDistribution` and `economics.baseForLiquidity` are optional:
+  - if omitted, both default to `0`
+  - both must be u64 integer strings
+  - their sum must be less than `totalSupply`
+  - `tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`
+- Solana effective config reports:
+  - `allocationAmount = baseForDistribution`
+  - `baseForLiquidity` separately from distribution reserves
 - Multicurve initializer:
   - default is `standard` (implemented as scheduled with `startTime=0`).
   - `scheduled` requires `auction.initializer.startTime`.

@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+import { z } from 'zod';
+
 import type { IdempotencyBackend } from '../../core/config';
 import { AppError } from '../../core/errors';
 import type { CreateAnyLaunchResponse } from '../../core/types';
@@ -55,6 +57,39 @@ type RedisIdempotencyRecord = RedisInProgressRecord | RedisCompletedRecord | Red
 interface PersistedStore {
   records: Record<string, IdempotencyRecord>;
 }
+
+const idempotencyErrorSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  details: z.unknown().optional(),
+});
+
+const persistedRecordBaseSchema = z.object({
+  payloadHash: z.string(),
+  createdAtMs: z.number(),
+});
+
+const completedRecordSchema = persistedRecordBaseSchema.extend({
+  state: z.literal('completed'),
+  response: z.unknown(),
+});
+
+const legacyCompletedRecordSchema = persistedRecordBaseSchema.extend({
+  response: z.unknown(),
+});
+
+const inDoubtRecordSchema = persistedRecordBaseSchema.extend({
+  state: z.literal('in_doubt'),
+  error: idempotencyErrorSchema,
+});
+
+const inProgressRecordSchema = persistedRecordBaseSchema.extend({
+  state: z.literal('in_progress'),
+});
+
+const persistedStoreSchema = z.object({
+  records: z.record(z.unknown()).default({}),
+});
 
 export interface IdempotencyStore {
   execute(
@@ -127,8 +162,52 @@ const throwInDoubtError = (): never => {
   );
 };
 
-const isSolanaInDoubtError = (error: unknown): error is AppError =>
-  error instanceof AppError && error.code === 'SOLANA_LAUNCH_IN_DOUBT';
+const isPersistableInDoubtError = (error: unknown): error is AppError =>
+  error instanceof AppError &&
+  error.code === 'IDEMPOTENCY_KEY_IN_DOUBT' &&
+  typeof error.details === 'object' &&
+  error.details !== null &&
+  typeof (error.details as { launchId?: unknown }).launchId === 'string' &&
+  typeof (error.details as { signature?: unknown }).signature === 'string' &&
+  typeof (error.details as { explorerUrl?: unknown }).explorerUrl === 'string';
+
+const parseFileRecord = (record: unknown): IdempotencyRecord | null => {
+  const inDoubtRecord = inDoubtRecordSchema.safeParse(record);
+  if (inDoubtRecord.success) {
+    return inDoubtRecord.data;
+  }
+
+  const completedRecord = completedRecordSchema.safeParse(record);
+  if (completedRecord.success) {
+    return {
+      state: 'completed',
+      payloadHash: completedRecord.data.payloadHash,
+      response: completedRecord.data.response as CreateAnyLaunchResponse,
+      createdAtMs: completedRecord.data.createdAtMs,
+    };
+  }
+
+  const legacyCompletedRecord = legacyCompletedRecordSchema.safeParse(record);
+  if (legacyCompletedRecord.success) {
+    return {
+      state: 'completed',
+      payloadHash: legacyCompletedRecord.data.payloadHash,
+      response: legacyCompletedRecord.data.response as CreateAnyLaunchResponse,
+      createdAtMs: legacyCompletedRecord.data.createdAtMs,
+    };
+  }
+
+  return null;
+};
+
+const parseRedisRecord = (record: unknown): RedisIdempotencyRecord | null => {
+  const inProgressRecord = inProgressRecordSchema.safeParse(record);
+  if (inProgressRecord.success) {
+    return inProgressRecord.data;
+  }
+
+  return parseFileRecord(record);
+};
 
 export class FileIdempotencyStore implements IdempotencyStore {
   private readonly records = new Map<string, IdempotencyRecord>();
@@ -152,29 +231,11 @@ export class FileIdempotencyStore implements IdempotencyStore {
   private load(): void {
     try {
       const raw = readFileSync(this.path, 'utf8');
-      const parsed = JSON.parse(raw) as PersistedStore;
-      for (const [key, record] of Object.entries(parsed.records ?? {})) {
-        if (
-          record &&
-          typeof record === 'object' &&
-          'payloadHash' in record &&
-          typeof record.payloadHash === 'string' &&
-          'createdAtMs' in record &&
-          typeof record.createdAtMs === 'number'
-        ) {
-          if ('state' in record && record.state === 'in_doubt' && 'error' in record) {
-            this.records.set(key, record);
-            continue;
-          }
-
-          if ('response' in record) {
-            this.records.set(key, {
-              state: 'completed',
-              payloadHash: record.payloadHash,
-              response: record.response as CreateAnyLaunchResponse,
-              createdAtMs: record.createdAtMs,
-            });
-          }
+      const parsed = persistedStoreSchema.parse(JSON.parse(raw));
+      for (const [key, record] of Object.entries(parsed.records)) {
+        const parsedRecord = parseFileRecord(record);
+        if (parsedRecord) {
+          this.records.set(key, parsedRecord);
         }
       }
       this.pruneExpired();
@@ -256,7 +317,7 @@ export class FileIdempotencyStore implements IdempotencyStore {
       this.persist();
       return { response, replayed: false };
     } catch (error) {
-      if (isSolanaInDoubtError(error)) {
+      if (isPersistableInDoubtError(error)) {
         this.records.set(key, {
           state: 'in_doubt',
           payloadHash,
@@ -333,64 +394,7 @@ export class RedisIdempotencyStore implements IdempotencyStore {
     }
 
     try {
-      const parsed = JSON.parse(raw) as {
-        state?: unknown;
-        payloadHash?: unknown;
-        createdAtMs?: unknown;
-        response?: unknown;
-        error?: unknown;
-      };
-      if (typeof parsed.payloadHash !== 'string' || typeof parsed.createdAtMs !== 'number') {
-        return null;
-      }
-
-      if (parsed.state === 'in_progress') {
-        return {
-          state: 'in_progress',
-          payloadHash: parsed.payloadHash,
-          createdAtMs: parsed.createdAtMs,
-        };
-      }
-
-      if (parsed.state === 'completed' && parsed.response !== undefined) {
-        return {
-          state: 'completed',
-          payloadHash: parsed.payloadHash,
-          response: parsed.response as CreateAnyLaunchResponse,
-          createdAtMs: parsed.createdAtMs,
-        };
-      }
-
-      if (
-        parsed.state === 'in_doubt' &&
-        typeof parsed.error === 'object' &&
-        parsed.error !== null &&
-        typeof (parsed.error as { code?: unknown }).code === 'string' &&
-        typeof (parsed.error as { message?: unknown }).message === 'string'
-      ) {
-        return {
-          state: 'in_doubt',
-          payloadHash: parsed.payloadHash,
-          error: {
-            code: (parsed.error as { code: string }).code,
-            message: (parsed.error as { message: string }).message,
-            details: (parsed.error as { details?: unknown }).details,
-          },
-          createdAtMs: parsed.createdAtMs,
-        };
-      }
-
-      // Backward compatibility for records written before explicit state support.
-      if (parsed.response !== undefined) {
-        return {
-          state: 'completed',
-          payloadHash: parsed.payloadHash,
-          response: parsed.response as CreateAnyLaunchResponse,
-          createdAtMs: parsed.createdAtMs,
-        };
-      }
-
-      return null;
+      return parseRedisRecord(JSON.parse(raw));
     } catch {
       return null;
     }
@@ -544,7 +548,7 @@ export class RedisIdempotencyStore implements IdempotencyStore {
       await this.writeCompletedRecord(key, payloadHash, response);
       return { response, replayed: false };
     } catch (error) {
-      if (isSolanaInDoubtError(error)) {
+      if (isPersistableInDoubtError(error)) {
         await this.writeInDoubtRecord(key, payloadHash, error);
       } else if (!actionCompleted) {
         try {

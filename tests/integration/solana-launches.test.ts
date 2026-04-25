@@ -112,6 +112,44 @@ describe('Solana create routes', () => {
     expect(body.effectiveConfig.allowSell).toBe(false);
   });
 
+  it('accepts Solana reserve splits and reflects them in the effective config', async () => {
+    app = await buildTestServer({ solanaEnabled: true });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/solana/launches',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        tokenMetadata: { name: 'Reserve Token', symbol: 'RSRV', tokenURI: 'ipfs://reserve' },
+        economics: {
+          totalSupply: '1000',
+          baseForDistribution: '100',
+          baseForLiquidity: '200',
+        },
+        governance: false,
+        migration: { type: 'noOp' },
+        auction: {
+          type: 'xyk',
+          curveConfig: {
+            type: 'range',
+            marketCapStartUsd: 100,
+            marketCapEndUsd: 1000,
+          },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().effectiveConfig).toMatchObject({
+      tokensForSale: '700',
+      allocationAmount: '100',
+      baseForDistribution: '100',
+      baseForLiquidity: '200',
+    });
+  });
+
   it('rejects short Solana network aliases on the generic route', async () => {
     app = await buildTestServer({ solanaEnabled: true });
 
@@ -443,7 +481,7 @@ describe('Solana create routes', () => {
       solanaEnabled: true,
       solanaCreateError: {
         statusCode: 409,
-        code: 'SOLANA_LAUNCH_IN_DOUBT',
+        code: 'IDEMPOTENCY_KEY_IN_DOUBT',
         message: 'Solana launch confirmation is in doubt',
         details: {
           launchId: '8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
@@ -481,7 +519,7 @@ describe('Solana create routes', () => {
     expect(response.statusCode).toBe(409);
     expect(response.json()).toEqual({
       error: {
-        code: 'SOLANA_LAUNCH_IN_DOUBT',
+        code: 'IDEMPOTENCY_KEY_IN_DOUBT',
         message: 'Solana launch confirmation is in doubt',
         details: {
           launchId: '8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',

@@ -73,7 +73,6 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
       devnetRpcUrl: 'http://127.0.0.1:8899',
       devnetWsUrl: 'ws://127.0.0.1:8900',
       confirmTimeoutMs: 60_000,
-      useAlt: false,
       priceMode: 'required',
       coingeckoAssetId: 'solana',
     },
@@ -189,7 +188,11 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
 
   const buildSolanaLaunchResponse = (payload?: {
     network?: 'solanaDevnet' | 'solanaMainnetBeta';
-    economics?: { totalSupply?: string };
+    economics?: {
+      totalSupply?: string;
+      baseForDistribution?: string;
+      baseForLiquidity?: string;
+    };
     pairing?: { numeraireAddress?: string };
     pricing?: { numerairePriceUsd?: number };
     auction?: {
@@ -203,6 +206,9 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
     };
   }) => {
     const totalSupply = payload?.economics?.totalSupply ?? '1000';
+    const baseForDistribution = BigInt(payload?.economics?.baseForDistribution ?? '0');
+    const baseForLiquidity = BigInt(payload?.economics?.baseForLiquidity ?? '0');
+    const tokensForSale = (BigInt(totalSupply) - baseForDistribution - baseForLiquidity).toString();
 
     return {
       launchId: '8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
@@ -218,8 +224,10 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
         quoteVaultAddress: 'J1veWvV6BF8L7rN8D66zCFAaj6MqFmoVoeAQMtkP8dwF',
       },
       effectiveConfig: {
-        tokensForSale: totalSupply,
-        allocationAmount: '0',
+        tokensForSale,
+        allocationAmount: baseForDistribution.toString(),
+        baseForDistribution: baseForDistribution.toString(),
+        baseForLiquidity: baseForLiquidity.toString(),
         allocationLockMode: 'none' as const,
         numeraireAddress:
           payload?.pairing?.numeraireAddress ?? 'So11111111111111111111111111111111111111112',

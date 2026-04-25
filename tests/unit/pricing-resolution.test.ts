@@ -43,7 +43,6 @@ const baseConfig: AppConfig = {
     devnetRpcUrl: 'http://127.0.0.1:8899',
     devnetWsUrl: 'ws://127.0.0.1:8900',
     confirmTimeoutMs: 60_000,
-    useAlt: false,
     priceMode: 'required',
     coingeckoAssetId: 'solana',
   },

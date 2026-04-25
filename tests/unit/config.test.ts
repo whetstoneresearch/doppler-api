@@ -35,7 +35,6 @@ const resetEnv = (overrides: Record<string, string | undefined> = {}): void => {
     'SOLANA_MAINNET_BETA_WS_URL',
     'SOLANA_KEYPAIR',
     'SOLANA_CONFIRM_TIMEOUT_MS',
-    'SOLANA_DEVNET_USE_ALT',
     'SOLANA_DEVNET_ALT_ADDRESS',
     'SOLANA_PRICE_MODE',
     'SOLANA_FIXED_NUMERAIRE_PRICE_USD',

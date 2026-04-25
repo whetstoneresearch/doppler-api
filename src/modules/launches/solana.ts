@@ -58,6 +58,14 @@ const u64StringSchema = z
     return parsed > 0n && parsed <= U64_MAX;
   }, 'must be a positive u64 integer string');
 
+const u64NonNegativeStringSchema = z
+  .string()
+  .regex(/^\d+$/, 'must be a non-negative integer string')
+  .refine((value) => {
+    const parsed = BigInt(value);
+    return parsed <= U64_MAX;
+  }, 'must be a non-negative u64 integer string');
+
 const canonicalSolanaNetworkSchema = z.enum(['solanaDevnet', 'solanaMainnetBeta']);
 const dedicatedSolanaNetworkSchema = z.enum(['devnet', 'mainnet-beta']);
 
@@ -69,6 +77,20 @@ const solanaTokenMetadataSchema = strictObject({
 
 const solanaEconomicsSchema = strictObject({
   totalSupply: u64StringSchema,
+  baseForDistribution: u64NonNegativeStringSchema.optional(),
+  baseForLiquidity: u64NonNegativeStringSchema.optional(),
+}).superRefine((value, ctx) => {
+  const totalSupply = BigInt(value.totalSupply);
+  const baseForDistribution = BigInt(value.baseForDistribution ?? '0');
+  const baseForLiquidity = BigInt(value.baseForLiquidity ?? '0');
+
+  if (baseForDistribution + baseForLiquidity >= totalSupply) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['baseForDistribution'],
+      message: 'baseForDistribution + baseForLiquidity must be less than economics.totalSupply',
+    });
+  }
 });
 
 const solanaPairingSchema = strictObject({
@@ -286,11 +308,21 @@ const resolveVirtualBaseForRange = (
 
 export const deriveSolanaCurveConfig = (args: {
   totalSupply: bigint;
+  baseForDistribution: bigint;
+  baseForLiquidity: bigint;
   numerairePriceUsd: number;
   marketCapStartUsd: number;
   marketCapEndUsd: number;
 }): DerivedCurveConfig => {
-  const baseForCurve = args.totalSupply;
+  const baseForCurve = args.totalSupply - args.baseForDistribution - args.baseForLiquidity;
+  if (baseForCurve <= 0n) {
+    throw new AppError(
+      422,
+      'SOLANA_INVALID_CURVE',
+      'economics.baseForDistribution + economics.baseForLiquidity must leave tokens for the curve',
+    );
+  }
+
   const virtualBase = resolveVirtualBaseForRange(
     baseForCurve,
     args.marketCapStartUsd,
@@ -373,11 +405,7 @@ export class SolanaLaunchService {
     this.rpc = createSolanaRpc(this.config.solana.devnetRpcUrl);
   }
 
-  private getAltAddress(): Address | undefined {
-    if (!this.config.solana.useAlt) {
-      return undefined;
-    }
-
+  private getAltAddress(): Address {
     return this.config.solana.altAddress
       ? address(this.config.solana.altAddress)
       : initializer.DOPPLER_DEVNET_ALT;
@@ -510,17 +538,13 @@ export class SolanaLaunchService {
     }
 
     const altAddress = this.getAltAddress();
-    if (altAddress) {
-      try {
-        await fetchAddressesForLookupTables([altAddress], this.rpc, {
-          commitment: 'confirmed',
-        });
-        checks.push({ name: 'addressLookupTable', ok: true });
-      } catch (error) {
-        checks.push({ name: 'addressLookupTable', ok: false, error: errorMessage(error) });
-      }
-    } else {
+    try {
+      await fetchAddressesForLookupTables([altAddress], this.rpc, {
+        commitment: 'confirmed',
+      });
       checks.push({ name: 'addressLookupTable', ok: true });
+    } catch (error) {
+      checks.push({ name: 'addressLookupTable', ok: false, error: errorMessage(error) });
     }
 
     return {
@@ -544,6 +568,9 @@ export class SolanaLaunchService {
     }
 
     const totalSupply = BigInt(input.economics.totalSupply);
+    const baseForDistribution = BigInt(input.economics.baseForDistribution ?? '0');
+    const baseForLiquidity = BigInt(input.economics.baseForLiquidity ?? '0');
+    const tokensForSale = totalSupply - baseForDistribution - baseForLiquidity;
     const numeraireAddress = this.resolveNumeraireAddress(input);
     const numerairePriceUsd = await this.resolveNumerairePriceUsd(input, numeraireAddress);
     const curveFeeBps = input.auction.curveFeeBps ?? 0;
@@ -551,6 +578,8 @@ export class SolanaLaunchService {
     const allowSell = input.auction.allowSell ?? true;
     const curveConfig = deriveSolanaCurveConfig({
       totalSupply,
+      baseForDistribution,
+      baseForLiquidity,
       numerairePriceUsd,
       marketCapStartUsd: input.auction.curveConfig.marketCapStartUsd,
       marketCapEndUsd: input.auction.curveConfig.marketCapEndUsd,
@@ -586,6 +615,9 @@ export class SolanaLaunchService {
       );
     }
 
+    // The published SDK currently defines the initializer account list for this path.
+    // Live Solana create remains dependent on the SDK/IDL staying in sync with the
+    // deployed devnet program's initialize_launch accounts.
     const instruction = await initializer.createInitializeLaunchInstruction(
       {
         config: configAddress,
@@ -608,8 +640,8 @@ export class SolanaLaunchService {
         launchId: launchSeed,
         baseDecimals: SOLANA_TOKEN_DECIMALS,
         baseTotalSupply: totalSupply,
-        baseForDistribution: 0n,
-        baseForLiquidity: 0n,
+        baseForDistribution,
+        baseForLiquidity,
         curveVirtualBase: curveConfig.curveVirtualBase,
         curveVirtualQuote: curveConfig.curveVirtualQuote,
         curveFeeBps,
@@ -734,7 +766,7 @@ export class SolanaLaunchService {
         if (Date.now() >= deadline) {
           throw new AppError(
             409,
-            'SOLANA_LAUNCH_IN_DOUBT',
+            'IDEMPOTENCY_KEY_IN_DOUBT',
             'Solana launch submission completed but confirmation did not resolve before timeout',
             {
               launchId: launchAddress,
@@ -753,7 +785,7 @@ export class SolanaLaunchService {
 
       throw new AppError(
         409,
-        'SOLANA_LAUNCH_IN_DOUBT',
+        'IDEMPOTENCY_KEY_IN_DOUBT',
         'Solana launch submission completed but confirmation could not be verified',
         {
           launchId: launchAddress,
@@ -775,8 +807,10 @@ export class SolanaLaunchService {
         quoteVaultAddress: quoteVault.address,
       },
       effectiveConfig: {
-        tokensForSale: totalSupply.toString(),
-        allocationAmount: '0',
+        tokensForSale: tokensForSale.toString(),
+        allocationAmount: baseForDistribution.toString(),
+        baseForDistribution: baseForDistribution.toString(),
+        baseForLiquidity: baseForLiquidity.toString(),
         allocationLockMode: 'none',
         numeraireAddress,
         numerairePriceUsd,

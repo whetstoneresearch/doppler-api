@@ -50,7 +50,7 @@ Edit `doppler.config.ts` for:
 - `IDEMPOTENCY_REDIS_LOCK_REFRESH_MS`
 
 Redis-backed idempotency writes `in_progress` markers for EVM flows and also persists Solana
-`SOLANA_LAUNCH_IN_DOUBT` results so retries fail closed with the original error details.
+`IDEMPOTENCY_KEY_IN_DOUBT` results so retries fail closed with the original error details.
 
 ## Pricing environment variables
 
@@ -75,11 +75,11 @@ Redis-backed idempotency writes `in_progress` markers for EVM flows and also per
 - `SOLANA_MAINNET_BETA_WS_URL`
   - optional scaffolded setting
 - `SOLANA_KEYPAIR`
-  - JSON array of 64 secret-key bytes
+  - JSON array of 64 secret-key bytes for the payer
 - `SOLANA_CONFIRM_TIMEOUT_MS`
-- `SOLANA_DEVNET_USE_ALT`
+  - confirmation wait before returning `409 IDEMPOTENCY_KEY_IN_DOUBT`
 - `SOLANA_DEVNET_ALT_ADDRESS`
-  - optional override when ALT is enabled
+  - optional override for the default devnet ALT used on launch transactions
 - `SOLANA_PRICE_MODE`
   - allowed: `required`, `fixed`, `coingecko`
 - `SOLANA_FIXED_NUMERAIRE_PRICE_USD`
@@ -104,6 +104,7 @@ When `SOLANA_ENABLED=true`, startup fails fast for static config errors:
 - Only `solanaDevnet` is executable in this API profile.
 - `solanaMainnetBeta` is scaffolded in config and capabilities but returns `501 SOLANA_NETWORK_UNSUPPORTED`.
 - WSOL is the only supported Solana numeraire.
+- Launch transactions always use the deployed devnet ALT unless `SOLANA_DEVNET_ALT_ADDRESS` overrides it.
 - Solana price resolution precedence is:
   1. request `pricing.numerairePriceUsd`
   2. `SOLANA_FIXED_NUMERAIRE_PRICE_USD`

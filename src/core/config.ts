@@ -31,7 +31,6 @@ export interface SolanaRuntimeConfig {
   mainnetBetaWsUrl?: string;
   keypairBytes?: Uint8Array;
   confirmTimeoutMs: number;
-  useAlt: boolean;
   altAddress?: string;
   priceMode: 'required' | 'fixed' | 'coingecko';
   fixedNumerairePriceUsd?: number;
@@ -487,7 +486,6 @@ export const loadConfig = (): AppConfig => {
       mainnetBetaWsUrl: process.env.SOLANA_MAINNET_BETA_WS_URL?.trim() || undefined,
       keypairBytes: solanaKeypairBytes,
       confirmTimeoutMs: parseInteger(process.env.SOLANA_CONFIRM_TIMEOUT_MS, 60_000),
-      useAlt: parseBoolean(process.env.SOLANA_DEVNET_USE_ALT, true),
       altAddress: solanaAltAddress,
       priceMode: solanaPriceMode,
       fixedNumerairePriceUsd: solanaFixedNumerairePriceUsd,

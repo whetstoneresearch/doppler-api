@@ -32,7 +32,6 @@ Base URL (local): `http://localhost:3000`
 
 Generic create endpoint.
 
-- EVM requests continue to use the existing EVM schema.
 - Solana requests are dispatched only when `network` is one of:
   - `solanaDevnet`
   - `solanaMainnetBeta`
@@ -50,16 +49,14 @@ Generic create endpoint.
 - `feeBeneficiaries?: [{ address, sharesWad }]`
 - `governance?: boolean | { enabled, mode? }`
 - `migration: { type: "noOp" | "uniswapV2" | "uniswapV3" } | { type: "uniswapV4", fee, tickSpacing }`
-- `auction:` one of:
-  - `multicurve`
-  - `static`
-  - `dynamic`
+- `auction.type: "multicurve" | "static" | "dynamic"`
+- `auction:` network-specific config for the selected `auction.type`
 
 #### Solana request shape on the generic route
 
 - `network: "solanaDevnet" | "solanaMainnetBeta"`
 - `tokenMetadata: { name, symbol, tokenURI }`
-- `economics: { totalSupply }`
+- `economics: { totalSupply, baseForDistribution?, baseForLiquidity? }`
 - `pairing?: { numeraireAddress? }`
 - `pricing?: { numerairePriceUsd? }`
 - `governance?: false`
@@ -73,9 +70,11 @@ Generic create endpoint.
 
 #### Solana request constraints
 
-- Solana support is create-only in this iteration.
+- Solana create endpoints do not expose a status route.
 - `solanaMainnetBeta` is scaffolded but returns `501 SOLANA_NETWORK_UNSUPPORTED`.
 - WSOL is the only supported numeraire.
+- `economics.baseForDistribution` and `economics.baseForLiquidity` default to `0`.
+- `economics.baseForDistribution + economics.baseForLiquidity` must be less than `economics.totalSupply`.
 - Unsupported fields are rejected instead of ignored, including:
   - `economics.tokensForSale`
   - allocations / vesting fields
@@ -100,7 +99,7 @@ Solana response:
 - `signature`
 - `explorerUrl`
 - `predicted: { tokenAddress, launchAuthorityAddress, baseVaultAddress, quoteVaultAddress }`
-- `effectiveConfig: { tokensForSale, allocationAmount, allocationLockMode, numeraireAddress, numerairePriceUsd, curveVirtualBase, curveVirtualQuote, curveFeeBps, allowBuy, allowSell, tokenDecimals }`
+- `effectiveConfig: { tokensForSale, allocationAmount, baseForDistribution, baseForLiquidity, allocationLockMode, numeraireAddress, numerairePriceUsd, curveVirtualBase, curveVirtualQuote, curveFeeBps, allowBuy, allowSell, tokenDecimals }`
 
 #### Idempotency header
 
@@ -110,7 +109,7 @@ Solana response:
 - same key + same request payload: returns original response and sets `x-idempotency-replayed: true`
 - same key + different payload: returns `409 IDEMPOTENCY_KEY_REUSE_MISMATCH`
 - EVM crash-window retries can return `409 IDEMPOTENCY_KEY_IN_DOUBT`
-- Solana ambiguous confirmation retries can return `409 SOLANA_LAUNCH_IN_DOUBT`
+- Solana ambiguous confirmation retries can return `409 IDEMPOTENCY_KEY_IN_DOUBT`
 
 #### Error responses
 
@@ -118,7 +117,6 @@ Solana response:
 - `429 RATE_LIMITED`
 - `422 INVALID_REQUEST` plus domain-specific `422` Solana or EVM validation failures
 - `409 IDEMPOTENCY_KEY_IN_DOUBT`
-- `409 SOLANA_LAUNCH_IN_DOUBT`
 - `501 MIGRATION_NOT_IMPLEMENTED`
 - `501 SOLANA_NETWORK_UNSUPPORTED`
 - `502 SOLANA_SUBMISSION_FAILED`
@@ -138,7 +136,7 @@ Dedicated Solana create endpoint.
   - `devnet` normalizes to `solanaDevnet`
   - `mainnet-beta` normalizes to `solanaMainnetBeta`
 - `tokenMetadata: { name, symbol, tokenURI }`
-- `economics: { totalSupply }`
+- `economics: { totalSupply, baseForDistribution?, baseForLiquidity? }`
 - `pairing?: { numeraireAddress? }`
 - `pricing?: { numerairePriceUsd? }`
 - `governance?: false`
@@ -161,7 +159,7 @@ Dedicated Solana create endpoint.
 - readiness failure -> `503 SOLANA_NOT_READY`
 - simulation failure -> `422 SOLANA_SIMULATION_FAILED`
 - submission failure -> `502 SOLANA_SUBMISSION_FAILED`
-- ambiguous confirmation -> `409 SOLANA_LAUNCH_IN_DOUBT`
+- ambiguous confirmation -> `409 IDEMPOTENCY_KEY_IN_DOUBT`
 
 ---
 

@@ -776,6 +776,12 @@ components:
         totalSupply:
           type: string
           pattern: '^\d+$'
+        baseForDistribution:
+          type: string
+          pattern: '^\d+$'
+        baseForLiquidity:
+          type: string
+          pattern: '^\d+$'
       required: [totalSupply]
     SolanaPairing:
       type: object
@@ -1052,6 +1058,10 @@ components:
               type: string
             allocationAmount:
               type: string
+            baseForDistribution:
+              type: string
+            baseForLiquidity:
+              type: string
             allocationLockMode:
               type: string
               enum: [none]
@@ -1075,6 +1085,8 @@ components:
             [
               tokensForSale,
               allocationAmount,
+              baseForDistribution,
+              baseForLiquidity,
               allocationLockMode,
               numeraireAddress,
               numerairePriceUsd,

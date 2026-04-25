@@ -51,7 +51,6 @@ const buildConfig = (solanaOverrides: Partial<AppConfig['solana']> = {}): AppCon
     devnetRpcUrl: 'http://127.0.0.1:8899',
     devnetWsUrl: 'ws://127.0.0.1:8900',
     confirmTimeoutMs: 60_000,
-    useAlt: false,
     priceMode: 'required',
     coingeckoAssetId: 'solana',
     ...solanaOverrides,
@@ -136,6 +135,31 @@ describe('Solana launch helpers', () => {
     ).toThrow(/unrecognized key/i);
   });
 
+  it('accepts optional Solana distribution and liquidity reserves', () => {
+    const parsed = genericSolanaCreateLaunchRequestSchema.parse({
+      network: 'solanaDevnet',
+      tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+      economics: {
+        totalSupply: '1000',
+        baseForDistribution: '100',
+        baseForLiquidity: '200',
+      },
+      governance: false,
+      migration: { type: 'noOp' },
+      auction: {
+        type: 'xyk',
+        curveConfig: {
+          type: 'range',
+          marketCapStartUsd: 100,
+          marketCapEndUsd: 1000,
+        },
+      },
+    });
+
+    expect(parsed.economics.baseForDistribution).toBe('100');
+    expect(parsed.economics.baseForLiquidity).toBe('200');
+  });
+
   it('rejects governance, migration, and auction shapes that are outside the Solana profile', () => {
     expect(() =>
       genericSolanaCreateLaunchRequestSchema.parse({
@@ -209,6 +233,8 @@ describe('Solana launch helpers', () => {
   it('derives bounded Solana XYK virtual reserves from market-cap ranges', () => {
     const derived = deriveSolanaCurveConfig({
       totalSupply: 1_000_000_000n,
+      baseForDistribution: 0n,
+      baseForLiquidity: 0n,
       numerairePriceUsd: 100,
       marketCapStartUsd: 100,
       marketCapEndUsd: 1_000,
@@ -222,11 +248,37 @@ describe('Solana launch helpers', () => {
     expect(() =>
       deriveSolanaCurveConfig({
         totalSupply: 1_000_000_000n,
+        baseForDistribution: 0n,
+        baseForLiquidity: 0n,
         numerairePriceUsd: 100,
         marketCapStartUsd: 1_000,
         marketCapEndUsd: 100,
       }),
     ).toThrow(/marketCapEndUsd must be greater than marketCapStartUsd/i);
+  });
+
+  it('rejects reserve splits that consume the full Solana supply', () => {
+    expect(() =>
+      genericSolanaCreateLaunchRequestSchema.parse({
+        network: 'solanaDevnet',
+        tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+        economics: {
+          totalSupply: '1000',
+          baseForDistribution: '500',
+          baseForLiquidity: '500',
+        },
+        governance: false,
+        migration: { type: 'noOp' },
+        auction: {
+          type: 'xyk',
+          curveConfig: {
+            type: 'range',
+            marketCapStartUsd: 100,
+            marketCapEndUsd: 1000,
+          },
+        },
+      }),
+    ).toThrow(/must be less than economics\.totalSupply/i);
   });
 
   it('resolves Solana numeraire price by request override, fixed env price, then CoinGecko', async () => {
