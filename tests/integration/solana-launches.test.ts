@@ -43,8 +43,52 @@ describe('Solana create routes', () => {
     expect(body.network).toBe('solanaDevnet');
     expect(body.launchId).not.toContain(':');
     expect(body.signature).toBeDefined();
-    expect(body.statusUrl).toBeUndefined();
+    expect(body.statusUrl).toBe(`/v1/solana/launches/${body.launchId}`);
     expect(body.predicted.launchAuthorityAddress).toBeDefined();
+  });
+
+  it('reads Solana launch state from the dedicated status route', async () => {
+    app = await buildTestServer({ solanaEnabled: true });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/solana/launches/8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      network: 'solanaDevnet',
+      launchAddress: '8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
+      phase: { code: 0, label: 'TRADING' },
+      baseMint: '6QWeT6FpJrm8AF1btu6WH2k2Xhq6t5vbheKVfQavmeoZ',
+      quoteMint: 'So11111111111111111111111111111111111111112',
+      baseTotalSupply: '1000',
+      baseForDistribution: '100',
+      baseForLiquidity: '200',
+      baseForCurve: '700',
+      curveFeeBps: 25,
+      allowBuy: true,
+      allowSell: false,
+      tokenDecimals: 9,
+    });
+  });
+
+  it('returns 404 when the Solana launch account is not found', async () => {
+    app = await buildTestServer({ solanaEnabled: true });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/solana/launches/11111111111111111111111111111111',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json().error.code).toBe('SOLANA_LAUNCH_NOT_FOUND');
   });
 
   it('defaults the dedicated Solana route network from server config when omitted', async () => {

@@ -25,6 +25,7 @@ import { registerCreateMulticurveAliasRoute } from './routes/launches-multicurve
 import { registerCreateStaticAliasRoute } from './routes/launches-static.post';
 import { registerCreateDynamicAliasRoute } from './routes/launches-dynamic.post';
 import { registerCreateSolanaLaunchRoute } from './routes/solana-launches.post';
+import { registerSolanaLaunchStatusRoute } from './routes/solana-launches-status.get';
 import { registerLaunchStatusRoute } from './routes/launches-status.get';
 import { registerHealthRoute } from './routes/health.get';
 import { registerReadyRoute } from './routes/ready.get';
@@ -218,6 +219,7 @@ export const buildServer = async (services?: AppServices) => {
     resolvedServices.launchService,
     resolvedServices.config.solana.defaultNetwork,
   );
+  await registerSolanaLaunchStatusRoute(app, resolvedServices.solanaLaunchService);
   await registerCreateMulticurveAliasRoute(app, resolvedServices.launchService);
   await registerCreateStaticAliasRoute(app, resolvedServices.launchService);
   await registerCreateDynamicAliasRoute(app, resolvedServices.launchService);

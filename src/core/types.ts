@@ -247,6 +247,7 @@ export interface CreateSolanaLaunchResponse {
   network: SolanaNetwork;
   signature: string;
   explorerUrl: string;
+  statusUrl: string;
   predicted: CreateSolanaLaunchPredicted;
   effectiveConfig: SolanaEffectiveLaunchConfig;
 }
@@ -275,6 +276,31 @@ export interface LaunchStatusResponse {
   confirmations: number;
   result?: LaunchResult;
   error?: ApiErrorBody;
+}
+
+export interface SolanaLaunchReadResponse {
+  network: SolanaNetwork;
+  launchAddress: string;
+  phase: {
+    code: number;
+    label: string;
+  };
+  authority: string;
+  namespace: string;
+  baseMint: string;
+  quoteMint: string;
+  baseVault: string;
+  quoteVault: string;
+  baseTotalSupply: string;
+  baseForDistribution: string;
+  baseForLiquidity: string;
+  baseForCurve: string;
+  curveVirtualBase: string;
+  curveVirtualQuote: string;
+  curveFeeBps: number;
+  allowBuy: boolean;
+  allowSell: boolean;
+  tokenDecimals: number;
 }
 
 export interface ChainCapability {

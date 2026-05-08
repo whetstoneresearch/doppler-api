@@ -505,7 +505,9 @@ Custom-curve rules agents should enforce before submit:
 - `confirmed`: use `result.tokenAddress` and `result.poolId`.
 - `reverted`: treat as failed launch and surface `error.code/message`.
 - `not_found`: retry briefly, then fail.
-- Solana launches do not have a status route.
+- Solana create responses include `statusUrl=/v1/solana/launches/:launchAddress`.
+- `GET /v1/solana/launches/:launchAddress` returns devnet launch account state, including
+  phase, mints, vaults, supply split, curve reserves, fee, and trading flags.
 
 ## 7. Important defaults
 

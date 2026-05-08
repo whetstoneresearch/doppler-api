@@ -146,7 +146,7 @@ Dedicated Solana create endpoint.
 #### Response `200`
 
 - `launchId` is the base58 launch PDA
-- no `statusUrl` is returned
+- `statusUrl` points to `GET /v1/solana/launches/:launchAddress`
 - response shape matches the Solana response described on `POST /v1/launches`
 
 #### Create-time Solana validation
@@ -160,6 +160,32 @@ Dedicated Solana create endpoint.
 - simulation failure -> `422 SOLANA_SIMULATION_FAILED`
 - submission failure -> `502 SOLANA_SUBMISSION_FAILED`
 - ambiguous confirmation -> `409 IDEMPOTENCY_KEY_IN_DOUBT`
+
+---
+
+### `GET /v1/solana/launches/:launchAddress`
+
+Returns devnet Solana launch account state.
+
+#### Path param
+
+- `launchAddress`: base58 launch PDA
+
+#### Response `200`
+
+- `network = "solanaDevnet"`
+- `launchAddress`
+- `phase: { code, label }`
+- launch authority, namespace, mint, and vault addresses
+- supply split fields: `baseTotalSupply`, `baseForDistribution`, `baseForLiquidity`, `baseForCurve`
+- curve fields: `curveVirtualBase`, `curveVirtualQuote`, `curveFeeBps`, `allowBuy`, `allowSell`
+
+#### Error responses
+
+- `404 SOLANA_LAUNCH_NOT_FOUND`
+- `422 SOLANA_INVALID_ADDRESS`
+- `501 SOLANA_NETWORK_UNSUPPORTED` when Solana is disabled
+- `502 SOLANA_LOOKUP_FAILED`
 
 ---
 

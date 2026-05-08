@@ -10,6 +10,7 @@ This project is in active development & not ready for production use.
 
 - `POST /v1/launches`
 - `POST /v1/solana/launches`
+- `GET /v1/solana/launches/:launchAddress`
 - `POST /v1/launches/multicurve` (alias)
 - `POST /v1/launches/static` (alias)
 - `POST /v1/launches/dynamic` (alias)
@@ -63,8 +64,8 @@ npm run dev
   - `uniswapV3` is not supported and returns `501 MIGRATION_NOT_IMPLEMENTED`
 - Solana:
   - create via `POST /v1/solana/launches`
+  - read launch account state via `GET /v1/solana/launches/:launchAddress`
   - `POST /v1/launches` also accepts Solana when `network` is `solanaDevnet` or `solanaMainnetBeta`
-  - Solana create endpoints do not expose a status route
   - only `solanaDevnet` is executable
   - only WSOL is supported as numeraire
   - strict request shape; unsupported EVM-only fields are rejected

@@ -62,11 +62,7 @@ const buildResponse = (txHash: `0x${string}`): CreateLaunchResponse => ({
 });
 
 const buildSolanaInDoubtError = () =>
-<<<<<<< HEAD
-  new AppError(409, 'SOLANA_LAUNCH_IN_DOUBT', 'Solana launch confirmation is in doubt', {
-=======
   new AppError(409, 'IDEMPOTENCY_KEY_IN_DOUBT', 'Solana launch confirmation is in doubt', {
->>>>>>> efb1cd8 (wip: pr review feedback, alt required, use zod, misc improvements. note devnet protocol+sdk are stale, hence failing tests. awaiting redeployment/rerelease)
     launchId: '8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
     signature:
       '5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J',

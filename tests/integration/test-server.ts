@@ -217,6 +217,7 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
         '5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J',
       explorerUrl:
         'https://explorer.solana.com/tx/5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J?cluster=devnet',
+      statusUrl: '/v1/solana/launches/8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
       predicted: {
         tokenAddress: '6QWeT6FpJrm8AF1btu6WH2k2Xhq6t5vbheKVfQavmeoZ',
         launchAuthorityAddress: 'E7Ud4m8S7fC2YdUQdL7p9V2sRrMfQjQ9fA5spuR4T9gQ',
@@ -324,6 +325,49 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
           : { enabled: false, ok: true, checks: [] },
       createLaunch: async () => {
         throw new Error('not used');
+      },
+      getLaunch: async (launchAddress: string) => {
+        if (!config.solana.enabled) {
+          throw new AppError(
+            501,
+            'SOLANA_NETWORK_UNSUPPORTED',
+            'Solana creation is not enabled on this server',
+          );
+        }
+
+        if (launchAddress === 'not-a-solana-address') {
+          throw new AppError(
+            422,
+            'SOLANA_INVALID_ADDRESS',
+            'launchAddress must be a valid Solana address',
+          );
+        }
+
+        if (launchAddress === '11111111111111111111111111111111') {
+          throw new AppError(404, 'SOLANA_LAUNCH_NOT_FOUND', 'Solana launch was not found');
+        }
+
+        return {
+          network: 'solanaDevnet',
+          launchAddress,
+          phase: { code: 0, label: 'TRADING' },
+          authority: 'E7Ud4m8S7fC2YdUQdL7p9V2sRrMfQjQ9fA5spuR4T9gQ',
+          namespace: 'E7Ud4m8S7fC2YdUQdL7p9V2sRrMfQjQ9fA5spuR4T9gQ',
+          baseMint: '6QWeT6FpJrm8AF1btu6WH2k2Xhq6t5vbheKVfQavmeoZ',
+          quoteMint: 'So11111111111111111111111111111111111111112',
+          baseVault: '9xQeWvG816bUx9EPjHmaT23yvVMHh2eHq9cYqB9Yg6xT',
+          quoteVault: 'J1veWvV6BF8L7rN8D66zCFAaj6MqFmoVoeAQMtkP8dwF',
+          baseTotalSupply: '1000',
+          baseForDistribution: '100',
+          baseForLiquidity: '200',
+          baseForCurve: '700',
+          curveVirtualBase: '1000000000',
+          curveVirtualQuote: '100000000',
+          curveFeeBps: 25,
+          allowBuy: true,
+          allowSell: false,
+          tokenDecimals: 9,
+        };
       },
     } as any,
     launchService: {

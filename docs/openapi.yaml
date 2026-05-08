@@ -106,6 +106,38 @@ paths:
           $ref: '#/components/responses/Error'
         '500':
           $ref: '#/components/responses/Error'
+  /v1/solana/launches/{launchAddress}:
+    get:
+      tags: [Status]
+      summary: Fetch Solana launch state
+      operationId: getSolanaLaunch
+      parameters:
+        - name: launchAddress
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/SolanaAddress'
+      responses:
+        '200':
+          description: Solana launch account state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SolanaLaunchReadResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '501':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
   /v1/launches/multicurve:
     post:
       tags: [Launches]
@@ -1039,6 +1071,8 @@ components:
           type: string
         explorerUrl:
           type: string
+        statusUrl:
+          type: string
         predicted:
           type: object
           properties:
@@ -1097,7 +1131,77 @@ components:
               allowSell,
               tokenDecimals,
             ]
-      required: [launchId, network, signature, explorerUrl, predicted, effectiveConfig]
+      required: [launchId, network, signature, explorerUrl, statusUrl, predicted, effectiveConfig]
+    SolanaLaunchReadResponse:
+      type: object
+      properties:
+        network:
+          type: string
+          const: solanaDevnet
+        launchAddress:
+          $ref: '#/components/schemas/SolanaAddress'
+        phase:
+          type: object
+          properties:
+            code:
+              type: integer
+            label:
+              type: string
+          required: [code, label]
+        authority:
+          $ref: '#/components/schemas/SolanaAddress'
+        namespace:
+          $ref: '#/components/schemas/SolanaAddress'
+        baseMint:
+          $ref: '#/components/schemas/SolanaAddress'
+        quoteMint:
+          $ref: '#/components/schemas/SolanaAddress'
+        baseVault:
+          $ref: '#/components/schemas/SolanaAddress'
+        quoteVault:
+          $ref: '#/components/schemas/SolanaAddress'
+        baseTotalSupply:
+          type: string
+        baseForDistribution:
+          type: string
+        baseForLiquidity:
+          type: string
+        baseForCurve:
+          type: string
+        curveVirtualBase:
+          type: string
+        curveVirtualQuote:
+          type: string
+        curveFeeBps:
+          type: integer
+        allowBuy:
+          type: boolean
+        allowSell:
+          type: boolean
+        tokenDecimals:
+          type: integer
+      required:
+        [
+          network,
+          launchAddress,
+          phase,
+          authority,
+          namespace,
+          baseMint,
+          quoteMint,
+          baseVault,
+          quoteVault,
+          baseTotalSupply,
+          baseForDistribution,
+          baseForLiquidity,
+          baseForCurve,
+          curveVirtualBase,
+          curveVirtualQuote,
+          curveFeeBps,
+          allowBuy,
+          allowSell,
+          tokenDecimals,
+        ]
     LaunchStatusResult:
       type: object
       properties:

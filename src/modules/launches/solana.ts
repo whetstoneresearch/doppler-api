@@ -24,7 +24,11 @@ import { z } from 'zod';
 
 import type { AppConfig } from '../../core/config';
 import { AppError } from '../../core/errors';
-import type { CreateSolanaLaunchResponse, SolanaNetwork } from '../../core/types';
+import type {
+  CreateSolanaLaunchResponse,
+  SolanaLaunchReadResponse,
+  SolanaNetwork,
+} from '../../core/types';
 import type { PricingService } from '../pricing/service';
 
 const U64_MAX = 18_446_744_073_709_551_615n;
@@ -460,6 +464,62 @@ export class SolanaLaunchService {
     return address(requested);
   }
 
+  async getLaunch(launchAddressInput: string): Promise<SolanaLaunchReadResponse> {
+    this.assertEnabled();
+    this.assertSupportedNetwork('solanaDevnet');
+
+    let launchAddress: Address;
+    try {
+      launchAddress = address(launchAddressInput);
+    } catch {
+      throw new AppError(
+        422,
+        'SOLANA_INVALID_ADDRESS',
+        'launchAddress must be a valid Solana address',
+      );
+    }
+
+    let launch: Awaited<ReturnType<typeof initializer.fetchLaunch>>;
+    try {
+      launch = await initializer.fetchLaunch(this.rpc, launchAddress, {
+        commitment: 'confirmed',
+      });
+    } catch (error) {
+      throw new AppError(502, 'SOLANA_LOOKUP_FAILED', 'Failed to fetch Solana launch account', {
+        cause: errorMessage(error),
+      });
+    }
+
+    if (!launch) {
+      throw new AppError(404, 'SOLANA_LAUNCH_NOT_FOUND', 'Solana launch was not found');
+    }
+
+    return {
+      network: 'solanaDevnet',
+      launchAddress,
+      phase: {
+        code: launch.phase,
+        label: initializer.phaseLabel(launch.phase),
+      },
+      authority: launch.authority,
+      namespace: launch.namespace,
+      baseMint: launch.baseMint,
+      quoteMint: launch.quoteMint,
+      baseVault: launch.baseVault,
+      quoteVault: launch.quoteVault,
+      baseTotalSupply: launch.baseTotalSupply.toString(),
+      baseForDistribution: launch.baseForDistribution.toString(),
+      baseForLiquidity: launch.baseForLiquidity.toString(),
+      baseForCurve: launch.baseForCurve.toString(),
+      curveVirtualBase: launch.curveVirtualBase.toString(),
+      curveVirtualQuote: launch.curveVirtualQuote.toString(),
+      curveFeeBps: launch.curveFeeBps,
+      allowBuy: launch.allowBuy !== 0,
+      allowSell: launch.allowSell !== 0,
+      tokenDecimals: SOLANA_TOKEN_DECIMALS,
+    };
+  }
+
   private async resolveNumerairePriceUsd(
     input: CreateSolanaLaunchRequestInput,
     numeraireAddress: Address,
@@ -652,9 +712,12 @@ export class SolanaLaunchService {
         sentinelProgram: SOLANA_SYSTEM_PROGRAM_ADDRESS,
         sentinelFlags: 0,
         sentinelCalldata: new Uint8Array(),
+        sentinelCreateRemainingAccountsLen: 0,
+        sentinelCreateRemainingAccountsHash: initializer.EMPTY_REMAINING_ACCOUNTS_HASH,
+        sentinelRemainingAccountsHash: initializer.EMPTY_REMAINING_ACCOUNTS_HASH,
         migratorInitCalldata: new Uint8Array(),
         migratorMigrateCalldata: new Uint8Array(),
-        sentinelRemainingAccountsHash: initializer.EMPTY_REMAINING_ACCOUNTS_HASH,
+        migratorInitRemainingAccountsHash: initializer.EMPTY_REMAINING_ACCOUNTS_HASH,
         migratorRemainingAccountsHash: initializer.EMPTY_REMAINING_ACCOUNTS_HASH,
         metadataName: input.tokenMetadata.name,
         metadataSymbol: input.tokenMetadata.symbol,
@@ -800,6 +863,7 @@ export class SolanaLaunchService {
       network: input.network,
       signature: transactionSignature,
       explorerUrl,
+      statusUrl: `/v1/solana/launches/${launchAddress}`,
       predicted: {
         tokenAddress: baseMint.address,
         launchAuthorityAddress,

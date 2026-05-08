@@ -79,11 +79,7 @@ describe('live readiness check', () => {
     });
 
     expect(requirement).not.toBeNull();
-<<<<<<< HEAD
-    expect(formatSolAmount(requirement!.requiredLamports)).toBe(formatSolAmount(60_000_000n));
-=======
     expect(formatSolAmount(requirement!.requiredLamports)).toBe(formatSolAmount(85_000_000n));
->>>>>>> efb1cd8 (wip: pr review feedback, alt required, use zod, misc improvements. note devnet protocol+sdk are stale, hence failing tests. awaiting redeployment/rerelease)
     expect(requirement!.reason).toContain(
       `estimate: 3 launch tx * ${DEFAULT_LIVE_ESTIMATED_TX_COST_SOL} SOL + ${DEFAULT_LIVE_ESTIMATED_OVERHEAD_SOL} SOL overhead`,
     );
