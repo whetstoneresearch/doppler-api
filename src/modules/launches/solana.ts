@@ -38,6 +38,19 @@ const SOLANA_CONFIRM_POLL_INTERVAL_MS = 500;
 const SOLANA_WSOL_MINT_ADDRESS = address('So11111111111111111111111111111111111111112');
 const SOLANA_SYSTEM_PROGRAM_ADDRESS = address('11111111111111111111111111111111');
 const SOLANA_RENT_SYSVAR_ADDRESS = address('SysvarRent111111111111111111111111111111111');
+const SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH = new Uint8Array(32);
+
+export const buildDisabledSolanaHookArgs = () => ({
+  sentinelFlags: 0,
+  sentinelCalldata: new Uint8Array(),
+  sentinelCreateRemainingAccountsLen: 0,
+  sentinelCreateRemainingAccountsHash: new Uint8Array(SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH),
+  sentinelRemainingAccountsHash: new Uint8Array(SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH),
+  migratorInitCalldata: new Uint8Array(),
+  migratorMigrateCalldata: new Uint8Array(),
+  migratorInitRemainingAccountsHash: new Uint8Array(SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH),
+  migratorRemainingAccountsHash: new Uint8Array(SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH),
+});
 
 const strictObject = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -710,15 +723,7 @@ export class SolanaLaunchService {
         allowBuy,
         allowSell,
         sentinelProgram: SOLANA_SYSTEM_PROGRAM_ADDRESS,
-        sentinelFlags: 0,
-        sentinelCalldata: new Uint8Array(),
-        sentinelCreateRemainingAccountsLen: 0,
-        sentinelCreateRemainingAccountsHash: initializer.EMPTY_REMAINING_ACCOUNTS_HASH,
-        sentinelRemainingAccountsHash: initializer.EMPTY_REMAINING_ACCOUNTS_HASH,
-        migratorInitCalldata: new Uint8Array(),
-        migratorMigrateCalldata: new Uint8Array(),
-        migratorInitRemainingAccountsHash: initializer.EMPTY_REMAINING_ACCOUNTS_HASH,
-        migratorRemainingAccountsHash: initializer.EMPTY_REMAINING_ACCOUNTS_HASH,
+        ...buildDisabledSolanaHookArgs(),
         metadataName: input.tokenMetadata.name,
         metadataSymbol: input.tokenMetadata.symbol,
         metadataUri: input.tokenMetadata.tokenURI,
@@ -892,4 +897,5 @@ export class SolanaLaunchService {
 export const SOLANA_CONSTANTS = {
   tokenDecimals: SOLANA_TOKEN_DECIMALS,
   wsolMintAddress: SOLANA_WSOL_MINT_ADDRESS,
+  disabledHookRemainingAccountsHash: SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH,
 };

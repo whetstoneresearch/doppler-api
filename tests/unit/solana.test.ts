@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+import { initializer } from '@whetstone-research/doppler-sdk/solana';
 
 import type { AppConfig } from '../../src/core/config';
 import {
   SOLANA_CONSTANTS,
   SolanaLaunchService,
+  buildDisabledSolanaHookArgs,
   dedicatedSolanaCreateLaunchRequestSchema,
   deriveSolanaCurveConfig,
   deriveSolanaLaunchSeed,
@@ -279,6 +281,24 @@ describe('Solana launch helpers', () => {
         },
       }),
     ).toThrow(/must be less than economics\.totalSupply/i);
+  });
+
+  it('uses all-zero remaining-account hashes for disabled Solana hooks', () => {
+    const disabledHookArgs = buildDisabledSolanaHookArgs();
+    const zeroHash = Array.from(SOLANA_CONSTANTS.disabledHookRemainingAccountsHash);
+
+    expect(zeroHash).toHaveLength(32);
+    expect(zeroHash.every((value) => value === 0)).toBe(true);
+    expect(zeroHash).not.toEqual(Array.from(initializer.EMPTY_REMAINING_ACCOUNTS_HASH));
+    expect(Array.from(disabledHookArgs.sentinelCreateRemainingAccountsHash)).toEqual(zeroHash);
+    expect(Array.from(disabledHookArgs.sentinelRemainingAccountsHash)).toEqual(zeroHash);
+    expect(Array.from(disabledHookArgs.migratorInitRemainingAccountsHash)).toEqual(zeroHash);
+    expect(Array.from(disabledHookArgs.migratorRemainingAccountsHash)).toEqual(zeroHash);
+    expect(disabledHookArgs.sentinelFlags).toBe(0);
+    expect(disabledHookArgs.sentinelCreateRemainingAccountsLen).toBe(0);
+    expect(disabledHookArgs.sentinelCalldata).toHaveLength(0);
+    expect(disabledHookArgs.migratorInitCalldata).toHaveLength(0);
+    expect(disabledHookArgs.migratorMigrateCalldata).toHaveLength(0);
   });
 
   it('resolves Solana numeraire price by request override, fixed env price, then CoinGecko', async () => {
