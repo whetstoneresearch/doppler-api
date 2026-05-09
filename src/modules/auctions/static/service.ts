@@ -1,4 +1,4 @@
-import { airlockAbi, type BeneficiaryData } from '@whetstone-research/doppler-sdk';
+import { airlockAbi, type BeneficiaryData } from '@whetstone-research/doppler-sdk/evm';
 
 import { AppError } from '../../../core/errors';
 import type {

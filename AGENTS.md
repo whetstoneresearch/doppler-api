@@ -23,6 +23,8 @@ When behavior or API contracts change, update all of:
   only assert allocation/vesting details when non-market allocation is actually configured.
 - When decoding calldata, match the exact SDK encoding shape.
   Do not wrap flat ABI parameter lists inside an extra `tuple` unless the SDK encodes a tuple.
+- Describe current API behavior as present truth in docs; avoid stage-setting phrases like "in this iteration."
+- Prefer Zod schemas over manual nested property guards when validating external or persisted data.
 
 ## Verification before finishing
 

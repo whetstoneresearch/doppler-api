@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { WAD } from '@whetstone-research/doppler-sdk';
+import { WAD } from '@whetstone-research/doppler-sdk/evm';
 
 import { normalizeFeeBeneficiaries } from '../../src/modules/auctions/multicurve/mapper';
 import type { CreateLaunchRequestInput } from '../../src/modules/launches/schema';

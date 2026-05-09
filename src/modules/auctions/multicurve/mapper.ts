@@ -1,4 +1,4 @@
-import { WAD, type BeneficiaryData } from '@whetstone-research/doppler-sdk';
+import { WAD, type BeneficiaryData } from '@whetstone-research/doppler-sdk/evm';
 
 import { AppError } from '../../../core/errors';
 import type { CreateLaunchRequestInput } from '../../launches/schema';
@@ -53,13 +53,13 @@ export const resolveSaleNumbers = (
       : totalSupply;
 
   if (tokensForSale <= 0n) {
-    throw new AppError(422, 'INVALID_TOKENOMICS', 'economics.tokensForSale must be > 0');
+    throw new AppError(422, 'INVALID_ECONOMICS', 'economics.tokensForSale must be > 0');
   }
 
   if (tokensForSale > totalSupply) {
     throw new AppError(
       422,
-      'INVALID_TOKENOMICS',
+      'INVALID_ECONOMICS',
       'economics.tokensForSale cannot exceed economics.totalSupply',
     );
   }
@@ -70,7 +70,7 @@ export const resolveSaleNumbers = (
     if (marketPercentWad < minMarketPercentWad) {
       throw new AppError(
         422,
-        'INVALID_TOKENOMICS',
+        'INVALID_ECONOMICS',
         `economics.tokensForSale must be at least ${MIN_MARKET_SALE_PERCENT.toString()}% of totalSupply`,
       );
     }
@@ -81,7 +81,7 @@ export const resolveSaleNumbers = (
     if (explicitAllocationTotal !== remainder) {
       throw new AppError(
         422,
-        'INVALID_TOKENOMICS',
+        'INVALID_ECONOMICS',
         `${explicitAllocationsPath} must sum exactly to totalSupply - tokensForSale`,
       );
     }
@@ -110,7 +110,7 @@ const parseExplicitAllocations = (input: CreateLaunchRequestInput): ParsedExplic
   if (requested.length > MAX_ALLOCATION_RECIPIENTS) {
     throw new AppError(
       422,
-      'INVALID_TOKENOMICS',
+      'INVALID_ECONOMICS',
       `${fieldPath} supports up to ${MAX_ALLOCATION_RECIPIENTS} unique addresses`,
     );
   }
@@ -121,7 +121,7 @@ const parseExplicitAllocations = (input: CreateLaunchRequestInput): ParsedExplic
     if (seen.has(normalized)) {
       throw new AppError(
         422,
-        'INVALID_TOKENOMICS',
+        'INVALID_ECONOMICS',
         `${fieldPath} has duplicate address at index ${index}`,
       );
     }
@@ -150,7 +150,7 @@ export const resolveAllocationPlan = (args: {
     if (config) {
       throw new AppError(
         422,
-        'INVALID_TOKENOMICS',
+        'INVALID_ECONOMICS',
         'economics.allocations requires tokensForSale to be less than totalSupply',
       );
     }
@@ -169,7 +169,7 @@ export const resolveAllocationPlan = (args: {
   if (explicitAllocations.length > 0 && config?.recipientAddress) {
     throw new AppError(
       422,
-      'INVALID_TOKENOMICS',
+      'INVALID_ECONOMICS',
       'economics.allocations.recipientAddress cannot be used with explicit recipient splits',
     );
   }
@@ -185,7 +185,7 @@ export const resolveAllocationPlan = (args: {
     if (config?.durationSeconds !== undefined && config.durationSeconds !== 0) {
       throw new AppError(
         422,
-        'INVALID_TOKENOMICS',
+        'INVALID_ECONOMICS',
         'economics.allocations.durationSeconds must be 0 when mode is "unlock"',
       );
     }
@@ -195,7 +195,7 @@ export const resolveAllocationPlan = (args: {
     if (lockDurationSeconds <= 0) {
       throw new AppError(
         422,
-        'INVALID_TOKENOMICS',
+        'INVALID_ECONOMICS',
         'economics.allocations.durationSeconds must be > 0 for vest/vault modes',
       );
     }
@@ -204,7 +204,7 @@ export const resolveAllocationPlan = (args: {
   if (cliffDurationSeconds > lockDurationSeconds) {
     throw new AppError(
       422,
-      'INVALID_TOKENOMICS',
+      'INVALID_ECONOMICS',
       'economics.allocations.cliffDurationSeconds cannot exceed durationSeconds',
     );
   }
@@ -221,7 +221,7 @@ export const resolveAllocationPlan = (args: {
   if (totalExplicit !== allocationAmount) {
     throw new AppError(
       422,
-      'INVALID_TOKENOMICS',
+      'INVALID_ECONOMICS',
       'allocation amounts must equal totalSupply - tokensForSale',
     );
   }

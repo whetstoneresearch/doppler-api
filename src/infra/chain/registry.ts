@@ -1,4 +1,4 @@
-import { getAddresses } from '@whetstone-research/doppler-sdk';
+import { getAddresses } from '@whetstone-research/doppler-sdk/evm';
 import { defineChain, http, createPublicClient, createWalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 

@@ -1,4 +1,4 @@
-import { WAD } from '@whetstone-research/doppler-sdk';
+import { WAD } from '@whetstone-research/doppler-sdk/evm';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { buildServices } from '../../../src/app/server';

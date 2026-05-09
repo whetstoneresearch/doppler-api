@@ -1,4 +1,4 @@
-import { airlockAbi } from '@whetstone-research/doppler-sdk';
+import { airlockAbi } from '@whetstone-research/doppler-sdk/evm';
 import { decodeEventLog, type Hex } from 'viem';
 
 import type { HexAddress } from '../../core/types';

@@ -3,7 +3,7 @@ import {
   type MigrationConfig,
   type GovernanceOption,
   type BeneficiaryData,
-} from '@whetstone-research/doppler-sdk';
+} from '@whetstone-research/doppler-sdk/evm';
 
 import { AppError } from '../../../core/errors';
 import type { CreateLaunchResponse, HexAddress, HexHash } from '../../../core/types';

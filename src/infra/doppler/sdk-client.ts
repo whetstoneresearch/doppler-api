@@ -1,4 +1,4 @@
-import { DopplerSDK } from '@whetstone-research/doppler-sdk';
+import { DopplerSDK } from '@whetstone-research/doppler-sdk/evm';
 
 import type { ChainContext } from '../chain/registry';
 

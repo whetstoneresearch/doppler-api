@@ -3,7 +3,7 @@ import type { DopplerTemplateConfigV1 } from './src/core/template-config';
 export const dopplerTemplateConfig = {
   version: 1,
   port: 3000,
-  deploymentMode: 'local',
+  deploymentMode: 'standalone',
   defaultChainId: 84532,
   logLevel: 'info',
   readyRpcTimeoutMs: 2000,

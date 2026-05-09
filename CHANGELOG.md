@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Bumped `@whetstone-research/doppler-sdk` from `1.0.7` to `1.0.8`.
+- Solana create requests now accept `economics.baseForDistribution` and `economics.baseForLiquidity`, always use the deployed devnet ALT, and return reserve split details in `effectiveConfig`.
+- Solana ambiguous confirmation failures now return `409 IDEMPOTENCY_KEY_IN_DOUBT` with launch reconciliation details.
+- Local `npm run lint`, `npm run typecheck`, and `npm test` are green; live Solana create remains blocked until the published SDK/IDL and deployed devnet program are back in sync.
+
 ## [0.1.0] - 2026-02-23
 
 ### Added

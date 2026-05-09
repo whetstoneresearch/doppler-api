@@ -4,7 +4,7 @@ import {
   computePoolId,
   decayMulticurveInitializerHookAbi,
   v4MulticurveInitializerAbi,
-} from '@whetstone-research/doppler-sdk';
+} from '@whetstone-research/doppler-sdk/evm';
 import { decodeAbiParameters, decodeFunctionData, parseEther, zeroAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { randomBytes } from 'node:crypto';
@@ -14,6 +14,11 @@ import { loadConfig } from '../../../src/core/config';
 import { decodeCreateEvent } from '../../../src/infra/chain/receipt-decoder';
 import type { CreateLaunchRequestInput } from '../../../src/modules/launches/schema';
 import { buildRandomCustomCurvePlan } from '../../fixtures/random-custom-curves';
+import {
+  decodeRehypeInitCalldata,
+  decodeStandardTokenFactoryData,
+  type DecodedStandardTokenFactoryData,
+} from './calldata-decoders';
 
 const runLive = process.env.LIVE_TEST_ENABLE === 'true';
 const liveVerbose = process.env.LIVE_TEST_VERBOSE === 'true';
@@ -28,12 +33,17 @@ type LiveScenarioGroup =
   | 'multicurve-defaults'
   | 'fees'
   | 'negative'
-  | 'governance';
+  | 'governance'
+  | 'solana'
+  | 'solana-devnet'
+  | 'solana-defaults'
+  | 'solana-random'
+  | 'solana-failing';
 
 const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
   if (!runLive) return false;
 
-  if (liveFilter === 'all') return true;
+  if (liveFilter === 'all') return !groups.includes('solana');
   if (liveFilter === 'static') return groups.includes('static');
   if (liveFilter === 'dynamic') return groups.includes('dynamic');
   if (liveFilter === 'migration-v2') return groups.includes('migration-v2');
@@ -47,6 +57,11 @@ const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
   if (liveFilter === 'fees') return groups.includes('fees');
   if (liveFilter === 'governance') return groups.includes('governance');
   if (liveFilter === 'negative') return groups.includes('negative');
+  if (liveFilter === 'solana') return groups.includes('solana');
+  if (liveFilter === 'solana-devnet') return groups.includes('solana-devnet');
+  if (liveFilter === 'solana-defaults') return groups.includes('solana-defaults');
+  if (liveFilter === 'solana-random') return groups.includes('solana-random');
+  if (liveFilter === 'solana-failing') return groups.includes('solana-failing');
   return true;
 };
 
@@ -324,43 +339,6 @@ const buildRandomFeeBeneficiaries = (
   }));
 };
 
-const decodeStandardTokenFactoryData = (
-  tokenFactoryData: `0x${string}`,
-): {
-  yearlyMintRate: bigint;
-  vestingDuration: bigint;
-  recipients: readonly `0x${string}`[];
-  amounts: readonly bigint[];
-} => {
-  const [, , yearlyMintRate, vestingDuration, recipients, amounts] = decodeAbiParameters(
-    [
-      { name: 'name', type: 'string' },
-      { name: 'symbol', type: 'string' },
-      { name: 'yearlyMintRate', type: 'uint256' },
-      { name: 'vestingDuration', type: 'uint256' },
-      { name: 'recipients', type: 'address[]' },
-      { name: 'amounts', type: 'uint256[]' },
-      { name: 'tokenURI', type: 'string' },
-    ],
-    tokenFactoryData,
-  ) as readonly [
-    string,
-    string,
-    bigint,
-    bigint,
-    readonly `0x${string}`[],
-    readonly bigint[],
-    string,
-  ];
-
-  return {
-    yearlyMintRate,
-    vestingDuration,
-    recipients,
-    amounts,
-  };
-};
-
 type InitializerMode = 'standard' | 'scheduled' | 'decay' | 'rehype';
 
 const curveTupleComponents = [
@@ -584,6 +562,59 @@ const resolveExpectedMulticurveInitializer = (args: {
   return scheduledAddress;
 };
 
+const assertDecodedVestingData = (args: {
+  decoded: DecodedStandardTokenFactoryData;
+  expectedDurationSeconds: number;
+  expectedCliffDurationSeconds?: number;
+  expectedRecipients: readonly `0x${string}`[];
+  expectedAmounts: readonly bigint[];
+}) => {
+  const {
+    decoded,
+    expectedDurationSeconds,
+    expectedCliffDurationSeconds = 0,
+    expectedRecipients,
+    expectedAmounts,
+  } = args;
+
+  expect(decoded.recipients.length).toBe(expectedRecipients.length);
+  expect(decoded.amounts.length).toBe(expectedAmounts.length);
+  expect(decoded.recipients.map((recipient) => recipient.toLowerCase())).toEqual(
+    expectedRecipients.map((recipient) => recipient.toLowerCase()),
+  );
+  expect(decoded.amounts.map((amount) => amount.toString())).toEqual(
+    expectedAmounts.map((amount) => amount.toString()),
+  );
+
+  if (decoded.kind === 'legacy') {
+    expect(decoded.vestingDuration).toBe(BigInt(expectedDurationSeconds));
+    return;
+  }
+
+  expect(decoded.scheduleIds.length).toBe(expectedRecipients.length);
+  for (const scheduleId of decoded.scheduleIds) {
+    const schedule = decoded.schedules[Number(scheduleId)];
+    expect(schedule).toBeDefined();
+    expect(schedule!.duration).toBe(BigInt(expectedDurationSeconds));
+    expect(schedule!.cliff).toBe(BigInt(expectedCliffDurationSeconds));
+  }
+};
+
+const formatDecodedVestingData = (decoded: DecodedStandardTokenFactoryData | null): string => {
+  if (!decoded) return 'not decoded';
+
+  const firstRecipient = decoded.recipients[0] ?? 'none';
+  const firstAmount = decoded.amounts[0]?.toString() ?? '0';
+  if (decoded.kind === 'legacy') {
+    return `${decoded.vestingDuration.toString()} / ${firstRecipient} / ${firstAmount}`;
+  }
+
+  const firstScheduleId = decoded.scheduleIds[0];
+  const firstSchedule =
+    firstScheduleId === undefined ? undefined : decoded.schedules[Number(firstScheduleId)];
+  return `${firstSchedule?.duration.toString() ?? '0'} / ${firstSchedule?.cliff.toString() ?? '0'} / ${firstRecipient} / ${firstAmount}`;
+};
+
 const readMulticurveStateWithRetry = async (args: {
   publicClient: { readContract: (...params: any[]) => Promise<unknown> };
   tokenAddress: `0x${string}`;
@@ -748,6 +779,8 @@ const runMulticurveLaunchAndVerify = async (
     requestedAllocationMode === 'none' || requestedAllocationMode === 'unlock'
       ? 0
       : (overrides?.allocations?.durationSeconds ?? DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS);
+  const expectedCliffDurationSeconds =
+    requestedAllocationMode === 'vest' ? (overrides?.allocations?.cliffDurationSeconds ?? 0) : 0;
   const salePercentIsDefault = overrides?.salePercent === undefined;
   const allocationRecipientIsDefault =
     explicitAllocations.length === 0 && !overrides?.allocations?.recipientAddress;
@@ -979,15 +1012,13 @@ const runMulticurveLaunchAndVerify = async (
     let decodedTokenFactoryData: ReturnType<typeof decodeStandardTokenFactoryData> | null = null;
     if (allocationAmount > 0n) {
       decodedTokenFactoryData = decodeStandardTokenFactoryData(createArg.tokenFactoryData);
-      expect(decodedTokenFactoryData.vestingDuration).toBe(BigInt(allocationLockDurationSeconds));
-      expect(decodedTokenFactoryData.recipients.length).toBe(expectedVestingRecipients.length);
-      expect(decodedTokenFactoryData.amounts.length).toBe(expectedVestingAmounts.length);
-      expect(
-        decodedTokenFactoryData.recipients.map((recipient) => recipient.toLowerCase()),
-      ).toEqual(expectedVestingRecipients.map((recipient) => recipient.toLowerCase()));
-      expect(decodedTokenFactoryData.amounts.map((amount) => amount.toString())).toEqual(
-        expectedVestingAmounts.map((amount) => amount.toString()),
-      );
+      assertDecodedVestingData({
+        decoded: decodedTokenFactoryData,
+        expectedDurationSeconds: allocationLockDurationSeconds,
+        expectedCliffDurationSeconds,
+        expectedRecipients: expectedVestingRecipients,
+        expectedAmounts: expectedVestingAmounts,
+      });
     }
 
     const expectedInitializerAddress = resolveExpectedMulticurveInitializer({
@@ -1016,33 +1047,39 @@ const runMulticurveLaunchAndVerify = async (
       expect(decodedPoolConfig.dopplerHook?.toLowerCase()).toBe(
         requestedInitializer.config.hookAddress!.toLowerCase(),
       );
-      const rehypeInitCalldata = decodeAbiParameters(
-        [
-          { type: 'address' },
-          { type: 'address' },
-          { type: 'uint24' },
-          { type: 'uint256' },
-          { type: 'uint256' },
-          { type: 'uint256' },
-          { type: 'uint256' },
-        ],
+      const rehypeInitCalldata = decodeRehypeInitCalldata(
         decodedPoolConfig.onInitializationDopplerHookCalldata ?? '0x',
-      ) as readonly [`0x${string}`, `0x${string}`, number, bigint, bigint, bigint, bigint];
+      );
 
-      expect(rehypeInitCalldata[1].toLowerCase()).toBe(
+      expect(rehypeInitCalldata.buybackDst.toLowerCase()).toBe(
         requestedInitializer.config.buybackDestination.toLowerCase(),
       );
-      expect(rehypeInitCalldata[2]).toBe(requestedInitializer.config.customFee);
-      expect(rehypeInitCalldata[3].toString()).toBe(
+      expect(rehypeInitCalldata.startFee).toBe(requestedInitializer.config.customFee);
+      expect(rehypeInitCalldata.endFee).toBe(requestedInitializer.config.customFee);
+      expect(rehypeInitCalldata.feeDistributionInfo.assetFeesToAssetBuybackWad.toString()).toBe(
         requestedInitializer.config.assetBuybackPercentWad,
       );
-      expect(rehypeInitCalldata[4].toString()).toBe(
+      expect(rehypeInitCalldata.feeDistributionInfo.assetFeesToNumeraireBuybackWad.toString()).toBe(
         requestedInitializer.config.numeraireBuybackPercentWad,
       );
-      expect(rehypeInitCalldata[5].toString()).toBe(
+      expect(rehypeInitCalldata.feeDistributionInfo.assetFeesToBeneficiaryWad.toString()).toBe(
         requestedInitializer.config.beneficiaryPercentWad,
       );
-      expect(rehypeInitCalldata[6].toString()).toBe(requestedInitializer.config.lpPercentWad);
+      expect(rehypeInitCalldata.feeDistributionInfo.assetFeesToLpWad.toString()).toBe(
+        requestedInitializer.config.lpPercentWad,
+      );
+      expect(rehypeInitCalldata.feeDistributionInfo.numeraireFeesToAssetBuybackWad.toString()).toBe(
+        requestedInitializer.config.assetBuybackPercentWad,
+      );
+      expect(
+        rehypeInitCalldata.feeDistributionInfo.numeraireFeesToNumeraireBuybackWad.toString(),
+      ).toBe(requestedInitializer.config.numeraireBuybackPercentWad);
+      expect(rehypeInitCalldata.feeDistributionInfo.numeraireFeesToBeneficiaryWad.toString()).toBe(
+        requestedInitializer.config.beneficiaryPercentWad,
+      );
+      expect(rehypeInitCalldata.feeDistributionInfo.numeraireFeesToLpWad.toString()).toBe(
+        requestedInitializer.config.lpPercentWad,
+      );
     }
 
     const status = await services.statusService.getLaunchStatus(createResponse.launchId);
@@ -1114,7 +1151,7 @@ const runMulticurveLaunchAndVerify = async (
         [
           'Vesting Duration / Recipient / Amount',
           decodedTokenFactoryData
-            ? `${decodedTokenFactoryData.vestingDuration.toString()} / ${decodedTokenFactoryData.recipients[0] ?? 'none'} / ${decodedTokenFactoryData.amounts[0]?.toString() ?? '0'}`
+            ? formatDecodedVestingData(decodedTokenFactoryData)
             : 'n/a (no allocations)',
         ],
         [
@@ -1232,6 +1269,8 @@ const runStaticLaunchAndVerify = async (args?: {
     requestedAllocationMode === 'none' || requestedAllocationMode === 'unlock'
       ? 0
       : (args?.allocations?.durationSeconds ?? DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS);
+  const expectedCliffDurationSeconds =
+    requestedAllocationMode === 'vest' ? (args?.allocations?.cliffDurationSeconds ?? 0) : 0;
   const salePercentIsDefault = args?.salePercent === undefined;
   const allocationRecipientIsDefault =
     explicitAllocations.length === 0 && !args?.allocations?.recipientAddress;
@@ -1445,13 +1484,13 @@ const runStaticLaunchAndVerify = async (args?: {
     );
     if (allocationAmount > 0n) {
       const decodedTokenFactoryData = decodeStandardTokenFactoryData(createArg.tokenFactoryData);
-      expect(decodedTokenFactoryData.vestingDuration).toBe(BigInt(allocationLockDurationSeconds));
-      expect(
-        decodedTokenFactoryData.recipients.map((recipient) => recipient.toLowerCase()),
-      ).toEqual(expectedVestingRecipients.map((recipient) => recipient.toLowerCase()));
-      expect(decodedTokenFactoryData.amounts.map((amount) => amount.toString())).toEqual(
-        expectedVestingAmounts.map((amount) => amount.toString()),
-      );
+      assertDecodedVestingData({
+        decoded: decodedTokenFactoryData,
+        expectedDurationSeconds: allocationLockDurationSeconds,
+        expectedCliffDurationSeconds,
+        expectedRecipients: expectedVestingRecipients,
+        expectedAmounts: expectedVestingAmounts,
+      });
     }
 
     const expectedPoolId =
@@ -1570,6 +1609,8 @@ const runDynamicLaunchAndVerify = async (args?: {
     requestedAllocationMode === 'none' || requestedAllocationMode === 'unlock'
       ? 0
       : (args?.allocations?.durationSeconds ?? DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS);
+  const expectedCliffDurationSeconds =
+    requestedAllocationMode === 'vest' ? (args?.allocations?.cliffDurationSeconds ?? 0) : 0;
   const salePercentIsDefault = args?.salePercent === undefined;
   const allocationRecipientIsDefault =
     explicitAllocations.length === 0 && !args?.allocations?.recipientAddress;
@@ -1824,13 +1865,13 @@ const runDynamicLaunchAndVerify = async (args?: {
     );
     if (allocationAmount > 0n) {
       const decodedTokenFactoryData = decodeStandardTokenFactoryData(createArg.tokenFactoryData);
-      expect(decodedTokenFactoryData.vestingDuration).toBe(BigInt(allocationLockDurationSeconds));
-      expect(
-        decodedTokenFactoryData.recipients.map((recipient) => recipient.toLowerCase()),
-      ).toEqual(expectedVestingRecipients.map((recipient) => recipient.toLowerCase()));
-      expect(decodedTokenFactoryData.amounts.map((amount) => amount.toString())).toEqual(
-        expectedVestingAmounts.map((amount) => amount.toString()),
-      );
+      assertDecodedVestingData({
+        decoded: decodedTokenFactoryData,
+        expectedDurationSeconds: allocationLockDurationSeconds,
+        expectedCliffDurationSeconds,
+        expectedRecipients: expectedVestingRecipients,
+        expectedAmounts: expectedVestingAmounts,
+      });
     }
 
     const status = await services.statusService.getLaunchStatus(createResponse.launchId);
@@ -2274,13 +2315,13 @@ const runCustomCurveWithRandomVestingAndAllocations = async () => {
     expect(createArg.numTokensToSell.toString()).toBe(tokensForSale.toString());
 
     const decodedTokenFactoryData = decodeStandardTokenFactoryData(createArg.tokenFactoryData);
-    expect(decodedTokenFactoryData.vestingDuration).toBe(BigInt(vestDurationSeconds));
-    expect(decodedTokenFactoryData.recipients.map((entry) => entry.toLowerCase())).toEqual(
-      allocations.map((entry) => entry.address.toLowerCase()),
-    );
-    expect(decodedTokenFactoryData.amounts.map((entry) => entry.toString())).toEqual(
-      allocations.map((entry) => entry.amount),
-    );
+    assertDecodedVestingData({
+      decoded: decodedTokenFactoryData,
+      expectedDurationSeconds: vestDurationSeconds,
+      expectedCliffDurationSeconds: cliffDurationSeconds,
+      expectedRecipients: allocations.map((entry) => entry.address),
+      expectedAmounts: allocations.map((entry) => BigInt(entry.amount)),
+    });
 
     const decodedPoolConfig = decodeInitializerPoolConfig(
       'standard',

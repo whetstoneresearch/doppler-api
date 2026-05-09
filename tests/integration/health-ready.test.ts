@@ -74,6 +74,48 @@ describe('health endpoints', () => {
           error: 'dependency unavailable',
         },
       ],
+      solana: {
+        enabled: false,
+        ok: true,
+        checks: [],
+      },
+    });
+  });
+
+  it('includes Solana readiness when Solana support is enabled', async () => {
+    app = await buildTestServer({
+      solanaEnabled: true,
+      solanaReadyCheckFails: true,
+    });
+
+    const ready = await app.inject({
+      method: 'GET',
+      url: '/ready',
+      headers: { 'x-api-key': 'test-key' },
+    });
+
+    expect(ready.statusCode).toBe(503);
+    expect(ready.json()).toEqual({
+      status: 'degraded',
+      checks: [
+        {
+          chainId: 84532,
+          ok: true,
+          latestBlock: '123',
+        },
+      ],
+      solana: {
+        enabled: true,
+        network: 'solanaDevnet',
+        ok: false,
+        checks: [
+          {
+            name: 'rpcReachable',
+            ok: false,
+            error: 'dependency unavailable',
+          },
+        ],
+      },
     });
   });
 });

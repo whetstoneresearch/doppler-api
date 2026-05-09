@@ -16,28 +16,12 @@ export class CoingeckoPriceProvider implements PriceProvider {
     this.config = config;
   }
 
-  async getUsdPrice(request: PriceRequest): Promise<number> {
-    if (!request.defaultNumeraireAddress) {
-      throw new AppError(
-        422,
-        'PRICE_UNSUPPORTED_NUMERAIRE',
-        `No default numeraire configured for chain ${request.chainId}; explicit pricing.numerairePriceUsd is required`,
-      );
-    }
-
-    if (request.numeraireAddress.toLowerCase() !== request.defaultNumeraireAddress.toLowerCase()) {
-      throw new AppError(
-        422,
-        'PRICE_UNSUPPORTED_NUMERAIRE',
-        `Auto pricing currently supports only the default numeraire for chain ${request.chainId}; provide pricing.numerairePriceUsd override`,
-      );
-    }
-
+  private async fetchUsdPriceForAssetId(assetId: string): Promise<number> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
     const url = new URL('/simple/price', this.config.baseUrl);
-    url.searchParams.set('ids', this.config.defaultAssetId);
+    url.searchParams.set('ids', assetId);
     url.searchParams.set('vs_currencies', 'usd');
 
     try {
@@ -58,7 +42,7 @@ export class CoingeckoPriceProvider implements PriceProvider {
       }
 
       const data = (await response.json()) as Record<string, { usd?: number }>;
-      const usd = data[this.config.defaultAssetId]?.usd;
+      const usd = data[assetId]?.usd;
       if (!usd || !Number.isFinite(usd) || usd <= 0) {
         throw new AppError(
           502,
@@ -74,5 +58,29 @@ export class CoingeckoPriceProvider implements PriceProvider {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  async getUsdPrice(request: PriceRequest): Promise<number> {
+    if (!request.defaultNumeraireAddress) {
+      throw new AppError(
+        422,
+        'PRICE_UNSUPPORTED_NUMERAIRE',
+        `No default numeraire configured for chain ${request.chainId}; explicit pricing.numerairePriceUsd is required`,
+      );
+    }
+
+    if (request.numeraireAddress.toLowerCase() !== request.defaultNumeraireAddress.toLowerCase()) {
+      throw new AppError(
+        422,
+        'PRICE_UNSUPPORTED_NUMERAIRE',
+        `Auto pricing currently supports only the default numeraire for chain ${request.chainId}; provide pricing.numerairePriceUsd override`,
+      );
+    }
+
+    return this.fetchUsdPriceForAssetId(this.config.defaultAssetId);
+  }
+
+  async getUsdPriceByAssetId(assetId: string): Promise<number> {
+    return this.fetchUsdPriceForAssetId(assetId);
   }
 }
