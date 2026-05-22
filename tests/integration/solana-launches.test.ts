@@ -26,7 +26,7 @@ describe('Solana create routes', () => {
         tokenMetadata: { name: 'Solana Token', symbol: 'SOLT', tokenURI: 'ipfs://solana-token' },
         economics: { totalSupply: '1000' },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -104,7 +104,7 @@ describe('Solana create routes', () => {
         tokenMetadata: { name: 'Default Network', symbol: 'DNET', tokenURI: 'ipfs://default' },
         economics: { totalSupply: '1000' },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -134,7 +134,7 @@ describe('Solana create routes', () => {
         tokenMetadata: { name: 'Generic Solana', symbol: 'GSOL', tokenURI: 'ipfs://gsol' },
         economics: { totalSupply: '1000' },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -142,7 +142,7 @@ describe('Solana create routes', () => {
             marketCapStartUsd: 100,
             marketCapEndUsd: 1000,
           },
-          curveFeeBps: 25,
+          swapFeeBps: 25,
           allowBuy: true,
           allowSell: false,
         },
@@ -153,10 +153,11 @@ describe('Solana create routes', () => {
     const body = response.json();
     expect(body.network).toBe('solanaDevnet');
     expect(body.effectiveConfig.curveFeeBps).toBe(25);
+    expect(body.effectiveConfig.swapFeeBps).toBe(25);
     expect(body.effectiveConfig.allowSell).toBe(false);
   });
 
-  it('accepts Solana reserve splits and reflects them in the effective config', async () => {
+  it('rejects Solana reserve splits until a supported migrator exists', async () => {
     app = await buildTestServer({ solanaEnabled: true });
 
     const response = await app.inject({
@@ -173,7 +174,7 @@ describe('Solana create routes', () => {
           baseForLiquidity: '200',
         },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -185,13 +186,8 @@ describe('Solana create routes', () => {
       },
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json().effectiveConfig).toMatchObject({
-      tokensForSale: '700',
-      allocationAmount: '100',
-      baseForDistribution: '100',
-      baseForLiquidity: '200',
-    });
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error.code).toBe('SOLANA_INVALID_ECONOMICS');
   });
 
   it('rejects short Solana network aliases on the generic route', async () => {
@@ -208,7 +204,7 @@ describe('Solana create routes', () => {
         tokenMetadata: { name: 'Wrong Generic', symbol: 'WGEN', tokenURI: 'ipfs://wrong' },
         economics: { totalSupply: '1000' },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -246,7 +242,7 @@ describe('Solana create routes', () => {
           tokensForSale: '500',
         },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -279,7 +275,7 @@ describe('Solana create routes', () => {
         },
         economics: { totalSupply: '1000' },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -308,7 +304,7 @@ describe('Solana create routes', () => {
         tokenMetadata: { name: 'Curve Token', symbol: 'CURVE', tokenURI: 'ipfs://curve' },
         economics: { totalSupply: '1000' },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -332,7 +328,7 @@ describe('Solana create routes', () => {
       tokenMetadata: { name: 'Replay Token', symbol: 'RPLY', tokenURI: 'ipfs://replay' },
       economics: { totalSupply: '1000' },
       governance: false,
-      migration: { type: 'noOp' as const },
+      migration: { type: 'none' as const },
       auction: {
         type: 'xyk' as const,
         curveConfig: {
@@ -383,7 +379,7 @@ describe('Solana create routes', () => {
         tokenMetadata: { name: 'Mismatch A', symbol: 'MSHA', tokenURI: 'ipfs://a' },
         economics: { totalSupply: '1000' },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -407,7 +403,7 @@ describe('Solana create routes', () => {
         tokenMetadata: { name: 'Mismatch B', symbol: 'MSHB', tokenURI: 'ipfs://b' },
         economics: { totalSupply: '1000' },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -449,7 +445,7 @@ describe('Solana create routes', () => {
         tokenMetadata: { name: 'Not Ready', symbol: 'NORD', tokenURI: 'ipfs://not-ready' },
         economics: { totalSupply: '1000' },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -500,7 +496,7 @@ describe('Solana create routes', () => {
           tokenMetadata: { name: 'Failed Launch', symbol: 'FAIL', tokenURI: 'ipfs://fail' },
           economics: { totalSupply: '1000' },
           governance: false,
-          migration: { type: 'noOp' },
+          migration: { type: 'none' },
           auction: {
             type: 'xyk',
             curveConfig: {
@@ -548,7 +544,7 @@ describe('Solana create routes', () => {
         tokenMetadata: { name: 'In Doubt', symbol: 'DOUBT', tokenURI: 'ipfs://doubt' },
         economics: { totalSupply: '1000' },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {

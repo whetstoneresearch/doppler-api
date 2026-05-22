@@ -6,6 +6,7 @@ import {
   assertAccountExists,
   createSolanaRpc,
   fetchEncodedAccount,
+  generateKeyPairSigner,
   signature as toSolanaSignature,
 } from '@solana/kit';
 import { initializer } from '@whetstone-research/doppler-sdk/solana';
@@ -49,6 +50,11 @@ const nextTokenMetadata = (prefix: string) => {
       .slice(0, 4)}${suffix}`.slice(0, 10),
     tokenURI: `ipfs://live-solana/${prefix.toLowerCase()}/${Date.now()}-${suffix.toLowerCase()}`,
   };
+};
+
+const nextFeeBeneficiaries = async () => {
+  const beneficiary = await generateKeyPairSigner();
+  return [{ address: beneficiary.address, shareBps: SOLANA_CONSTANTS.feeBpsDenominator }];
 };
 
 const createLiveApp = async () => {
@@ -177,27 +183,39 @@ const verifySuccessfulSolanaLaunch = async (args: {
     expect(body.effectiveConfig.allocationLockMode).toBe('none');
     expect(body.effectiveConfig.numeraireAddress).toBe(String(SOLANA_CONSTANTS.wsolMintAddress));
     expect(body.effectiveConfig.tokenDecimals).toBe(SOLANA_CONSTANTS.tokenDecimals);
-    expect(body.effectiveConfig.curveFeeBps).toBe(args.expectedCurveFeeBps ?? 0);
+    expect(body.effectiveConfig.swapFeeBps).toBe(body.effectiveConfig.curveFeeBps);
+    if (args.expectedCurveFeeBps !== undefined) {
+      expect(body.effectiveConfig.curveFeeBps).toBe(args.expectedCurveFeeBps);
+    } else {
+      expect(body.effectiveConfig.curveFeeBps).toBeGreaterThanOrEqual(0);
+    }
     expect(body.effectiveConfig.allowBuy).toBe(args.expectedAllowBuy ?? true);
     expect(body.effectiveConfig.allowSell).toBe(args.expectedAllowSell ?? true);
     if (args.expectedNumerairePriceUsd !== undefined) {
       expect(body.effectiveConfig.numerairePriceUsd).toBe(args.expectedNumerairePriceUsd);
     }
 
+    if (args.payload.feeBeneficiaries?.length) {
+      expect(body.effectiveConfig.feeBeneficiariesSource).toBe('request');
+      expect(body.effectiveConfig.feeBeneficiaries).toEqual(args.payload.feeBeneficiaries);
+    }
+
     const distinctAddresses = new Set([
       body.launchId,
       body.predicted.tokenAddress,
       body.predicted.launchAuthorityAddress,
+      body.predicted.launchFeeStateAddress,
       body.predicted.baseVaultAddress,
       body.predicted.quoteVaultAddress,
     ]);
-    expect(distinctAddresses.size).toBe(5);
+    expect(distinctAddresses.size).toBe(6);
 
     const rpc = createSolanaRpc(config.solana.devnetRpcUrl);
     await waitForConfirmedSignature(rpc, body.signature);
 
     await assertSolanaAccountExists(rpc, body.launchId);
     await assertSolanaAccountExists(rpc, body.predicted.tokenAddress);
+    await assertSolanaAccountExists(rpc, body.predicted.launchFeeStateAddress);
     await assertSolanaAccountExists(rpc, body.predicted.baseVaultAddress);
     await assertSolanaAccountExists(rpc, body.predicted.quoteVaultAddress);
 
@@ -293,9 +311,10 @@ export const registerSolanaLiveScenarios = () => {
           pricing: {
             numerairePriceUsd: 150,
           },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
           governance: false,
           migration: {
-            type: 'noOp',
+            type: 'none',
           },
           auction: {
             type: 'xyk',
@@ -331,9 +350,10 @@ export const registerSolanaLiveScenarios = () => {
           pricing: {
             numerairePriceUsd: 175,
           },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
           governance: false,
           migration: {
-            type: 'noOp',
+            type: 'none',
           },
           auction: {
             type: 'xyk',
@@ -342,12 +362,12 @@ export const registerSolanaLiveScenarios = () => {
               marketCapStartUsd: 250,
               marketCapEndUsd: 12500,
             },
-            curveFeeBps: 37,
+            swapFeeBps: 50,
             allowBuy: true,
             allowSell: false,
           },
         },
-        expectedCurveFeeBps: 37,
+        expectedCurveFeeBps: 50,
         expectedAllowBuy: true,
         expectedAllowSell: false,
         expectedNumerairePriceUsd: 175,
@@ -373,9 +393,10 @@ export const registerSolanaLiveScenarios = () => {
           pricing: {
             numerairePriceUsd: 160,
           },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
           governance: false,
           migration: {
-            type: 'noOp',
+            type: 'none',
           },
           auction: {
             type: 'xyk',
@@ -393,12 +414,13 @@ export const registerSolanaLiveScenarios = () => {
   );
 
   liveIt(
-    'SOLANA DEVNET Reserve Split',
-    ['solana', 'solana-devnet', 'solana-defaults'],
+    'SOLANA Dedicated Route Rejects Reserve Split',
+    ['solana', 'solana-devnet', 'solana-failing'],
     async () => {
-      await verifySuccessfulSolanaLaunch({
-        configLabel: 'SOLANA DEVNET Reserve Split',
+      await verifyFailedSolanaLaunch({
         route: 'dedicated',
+        expectedStatusCode: 422,
+        expectedCode: 'SOLANA_INVALID_ECONOMICS',
         payload: {
           network: 'devnet',
           tokenMetadata: nextTokenMetadata('reserve'),
@@ -412,7 +434,7 @@ export const registerSolanaLiveScenarios = () => {
           },
           governance: false,
           migration: {
-            type: 'noOp',
+            type: 'none',
           },
           auction: {
             type: 'xyk',
@@ -423,9 +445,6 @@ export const registerSolanaLiveScenarios = () => {
             },
           },
         },
-        expectedNumerairePriceUsd: 150,
-        expectedBaseForDistribution: '100000000',
-        expectedBaseForLiquidity: '150000000',
       });
     },
     SOLANA_LIVE_TIMEOUT_MS,
@@ -440,7 +459,7 @@ export const registerSolanaLiveScenarios = () => {
       ).toString();
       const marketCapStartUsd = 75 + Math.floor(Math.random() * 425);
       const marketCapEndUsd = marketCapStartUsd * (4 + Math.floor(Math.random() * 9));
-      const curveFeeBps = Math.floor(Math.random() * 101);
+      const curveFeeBps = 50 + Math.floor(Math.random() * 951);
       let allowBuy = Math.random() >= 0.35;
       let allowSell = Math.random() >= 0.35;
       if (!allowBuy && !allowSell) {
@@ -460,9 +479,10 @@ export const registerSolanaLiveScenarios = () => {
           pricing: {
             numerairePriceUsd,
           },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
           governance: false,
           migration: {
-            type: 'noOp',
+            type: 'none',
           },
           auction: {
             type: 'xyk',
@@ -471,7 +491,7 @@ export const registerSolanaLiveScenarios = () => {
               marketCapStartUsd,
               marketCapEndUsd,
             },
-            curveFeeBps,
+            swapFeeBps: curveFeeBps,
             allowBuy,
             allowSell,
           },
@@ -504,7 +524,7 @@ export const registerSolanaLiveScenarios = () => {
           },
           governance: false,
           migration: {
-            type: 'noOp',
+            type: 'none',
           },
           auction: {
             type: 'xyk',
@@ -519,7 +539,6 @@ export const registerSolanaLiveScenarios = () => {
     },
     SOLANA_LIVE_TIMEOUT_MS,
   );
-
   liveIt(
     'SOLANA Dedicated Route Rejects Mainnet Beta Execution',
     ['solana', 'solana-devnet', 'solana-failing'],
@@ -539,7 +558,7 @@ export const registerSolanaLiveScenarios = () => {
           },
           governance: false,
           migration: {
-            type: 'noOp',
+            type: 'none',
           },
           auction: {
             type: 'xyk',
@@ -577,7 +596,7 @@ export const registerSolanaLiveScenarios = () => {
           },
           governance: false,
           migration: {
-            type: 'noOp',
+            type: 'none',
           },
           auction: {
             type: 'xyk',
@@ -612,7 +631,7 @@ export const registerSolanaLiveScenarios = () => {
           },
           governance: false,
           migration: {
-            type: 'noOp',
+            type: 'none',
           },
           auction: {
             type: 'xyk',

@@ -201,6 +201,7 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
         marketCapEndUsd?: number;
       };
       curveFeeBps?: number;
+      swapFeeBps?: number;
       allowBuy?: boolean;
       allowSell?: boolean;
     };
@@ -209,6 +210,7 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
     const baseForDistribution = BigInt(payload?.economics?.baseForDistribution ?? '0');
     const baseForLiquidity = BigInt(payload?.economics?.baseForLiquidity ?? '0');
     const tokensForSale = (BigInt(totalSupply) - baseForDistribution - baseForLiquidity).toString();
+    const swapFeeBps = payload?.auction?.swapFeeBps ?? payload?.auction?.curveFeeBps ?? 0;
 
     return {
       launchId: '8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
@@ -221,6 +223,7 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
       predicted: {
         tokenAddress: '6QWeT6FpJrm8AF1btu6WH2k2Xhq6t5vbheKVfQavmeoZ',
         launchAuthorityAddress: 'E7Ud4m8S7fC2YdUQdL7p9V2sRrMfQjQ9fA5spuR4T9gQ',
+        launchFeeStateAddress: 'F7Ud4m8S7fC2YdUQdL7p9V2sRrMfQjQ9fA5spuR4T9gR',
         baseVaultAddress: '9xQeWvG816bUx9EPjHmaT23yvVMHh2eHq9cYqB9Yg6xT',
         quoteVaultAddress: 'J1veWvV6BF8L7rN8D66zCFAaj6MqFmoVoeAQMtkP8dwF',
       },
@@ -235,7 +238,10 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
         numerairePriceUsd: payload?.pricing?.numerairePriceUsd ?? 100,
         curveVirtualBase: '1000000000',
         curveVirtualQuote: '100000000',
-        curveFeeBps: payload?.auction?.curveFeeBps ?? 0,
+        curveFeeBps: swapFeeBps,
+        swapFeeBps,
+        feeBeneficiariesSource: 'default' as const,
+        feeBeneficiaries: [],
         allowBuy: payload?.auction?.allowBuy ?? true,
         allowSell: payload?.auction?.allowSell ?? true,
         tokenDecimals: 9,
@@ -256,7 +262,6 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
           };
         };
       };
-
       if (solanaInput.network === 'solanaMainnetBeta') {
         throw new AppError(
           501,
@@ -364,7 +369,12 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
           curveVirtualBase: '1000000000',
           curveVirtualQuote: '100000000',
           curveFeeBps: 25,
+          swapFeeBps: 25,
           allowBuy: true,
+          hookProgram: '11111111111111111111111111111111',
+          hookFlags: 0,
+          migratorProgram: '11111111111111111111111111111111',
+          quoteDeposited: '0',
           allowSell: false,
           tokenDecimals: 9,
         };

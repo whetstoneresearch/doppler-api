@@ -77,7 +77,7 @@ describe('Solana launch helpers', () => {
       tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
       economics: { totalSupply: '1000' },
       governance: false,
-      migration: { type: 'noOp' },
+      migration: { type: 'none' },
       auction: {
         type: 'xyk',
         curveConfig: {
@@ -98,7 +98,7 @@ describe('Solana launch helpers', () => {
       tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
       economics: { totalSupply: '1000' },
       governance: false,
-      migration: { type: 'noOp' },
+      migration: { type: 'none' },
       auction: {
         type: 'xyk',
         curveConfig: {
@@ -124,7 +124,7 @@ describe('Solana launch helpers', () => {
           tokensForSale: '100',
         },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -137,29 +137,28 @@ describe('Solana launch helpers', () => {
     ).toThrow(/unrecognized key/i);
   });
 
-  it('accepts optional Solana distribution and liquidity reserves', () => {
-    const parsed = genericSolanaCreateLaunchRequestSchema.parse({
-      network: 'solanaDevnet',
-      tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
-      economics: {
-        totalSupply: '1000',
-        baseForDistribution: '100',
-        baseForLiquidity: '200',
-      },
-      governance: false,
-      migration: { type: 'noOp' },
-      auction: {
-        type: 'xyk',
-        curveConfig: {
-          type: 'range',
-          marketCapStartUsd: 100,
-          marketCapEndUsd: 1000,
+  it('rejects Solana reserve splits until a supported migrator exists', () => {
+    expect(() =>
+      genericSolanaCreateLaunchRequestSchema.parse({
+        network: 'solanaDevnet',
+        tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+        economics: {
+          totalSupply: '1000',
+          baseForDistribution: '100',
+          baseForLiquidity: '200',
         },
-      },
-    });
-
-    expect(parsed.economics.baseForDistribution).toBe('100');
-    expect(parsed.economics.baseForLiquidity).toBe('200');
+        governance: false,
+        migration: { type: 'none' },
+        auction: {
+          type: 'xyk',
+          curveConfig: {
+            type: 'range',
+            marketCapStartUsd: 100,
+            marketCapEndUsd: 1000,
+          },
+        },
+      }),
+    ).toThrow(/require a supported Solana migrator/i);
   });
 
   it('rejects governance, migration, and auction shapes that are outside the Solana profile', () => {
@@ -192,7 +191,7 @@ describe('Solana launch helpers', () => {
         },
         economics: { totalSupply: '1000' },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -210,7 +209,7 @@ describe('Solana launch helpers', () => {
         tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
         economics: { totalSupply: '18446744073709551616' },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -270,7 +269,7 @@ describe('Solana launch helpers', () => {
           baseForLiquidity: '500',
         },
         governance: false,
-        migration: { type: 'noOp' },
+        migration: { type: 'none' },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -290,15 +289,15 @@ describe('Solana launch helpers', () => {
     expect(zeroHash).toHaveLength(32);
     expect(zeroHash.every((value) => value === 0)).toBe(true);
     expect(zeroHash).not.toEqual(Array.from(initializer.EMPTY_REMAINING_ACCOUNTS_HASH));
-    expect(Array.from(disabledHookArgs.sentinelCreateRemainingAccountsHash)).toEqual(zeroHash);
-    expect(Array.from(disabledHookArgs.sentinelRemainingAccountsHash)).toEqual(zeroHash);
+    expect(Array.from(disabledHookArgs.hookCreateRemainingAccountsHash)).toEqual(zeroHash);
+    expect(Array.from(disabledHookArgs.hookRemainingAccountsHash)).toEqual(zeroHash);
     expect(Array.from(disabledHookArgs.migratorInitRemainingAccountsHash)).toEqual(zeroHash);
     expect(Array.from(disabledHookArgs.migratorRemainingAccountsHash)).toEqual(zeroHash);
-    expect(disabledHookArgs.sentinelFlags).toBe(0);
-    expect(disabledHookArgs.sentinelCreateRemainingAccountsLen).toBe(0);
-    expect(disabledHookArgs.sentinelCalldata).toHaveLength(0);
-    expect(disabledHookArgs.migratorInitCalldata).toHaveLength(0);
-    expect(disabledHookArgs.migratorMigrateCalldata).toHaveLength(0);
+    expect(disabledHookArgs.hookFlags).toBe(0);
+    expect(disabledHookArgs.hookCreateRemainingAccountsLen).toBe(0);
+    expect(disabledHookArgs.hookPayload).toHaveLength(0);
+    expect(disabledHookArgs.migratorInitPayload).toHaveLength(0);
+    expect(disabledHookArgs.migratorMigratePayload).toHaveLength(0);
   });
 
   it('resolves Solana numeraire price by request override, fixed env price, then CoinGecko', async () => {

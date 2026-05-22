@@ -59,29 +59,31 @@ Generic create endpoint.
 - `economics: { totalSupply, baseForDistribution?, baseForLiquidity? }`
 - `pairing?: { numeraireAddress? }`
 - `pricing?: { numerairePriceUsd? }`
+- `feeBeneficiaries?: [{ address, shareBps }]`
 - `governance?: false`
-- `migration?: { type: "noOp" }`
+- `migration?: { type: "none" }`
 - `auction:`
   - `type: "xyk"`
   - `curveConfig: { type: "range", marketCapStartUsd, marketCapEndUsd }`
-  - `curveFeeBps?: number`
+  - `swapFeeBps?: number` preferred; `curveFeeBps?: number` is a backward-compatible alias
   - `allowBuy?: boolean`
   - `allowSell?: boolean`
 
 #### Solana request constraints
 
-- Solana create endpoints do not expose a status route.
+- Solana create responses include `statusUrl` for `GET /v1/solana/launches/:launchAddress`.
 - `solanaMainnetBeta` is scaffolded but returns `501 SOLANA_NETWORK_UNSUPPORTED`.
 - WSOL is the only supported numeraire.
-- `economics.baseForDistribution` and `economics.baseForLiquidity` default to `0`.
-- `economics.baseForDistribution + economics.baseForLiquidity` must be less than `economics.totalSupply`.
+- `migration.type="none"` launches trade on the initializer curve indefinitely without migrating to an external AMM.
+- `economics.baseForDistribution` and `economics.baseForLiquidity` must be omitted or `0` unless a supported Solana migrator is configured.
+- Non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` until a supported Solana migrator is configured.
+- `feeBeneficiaries` supports up to 8 unique Solana addresses, uses `shareBps`, and custom shares must sum to `10000`. If the API payer is the initializer protocol beneficiary, provide a non-protocol beneficiary list.
 - Unsupported fields are rejected instead of ignored, including:
   - `economics.tokensForSale`
   - allocations / vesting fields
-  - fee beneficiaries
   - prediction-market fields
   - `governance !== false`
-  - `migration.type !== "noOp"`
+  - `migration.type !== "none"`
   - non-`xyk` auction payloads
 
 #### Response `200`
@@ -98,8 +100,8 @@ Solana response:
 - `network`
 - `signature`
 - `explorerUrl`
-- `predicted: { tokenAddress, launchAuthorityAddress, baseVaultAddress, quoteVaultAddress }`
-- `effectiveConfig: { tokensForSale, allocationAmount, baseForDistribution, baseForLiquidity, allocationLockMode, numeraireAddress, numerairePriceUsd, curveVirtualBase, curveVirtualQuote, curveFeeBps, allowBuy, allowSell, tokenDecimals }`
+- `predicted: { tokenAddress, launchAuthorityAddress, launchFeeStateAddress, baseVaultAddress, quoteVaultAddress }`
+- `effectiveConfig: { tokensForSale, allocationAmount, baseForDistribution, baseForLiquidity, allocationLockMode, numeraireAddress, numerairePriceUsd, curveVirtualBase, curveVirtualQuote, curveFeeBps, swapFeeBps, feeBeneficiariesSource, feeBeneficiaries, allowBuy, allowSell, tokenDecimals }`
 
 #### Idempotency header
 
@@ -139,9 +141,10 @@ Dedicated Solana create endpoint.
 - `economics: { totalSupply, baseForDistribution?, baseForLiquidity? }`
 - `pairing?: { numeraireAddress? }`
 - `pricing?: { numerairePriceUsd? }`
+- `feeBeneficiaries?: [{ address, shareBps }]`
 - `governance?: false`
-- `migration?: { type: "noOp" }`
-- `auction: { type: "xyk", curveConfig: { type: "range", marketCapStartUsd, marketCapEndUsd }, curveFeeBps?, allowBuy?, allowSell? }`
+- `migration?: { type: "none" }`
+- `auction: { type: "xyk", curveConfig: { type: "range", marketCapStartUsd, marketCapEndUsd }, swapFeeBps?, curveFeeBps?, allowBuy?, allowSell? }`
 
 #### Response `200`
 
@@ -155,7 +158,9 @@ Dedicated Solana create endpoint.
 - non-WSOL numeraire -> `422 SOLANA_NUMERAIRE_UNSUPPORTED`
 - missing price after request/env/provider resolution -> `422 SOLANA_NUMERAIRE_PRICE_REQUIRED`
 - invalid metadata -> `422 SOLANA_INVALID_METADATA`
+- invalid economics or unsupported reserves -> `422 SOLANA_INVALID_ECONOMICS`
 - invalid market-cap range or fee input -> `422 SOLANA_INVALID_CURVE`
+- invalid fee beneficiaries -> `422 SOLANA_INVALID_FEE_BENEFICIARIES`
 - readiness failure -> `503 SOLANA_NOT_READY`
 - simulation failure -> `422 SOLANA_SIMULATION_FAILED`
 - submission failure -> `502 SOLANA_SUBMISSION_FAILED`
@@ -178,7 +183,8 @@ Returns devnet Solana launch account state.
 - `phase: { code, label }`
 - launch authority, namespace, mint, and vault addresses
 - supply split fields: `baseTotalSupply`, `baseForDistribution`, `baseForLiquidity`, `baseForCurve`
-- curve fields: `curveVirtualBase`, `curveVirtualQuote`, `curveFeeBps`, `allowBuy`, `allowSell`
+- curve fields: `curveVirtualBase`, `curveVirtualQuote`, `curveFeeBps`, `swapFeeBps`, `allowBuy`, `allowSell`
+- hook/migrator fields: `hookProgram`, `hookFlags`, `migratorProgram`, `quoteDeposited`
 
 #### Error responses
 

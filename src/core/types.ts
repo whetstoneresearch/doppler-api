@@ -222,8 +222,14 @@ export interface CreateLaunchResponse {
 export interface CreateSolanaLaunchPredicted {
   tokenAddress: string;
   launchAuthorityAddress: string;
+  launchFeeStateAddress: string;
   baseVaultAddress: string;
   quoteVaultAddress: string;
+}
+
+export interface SolanaFeeBeneficiaryEffective {
+  address: string;
+  shareBps: number;
 }
 
 export interface SolanaEffectiveLaunchConfig {
@@ -237,6 +243,9 @@ export interface SolanaEffectiveLaunchConfig {
   curveVirtualBase: string;
   curveVirtualQuote: string;
   curveFeeBps: number;
+  swapFeeBps: number;
+  feeBeneficiariesSource: 'default' | 'request';
+  feeBeneficiaries: SolanaFeeBeneficiaryEffective[];
   allowBuy: boolean;
   allowSell: boolean;
   tokenDecimals: number;
@@ -298,8 +307,13 @@ export interface SolanaLaunchReadResponse {
   curveVirtualBase: string;
   curveVirtualQuote: string;
   curveFeeBps: number;
+  swapFeeBps: number;
   allowBuy: boolean;
   allowSell: boolean;
+  hookProgram: string;
+  hookFlags: number;
+  migratorProgram: string;
+  quoteDeposited: string;
   tokenDecimals: number;
 }
 

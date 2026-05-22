@@ -181,7 +181,7 @@ content-type: application/json
   },
   "governance": false,
   "migration": {
-    "type": "noOp"
+    "type": "none"
   },
   "auction": {
     "type": "xyk",
@@ -190,7 +190,7 @@ content-type: application/json
       "marketCapStartUsd": 100,
       "marketCapEndUsd": 1000
     },
-    "curveFeeBps": 25,
+    "swapFeeBps": 25,
     "allowBuy": true,
     "allowSell": true
   }
@@ -356,6 +356,7 @@ Dynamic is intended for assets with well-known value that benefit from maximally
   "predicted": {
     "tokenAddress": "6QWeT6FpJrm8AF1btu6WH2k2Xhq6t5vbheKVfQavmeoZ",
     "launchAuthorityAddress": "E7Ud4m8S7fC2YdUQdL7p9V2sRrMfQjQ9fA5spuR4T9gQ",
+    "launchFeeStateAddress": "F7Ud4m8S7fC2YdUQdL7p9V2sRrMfQjQ9fA5spuR4T9gR",
     "baseVaultAddress": "9xQeWvG816bUx9EPjHmaT23yvVMHh2eHq9cYqB9Yg6xT",
     "quoteVaultAddress": "J1veWvV6BF8L7rN8D66zCFAaj6MqFmoVoeAQMtkP8dwF"
   },
@@ -370,6 +371,9 @@ Dynamic is intended for assets with well-known value that benefit from maximally
     "curveVirtualBase": "1000000000",
     "curveVirtualQuote": "100000000",
     "curveFeeBps": 25,
+    "swapFeeBps": 25,
+    "feeBeneficiariesSource": "default",
+    "feeBeneficiaries": [],
     "allowBuy": true,
     "allowSell": true,
     "tokenDecimals": 9
@@ -476,17 +480,23 @@ Example `GET /health`:
 - Solana create-only rules:
   - use `POST /v1/solana/launches` or `POST /v1/launches` with `network: "solanaDevnet" | "solanaMainnetBeta"`
   - short Solana aliases are accepted only on the dedicated route
-  - `launchId` is a launch PDA and no Solana `statusUrl` is returned
+  - `launchId` is a launch PDA and `statusUrl` points to `GET /v1/solana/launches/:launchAddress`
   - only WSOL is supported as numeraire
   - Solana rejects unsupported EVM-only fields instead of ignoring them
-- `economics.baseForDistribution` and `economics.baseForLiquidity` are optional:
-  - if omitted, both default to `0`
-  - both must be u64 integer strings
-  - their sum must be less than `totalSupply`
-  - `tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`
-- Solana effective config reports:
-  - `allocationAmount = baseForDistribution`
-  - `baseForLiquidity` separately from distribution reserves
+- Solana `migration.type="none"` launches trade on the initializer curve indefinitely:
+  - omit `economics.baseForDistribution` and `economics.baseForLiquidity`, or set both to `0`
+  - non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` until a supported Solana migrator is configured
+  - `tokensForSale = totalSupply`
+- Solana auction fee input:
+  - prefer `auction.swapFeeBps`; `auction.curveFeeBps` remains accepted as a backward-compatible alias
+  - if omitted, the API uses the on-chain initializer minimum swap fee
+  - request values must be within the on-chain initializer min/max swap-fee bounds
+- Solana fee beneficiaries:
+  - optional `feeBeneficiaries: [{ address, shareBps }]` splits the post-protocol-fee share
+  - custom lists support up to 8 unique addresses and `shareBps` must sum to `10000`
+  - omitted beneficiaries default to the API payer when the protocol fee leaves a post-protocol share
+  - if the API payer is the initializer protocol beneficiary, callers must provide a non-protocol beneficiary list
+  - the initializer protocol beneficiary is rejected in request/default beneficiaries
 - Multicurve initializer:
   - default is `standard` (implemented as scheduled with `startTime=0`).
   - `scheduled` requires `auction.initializer.startTime`.

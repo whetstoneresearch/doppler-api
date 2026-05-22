@@ -804,6 +804,10 @@ components:
     SolanaEconomics:
       type: object
       additionalProperties: false
+      description: >
+        Solana launches with migration.type=none trade on the initializer curve indefinitely.
+        baseForDistribution and baseForLiquidity must be omitted or set to 0
+        until a supported Solana migrator is configured.
       properties:
         totalSupply:
           type: string
@@ -828,13 +832,24 @@ components:
         numerairePriceUsd:
           type: number
           exclusiveMinimum: 0
+    SolanaFeeBeneficiary:
+      type: object
+      additionalProperties: false
+      properties:
+        address:
+          $ref: '#/components/schemas/SolanaAddress'
+        shareBps:
+          type: integer
+          minimum: 1
+          maximum: 10000
+      required: [address, shareBps]
     SolanaMigration:
       type: object
       additionalProperties: false
       properties:
         type:
           type: string
-          const: noOp
+          const: none
       required: [type]
     SolanaCurveConfig:
       type: object
@@ -863,6 +878,12 @@ components:
           type: integer
           minimum: 0
           maximum: 10000
+          description: Backward-compatible alias for swapFeeBps.
+        swapFeeBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: Preferred Solana swap fee input; constrained by on-chain initializer min/max.
         allowBuy:
           type: boolean
         allowSell:
@@ -882,6 +903,12 @@ components:
           $ref: '#/components/schemas/SolanaPairing'
         pricing:
           $ref: '#/components/schemas/SolanaPricing'
+        feeBeneficiaries:
+          type: array
+          maxItems: 8
+          description: Optional post-protocol-fee split. Custom shareBps values must sum to 10000.
+          items:
+            $ref: '#/components/schemas/SolanaFeeBeneficiary'
         governance:
           type: boolean
           enum: [false]
@@ -904,6 +931,12 @@ components:
           $ref: '#/components/schemas/SolanaPairing'
         pricing:
           $ref: '#/components/schemas/SolanaPricing'
+        feeBeneficiaries:
+          type: array
+          maxItems: 8
+          description: Optional post-protocol-fee split. Custom shareBps values must sum to 10000.
+          items:
+            $ref: '#/components/schemas/SolanaFeeBeneficiary'
         governance:
           type: boolean
           enum: [false]
@@ -1080,11 +1113,20 @@ components:
               $ref: '#/components/schemas/SolanaAddress'
             launchAuthorityAddress:
               $ref: '#/components/schemas/SolanaAddress'
+            launchFeeStateAddress:
+              $ref: '#/components/schemas/SolanaAddress'
             baseVaultAddress:
               $ref: '#/components/schemas/SolanaAddress'
             quoteVaultAddress:
               $ref: '#/components/schemas/SolanaAddress'
-          required: [tokenAddress, launchAuthorityAddress, baseVaultAddress, quoteVaultAddress]
+          required:
+            [
+              tokenAddress,
+              launchAuthorityAddress,
+              launchFeeStateAddress,
+              baseVaultAddress,
+              quoteVaultAddress,
+            ]
         effectiveConfig:
           type: object
           properties:
@@ -1109,6 +1151,15 @@ components:
               type: string
             curveFeeBps:
               type: integer
+            swapFeeBps:
+              type: integer
+            feeBeneficiariesSource:
+              type: string
+              enum: [default, request]
+            feeBeneficiaries:
+              type: array
+              items:
+                $ref: '#/components/schemas/SolanaFeeBeneficiary'
             allowBuy:
               type: boolean
             allowSell:
@@ -1127,6 +1178,9 @@ components:
               curveVirtualBase,
               curveVirtualQuote,
               curveFeeBps,
+              swapFeeBps,
+              feeBeneficiariesSource,
+              feeBeneficiaries,
               allowBuy,
               allowSell,
               tokenDecimals,
@@ -1174,10 +1228,20 @@ components:
           type: string
         curveFeeBps:
           type: integer
+        swapFeeBps:
+          type: integer
         allowBuy:
           type: boolean
         allowSell:
           type: boolean
+        hookProgram:
+          $ref: '#/components/schemas/SolanaAddress'
+        hookFlags:
+          type: integer
+        migratorProgram:
+          $ref: '#/components/schemas/SolanaAddress'
+        quoteDeposited:
+          type: string
         tokenDecimals:
           type: integer
       required:
@@ -1198,8 +1262,13 @@ components:
           curveVirtualBase,
           curveVirtualQuote,
           curveFeeBps,
+          swapFeeBps,
           allowBuy,
           allowSell,
+          hookProgram,
+          hookFlags,
+          migratorProgram,
+          quoteDeposited,
           tokenDecimals,
         ]
     LaunchStatusResult:

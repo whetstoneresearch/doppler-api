@@ -54,7 +54,10 @@ All errors are returned as:
 - `SOLANA_NUMERAIRE_PRICE_REQUIRED`
   - no request override, fixed price, or CoinGecko price was available
 - `SOLANA_INVALID_METADATA`
+- `SOLANA_INVALID_ECONOMICS`
+  - non-zero reserve fields without a supported Solana migrator or invalid Solana supply economics
 - `SOLANA_INVALID_CURVE`
+- `SOLANA_INVALID_FEE_BENEFICIARIES`
 - `SOLANA_NOT_READY`
   - readiness gates failed before create
 - `SOLANA_SIMULATION_FAILED`

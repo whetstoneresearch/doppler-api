@@ -79,7 +79,7 @@ Redis-backed idempotency writes `in_progress` markers for EVM flows and also per
 - `SOLANA_CONFIRM_TIMEOUT_MS`
   - confirmation wait before returning `409 IDEMPOTENCY_KEY_IN_DOUBT`
 - `SOLANA_DEVNET_ALT_ADDRESS`
-  - optional override for the default devnet ALT used on launch transactions
+  - optional readiness check for operators that still want to verify a devnet ALT
 - `SOLANA_PRICE_MODE`
   - allowed: `required`, `fixed`, `coingecko`
 - `SOLANA_FIXED_NUMERAIRE_PRICE_USD`
@@ -104,7 +104,7 @@ When `SOLANA_ENABLED=true`, startup fails fast for static config errors:
 - Only `solanaDevnet` is executable in this API profile.
 - `solanaMainnetBeta` is scaffolded in config and capabilities but returns `501 SOLANA_NETWORK_UNSUPPORTED`.
 - WSOL is the only supported Solana numeraire.
-- Launch transactions always use the deployed devnet ALT unless `SOLANA_DEVNET_ALT_ADDRESS` overrides it.
+- Launch creation builds a per-launch address lookup table before submitting the initialize transaction.
 - Solana price resolution precedence is:
   1. request `pricing.numerairePriceUsd`
   2. `SOLANA_FIXED_NUMERAIRE_PRICE_USD`

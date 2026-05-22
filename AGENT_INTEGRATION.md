@@ -110,8 +110,8 @@ EVM flow:
 Solana flow:
 
 1. Call `POST /v1/solana/launches` or `POST /v1/launches` with `network: "solanaDevnet" | "solanaMainnetBeta"`.
-2. Save `launchId`, `signature`, and `explorerUrl`.
-3. Do not poll `GET /v1/launches/:launchId`; Solana launch status is returned only from create responses.
+2. Save `launchId`, `signature`, `explorerUrl`, and `statusUrl`.
+3. Poll `GET /v1/solana/launches/:launchAddress` when you need current devnet launch account state; do not use the EVM `GET /v1/launches/:launchId` route for Solana.
 4. If the API returns `409 IDEMPOTENCY_KEY_IN_DOUBT`, use the returned `signature` and `explorerUrl` to reconcile the prior attempt before creating a new request.
 
 Auction selection guidance:
@@ -178,7 +178,7 @@ Use the dedicated route with short aliases:
   },
   "governance": false,
   "migration": {
-    "type": "noOp"
+    "type": "none"
   },
   "auction": {
     "type": "xyk",
@@ -206,7 +206,7 @@ Use the generic route only with canonical prefixed networks:
   },
   "governance": false,
   "migration": {
-    "type": "noOp"
+    "type": "none"
   },
   "auction": {
     "type": "xyk",
@@ -518,10 +518,11 @@ Custom-curve rules agents should enforce before submit:
   - only WSOL is supported as numeraire
   - Solana price resolution precedence is request override, fixed env price, then CoinGecko
   - unsupported EVM-shaped fields are rejected instead of ignored
-- `economics.baseForDistribution` and `economics.baseForLiquidity` default to `0`.
-- `baseForDistribution + baseForLiquidity` must be less than `totalSupply`.
-- `effectiveConfig.tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`.
-- `effectiveConfig.allocationAmount = baseForDistribution`.
+- Solana `migration.type="none"` launches trade on the initializer curve indefinitely. Omit `economics.baseForDistribution` and `economics.baseForLiquidity`, or set both to `0`.
+- Non-zero Solana reserve fields return `422 SOLANA_INVALID_ECONOMICS` until a supported Solana migrator is configured.
+- `effectiveConfig.tokensForSale = totalSupply` for supported Solana launches without migration.
+- Prefer Solana `auction.swapFeeBps`; `auction.curveFeeBps` remains accepted as a backward-compatible alias.
+- Solana `feeBeneficiaries` is optional, supports up to 8 unique addresses, uses `shareBps`, and custom shares must sum to `10000`. If the API payer is the initializer protocol beneficiary, provide a non-protocol beneficiary list.
 - Multicurve initializer defaults to `standard` (implemented as scheduled with `startTime=0`).
 - Supported multicurve initializer modes:
   - `standard`
