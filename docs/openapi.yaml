@@ -805,9 +805,9 @@ components:
       type: object
       additionalProperties: false
       description: >
-        Solana launches with migration.type=none trade on the initializer curve indefinitely.
-        baseForDistribution and baseForLiquidity must be omitted or set to 0
-        until a supported Solana migrator is configured.
+        Solana launches use the initializer curve. baseForDistribution and
+        baseForLiquidity must be omitted or set to 0 unless
+        migration.supportCpmm is true.
       properties:
         totalSupply:
           type: string
@@ -850,6 +850,19 @@ components:
         type:
           type: string
           const: none
+        supportCpmm:
+          type: boolean
+          default: false
+          description: >
+            When true, initialize the launch with the canonical CPMM hook and
+            migrator. When false or omitted, use the system program for hook and
+            migrator.
+        minimumQuoteRaise:
+          type: string
+          pattern: '^\d+$'
+          description: >
+            Quote token atoms required before CPMM migration can occur. Required
+            when supportCpmm is true.
       required: [type]
     SolanaCurveConfig:
       type: object
@@ -1166,6 +1179,7 @@ components:
               type: boolean
             tokenDecimals:
               type: integer
+              description: Fixed Solana base token decimals. Currently 6.
           required:
             [
               tokensForSale,
@@ -1244,6 +1258,7 @@ components:
           type: string
         tokenDecimals:
           type: integer
+          description: Fixed Solana base token decimals. Currently 6.
       required:
         [
           network,

@@ -376,7 +376,7 @@ Dynamic is intended for assets with well-known value that benefit from maximally
     "feeBeneficiaries": [],
     "allowBuy": true,
     "allowSell": true,
-    "tokenDecimals": 9
+    "tokenDecimals": 6
   }
 }
 ```
@@ -483,10 +483,11 @@ Example `GET /health`:
   - `launchId` is a launch PDA and `statusUrl` points to `GET /v1/solana/launches/:launchAddress`
   - only WSOL is supported as numeraire
   - Solana rejects unsupported EVM-only fields instead of ignoring them
-- Solana `migration.type="none"` launches trade on the initializer curve indefinitely:
-  - omit `economics.baseForDistribution` and `economics.baseForLiquidity`, or set both to `0`
-  - non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` until a supported Solana migrator is configured
-  - `tokensForSale = totalSupply`
+- Solana `migration.type="none"` launches use the initializer curve:
+  - set `migration.supportCpmm=true` and `migration.minimumQuoteRaise` to use the canonical CPMM hook and migrator
+  - omit `economics.baseForDistribution` and `economics.baseForLiquidity`, or set both to `0`, unless `migration.supportCpmm=true`
+  - non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled
+  - `tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`
 - Solana auction fee input:
   - prefer `auction.swapFeeBps`; `auction.curveFeeBps` remains accepted as a backward-compatible alias
   - if omitted, the API uses the on-chain initializer minimum swap fee

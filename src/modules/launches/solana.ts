@@ -19,7 +19,8 @@ import {
   signature,
   signTransactionMessageWithSigners,
 } from '@solana/kit';
-import { cpmm, initializer } from '@whetstone-research/doppler-sdk/solana';
+import { TOKEN_PROGRAM_ADDRESS, findAssociatedTokenPda } from '@solana-program/token';
+import { cpmm, cpmmMigrator, initializer } from '@whetstone-research/doppler-sdk/solana';
 
 import type { AppConfig } from '../../core/config';
 import { AppError } from '../../core/errors';
@@ -48,7 +49,7 @@ export type {
 } from './solana-schema';
 
 const U64_MAX = 18_446_744_073_709_551_615n;
-const SOLANA_TOKEN_DECIMALS = 9;
+const SOLANA_TOKEN_DECIMALS = 6;
 const SOLANA_NUMERAIRE_DECIMALS = 9;
 const SOLANA_CONFIRM_POLL_INTERVAL_MS = 500;
 const SOLANA_WSOL_MINT_ADDRESS = address('So11111111111111111111111111111111111111112');
@@ -568,16 +569,20 @@ export class SolanaLaunchService {
       throw new AppError(503, 'SOLANA_NOT_READY', 'Solana devnet is not ready for launch creation');
     }
 
+    const supportCpmmMigration = input.migration?.supportCpmm ?? false;
     const totalSupply = BigInt(input.economics.totalSupply);
     const baseForDistribution = BigInt(input.economics.baseForDistribution ?? '0');
     const baseForLiquidity = BigInt(input.economics.baseForLiquidity ?? '0');
-    if (baseForDistribution > 0n || baseForLiquidity > 0n) {
+    if (!supportCpmmMigration && (baseForDistribution > 0n || baseForLiquidity > 0n)) {
       throw new AppError(
         422,
         'SOLANA_INVALID_ECONOMICS',
-        'Solana launches without migration cannot reserve base tokens; omit baseForDistribution and baseForLiquidity until a supported migrator is configured',
+        'Solana launches without CPMM migration cannot reserve base tokens; omit baseForDistribution and baseForLiquidity or set migration.supportCpmm=true',
       );
     }
+    const minimumQuoteRaise = supportCpmmMigration
+      ? BigInt(input.migration?.minimumQuoteRaise ?? '0')
+      : 0n;
 
     const tokensForSale = totalSupply - baseForDistribution - baseForLiquidity;
     const numeraireAddress = this.resolveNumeraireAddress(input);
@@ -607,6 +612,52 @@ export class SolanaLaunchService {
     const baseVault = await generateKeyPairSigner();
     const quoteVault = await generateKeyPairSigner();
     const metadataAddress = await initializer.getTokenMetadataAddress(baseMint.address);
+    const [payerBaseAta] = await findAssociatedTokenPda({
+      owner: payer.address,
+      mint: baseMint.address,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    });
+    const [payerQuoteAta] = await findAssociatedTokenPda({
+      owner: payer.address,
+      mint: numeraireAddress,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    });
+    const recipientAtas = supportCpmmMigration && baseForDistribution > 0n ? [payerBaseAta] : [];
+    const migrationAccounts = supportCpmmMigration
+      ? await cpmmMigrator.buildCpmmMigrationRemainingAccounts({
+          launch: launchAddress,
+          baseMint: baseMint.address,
+          quoteMint: numeraireAddress,
+          launchAuthority: launchAuthorityAddress,
+          adminBaseAta: payerBaseAta,
+          adminQuoteAta: payerQuoteAta,
+          recipientAtas,
+          cpmmProgram: cpmm.CPMM_PROGRAM_ID,
+          cpmmMigratorProgram: cpmmMigrator.CPMM_MIGRATOR_PROGRAM_ID,
+        })
+      : null;
+    const migrationRecipients =
+      supportCpmmMigration && baseForDistribution > 0n
+        ? [{ wallet: payer.address, amount: baseForDistribution }]
+        : [];
+    const migratorInitPayload =
+      supportCpmmMigration && migrationAccounts
+        ? cpmmMigrator.encodeRegisterLaunchPayload({
+            cpmmConfig: migrationAccounts.cpmmConfig,
+            initialSwapFeeBps: swapFeeBps,
+            initialFeeSplitBps: SOLANA_FEE_BPS_DENOMINATOR,
+            recipients: migrationRecipients,
+            minRaiseQuote: minimumQuoteRaise,
+            minMigrationPriceQ64Opt: null,
+            migratedPoolHookConfig: null,
+          })
+        : new Uint8Array();
+    const migratorMigratePayload = supportCpmmMigration
+      ? cpmmMigrator.encodeMigratePayload({
+          baseForDistribution,
+          baseForLiquidity,
+        })
+      : new Uint8Array();
 
     const distinctAddresses = new Set([
       launchAddress,
@@ -642,8 +693,16 @@ export class SolanaLaunchService {
         launchFeeState: launchFeeStateAddress,
         payer,
         authority: payer,
-        hookProgram: SOLANA_SYSTEM_PROGRAM_ADDRESS,
-        migratorProgram: SOLANA_SYSTEM_PROGRAM_ADDRESS,
+        hookProgram: supportCpmmMigration
+          ? initializer.CPMM_HOOK_PROGRAM_ID
+          : SOLANA_SYSTEM_PROGRAM_ADDRESS,
+        migratorProgram: supportCpmmMigration
+          ? cpmmMigrator.CPMM_MIGRATOR_PROGRAM_ID
+          : SOLANA_SYSTEM_PROGRAM_ADDRESS,
+        ...(supportCpmmMigration &&
+          migrationAccounts && {
+            cpmmConfig: migrationAccounts.cpmmConfig,
+          }),
         rent: SOLANA_RENT_SYSVAR_ADDRESS,
         metadataAccount: metadataAddress,
       },
@@ -661,7 +720,26 @@ export class SolanaLaunchService {
         curveParams: new Uint8Array([initializer.CURVE_PARAMS_FORMAT_XYK_V0]),
         allowBuy,
         allowSell,
-        ...buildDisabledSolanaHookArgs(),
+        ...(supportCpmmMigration && migrationAccounts
+          ? {
+              hookFlags: initializer.HF_BEFORE_SWAP,
+              hookPayload: new Uint8Array(),
+              hookCreateRemainingAccountsLen: 0,
+              hookCreateRemainingAccountsHash: new Uint8Array(
+                SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH,
+              ),
+              hookRemainingAccountsHash: new Uint8Array(
+                SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH,
+              ),
+              migratorInitPayload,
+              migratorMigratePayload,
+              migratorInitRemainingAccountsHash: initializer.computeRemainingAccountsHash([
+                migrationAccounts.cpmmMigrationState,
+                migrationAccounts.cpmmConfig,
+              ]),
+              migratorRemainingAccountsHash: migrationAccounts.hash,
+            }
+          : buildDisabledSolanaHookArgs()),
         metadataName: input.tokenMetadata.name,
         metadataSymbol: input.tokenMetadata.symbol,
         metadataUri: input.tokenMetadata.tokenURI,

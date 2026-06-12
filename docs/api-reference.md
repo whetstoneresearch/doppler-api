@@ -61,7 +61,7 @@ Generic create endpoint.
 - `pricing?: { numerairePriceUsd? }`
 - `feeBeneficiaries?: [{ address, shareBps }]`
 - `governance?: false`
-- `migration?: { type: "none" }`
+- `migration?: { type: "none", supportCpmm?: boolean, minimumQuoteRaise?: string }`
 - `auction:`
   - `type: "xyk"`
   - `curveConfig: { type: "range", marketCapStartUsd, marketCapEndUsd }`
@@ -74,9 +74,10 @@ Generic create endpoint.
 - Solana create responses include `statusUrl` for `GET /v1/solana/launches/:launchAddress`.
 - `solanaMainnetBeta` is scaffolded but returns `501 SOLANA_NETWORK_UNSUPPORTED`.
 - WSOL is the only supported numeraire.
-- `migration.type="none"` launches trade on the initializer curve indefinitely without migrating to an external AMM.
-- `economics.baseForDistribution` and `economics.baseForLiquidity` must be omitted or `0` unless a supported Solana migrator is configured.
-- Non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` until a supported Solana migrator is configured.
+- `migration.supportCpmm=true` uses the canonical CPMM hook and migrator; false or omitted uses the system program for both.
+- `migration.minimumQuoteRaise` is required when `migration.supportCpmm=true` and is denominated in quote token atoms.
+- `economics.baseForDistribution` and `economics.baseForLiquidity` must be omitted or `0` unless `migration.supportCpmm=true`.
+- Non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled.
 - `feeBeneficiaries` supports up to 8 unique Solana addresses, uses `shareBps`, and custom shares must sum to `10000`. If the API payer is the initializer protocol beneficiary, provide a non-protocol beneficiary list.
 - Unsupported fields are rejected instead of ignored, including:
   - `economics.tokensForSale`
@@ -102,6 +103,7 @@ Solana response:
 - `explorerUrl`
 - `predicted: { tokenAddress, launchAuthorityAddress, launchFeeStateAddress, baseVaultAddress, quoteVaultAddress }`
 - `effectiveConfig: { tokensForSale, allocationAmount, baseForDistribution, baseForLiquidity, allocationLockMode, numeraireAddress, numerairePriceUsd, curveVirtualBase, curveVirtualQuote, curveFeeBps, swapFeeBps, feeBeneficiariesSource, feeBeneficiaries, allowBuy, allowSell, tokenDecimals }`
+- `tokenDecimals` is fixed to `6` for Solana base tokens.
 
 #### Idempotency header
 
@@ -143,7 +145,7 @@ Dedicated Solana create endpoint.
 - `pricing?: { numerairePriceUsd? }`
 - `feeBeneficiaries?: [{ address, shareBps }]`
 - `governance?: false`
-- `migration?: { type: "none" }`
+- `migration?: { type: "none", supportCpmm?: boolean, minimumQuoteRaise?: string }`
 - `auction: { type: "xyk", curveConfig: { type: "range", marketCapStartUsd, marketCapEndUsd }, swapFeeBps?, curveFeeBps?, allowBuy?, allowSell? }`
 
 #### Response `200`
@@ -185,6 +187,7 @@ Returns devnet Solana launch account state.
 - supply split fields: `baseTotalSupply`, `baseForDistribution`, `baseForLiquidity`, `baseForCurve`
 - curve fields: `curveVirtualBase`, `curveVirtualQuote`, `curveFeeBps`, `swapFeeBps`, `allowBuy`, `allowSell`
 - hook/migrator fields: `hookProgram`, `hookFlags`, `migratorProgram`, `quoteDeposited`
+- `tokenDecimals` is fixed to `6` for Solana base tokens.
 
 #### Error responses
 

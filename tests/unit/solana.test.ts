@@ -137,7 +137,30 @@ describe('Solana launch helpers', () => {
     ).toThrow(/unrecognized key/i);
   });
 
-  it('rejects Solana reserve splits until a supported migrator exists', () => {
+  it('parses Solana reserve splits and requires minimumQuoteRaise for CPMM migration', () => {
+    const parsed = genericSolanaCreateLaunchRequestSchema.parse({
+      network: 'solanaDevnet',
+      tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+      economics: {
+        totalSupply: '1000',
+        baseForDistribution: '100',
+        baseForLiquidity: '200',
+      },
+      governance: false,
+      migration: { type: 'none' },
+      auction: {
+        type: 'xyk',
+        curveConfig: {
+          type: 'range',
+          marketCapStartUsd: 100,
+          marketCapEndUsd: 1000,
+        },
+      },
+    });
+
+    expect(parsed.economics.baseForDistribution).toBe('100');
+    expect(parsed.economics.baseForLiquidity).toBe('200');
+
     expect(() =>
       genericSolanaCreateLaunchRequestSchema.parse({
         network: 'solanaDevnet',
@@ -148,7 +171,7 @@ describe('Solana launch helpers', () => {
           baseForLiquidity: '200',
         },
         governance: false,
-        migration: { type: 'none' },
+        migration: { type: 'none', supportCpmm: true },
         auction: {
           type: 'xyk',
           curveConfig: {
@@ -158,7 +181,7 @@ describe('Solana launch helpers', () => {
           },
         },
       }),
-    ).toThrow(/require a supported Solana migrator/i);
+    ).toThrow(/minimumQuoteRaise is required/i);
   });
 
   it('rejects governance, migration, and auction shapes that are outside the Solana profile', () => {

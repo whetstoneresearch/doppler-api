@@ -205,6 +205,9 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
       allowBuy?: boolean;
       allowSell?: boolean;
     };
+    migration?: {
+      supportCpmm?: boolean;
+    };
   }) => {
     const totalSupply = payload?.economics?.totalSupply ?? '1000';
     const baseForDistribution = BigInt(payload?.economics?.baseForDistribution ?? '0');
@@ -244,7 +247,7 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
         feeBeneficiaries: [],
         allowBuy: payload?.auction?.allowBuy ?? true,
         allowSell: payload?.auction?.allowSell ?? true,
-        tokenDecimals: 9,
+        tokenDecimals: 6,
       },
     };
   };
@@ -255,6 +258,13 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
     if (typeof input === 'object' && input !== null && 'network' in input) {
       const solanaInput = input as {
         network?: 'solanaDevnet' | 'solanaMainnetBeta';
+        economics?: {
+          baseForDistribution?: string;
+          baseForLiquidity?: string;
+        };
+        migration?: {
+          supportCpmm?: boolean;
+        };
         auction?: {
           curveConfig?: {
             marketCapStartUsd?: number;
@@ -267,6 +277,19 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
           501,
           'SOLANA_NETWORK_UNSUPPORTED',
           'solanaMainnetBeta is scaffolded but not executable in this API profile',
+        );
+      }
+
+      const baseForDistribution = BigInt(solanaInput.economics?.baseForDistribution ?? '0');
+      const baseForLiquidity = BigInt(solanaInput.economics?.baseForLiquidity ?? '0');
+      if (
+        solanaInput.migration?.supportCpmm !== true &&
+        (baseForDistribution > 0n || baseForLiquidity > 0n)
+      ) {
+        throw new AppError(
+          422,
+          'SOLANA_INVALID_ECONOMICS',
+          'Solana launches without CPMM migration cannot reserve base tokens; omit baseForDistribution and baseForLiquidity or set migration.supportCpmm=true',
         );
       }
 
@@ -376,7 +399,7 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
           migratorProgram: '11111111111111111111111111111111',
           quoteDeposited: '0',
           allowSell: false,
-          tokenDecimals: 9,
+          tokenDecimals: 6,
         };
       },
     } as any,

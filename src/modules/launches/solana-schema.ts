@@ -64,15 +64,6 @@ const solanaEconomicsSchema = strictObject({
       message: 'baseForDistribution + baseForLiquidity must be less than economics.totalSupply',
     });
   }
-
-  if (baseForDistribution > 0n || baseForLiquidity > 0n) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['baseForDistribution'],
-      message:
-        'baseForDistribution and baseForLiquidity require a supported Solana migrator; omit them when migration.type is none',
-    });
-  }
 });
 
 const solanaPairingSchema = strictObject({
@@ -120,6 +111,16 @@ const solanaFeeBeneficiariesSchema = z
 
 const solanaMigrationSchema = strictObject({
   type: z.literal('none'),
+  supportCpmm: z.boolean().optional(),
+  minimumQuoteRaise: u64StringSchema.optional(),
+}).superRefine((value, ctx) => {
+  if (value.supportCpmm && value.minimumQuoteRaise === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['minimumQuoteRaise'],
+      message: 'migration.minimumQuoteRaise is required when migration.supportCpmm is true',
+    });
+  }
 });
 
 const solanaAuctionSchema = strictObject({

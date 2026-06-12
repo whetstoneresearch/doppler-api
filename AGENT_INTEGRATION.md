@@ -518,9 +518,10 @@ Custom-curve rules agents should enforce before submit:
   - only WSOL is supported as numeraire
   - Solana price resolution precedence is request override, fixed env price, then CoinGecko
   - unsupported EVM-shaped fields are rejected instead of ignored
-- Solana `migration.type="none"` launches trade on the initializer curve indefinitely. Omit `economics.baseForDistribution` and `economics.baseForLiquidity`, or set both to `0`.
-- Non-zero Solana reserve fields return `422 SOLANA_INVALID_ECONOMICS` until a supported Solana migrator is configured.
-- `effectiveConfig.tokensForSale = totalSupply` for supported Solana launches without migration.
+- Solana `migration.type="none"` launches use the initializer curve. Set `migration.supportCpmm=true` and `migration.minimumQuoteRaise` to use the canonical CPMM hook and migrator.
+- Omit `economics.baseForDistribution` and `economics.baseForLiquidity`, or set both to `0`, unless `migration.supportCpmm=true`.
+- Non-zero Solana reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled.
+- `effectiveConfig.tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`.
 - Prefer Solana `auction.swapFeeBps`; `auction.curveFeeBps` remains accepted as a backward-compatible alias.
 - Solana `feeBeneficiaries` is optional, supports up to 8 unique addresses, uses `shareBps`, and custom shares must sum to `10000`. If the API payer is the initializer protocol beneficiary, provide a non-protocol beneficiary list.
 - Multicurve initializer defaults to `standard` (implemented as scheduled with `startTime=0`).

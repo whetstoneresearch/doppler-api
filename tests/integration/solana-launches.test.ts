@@ -72,7 +72,7 @@ describe('Solana create routes', () => {
       curveFeeBps: 25,
       allowBuy: true,
       allowSell: false,
-      tokenDecimals: 9,
+      tokenDecimals: 6,
     });
   });
 
@@ -157,7 +157,7 @@ describe('Solana create routes', () => {
     expect(body.effectiveConfig.allowSell).toBe(false);
   });
 
-  it('rejects Solana reserve splits until a supported migrator exists', async () => {
+  it('requires CPMM migration support for Solana reserve splits', async () => {
     app = await buildTestServer({ solanaEnabled: true });
 
     const response = await app.inject({
@@ -188,6 +188,40 @@ describe('Solana create routes', () => {
 
     expect(response.statusCode).toBe(422);
     expect(response.json().error.code).toBe('SOLANA_INVALID_ECONOMICS');
+
+    const supportedResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/solana/launches',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        tokenMetadata: { name: 'Reserve Token', symbol: 'RSRV', tokenURI: 'ipfs://reserve' },
+        economics: {
+          totalSupply: '1000',
+          baseForDistribution: '100',
+          baseForLiquidity: '200',
+        },
+        governance: false,
+        migration: {
+          type: 'none',
+          supportCpmm: true,
+          minimumQuoteRaise: '50000000000',
+        },
+        auction: {
+          type: 'xyk',
+          curveConfig: {
+            type: 'range',
+            marketCapStartUsd: 100,
+            marketCapEndUsd: 1000,
+          },
+        },
+      },
+    });
+
+    expect(supportedResponse.statusCode).toBe(200);
+    expect(supportedResponse.json().effectiveConfig.baseForDistribution).toBe('100');
+    expect(supportedResponse.json().effectiveConfig.baseForLiquidity).toBe('200');
   });
 
   it('rejects short Solana network aliases on the generic route', async () => {
