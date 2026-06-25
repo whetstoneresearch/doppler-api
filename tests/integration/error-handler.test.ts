@@ -79,6 +79,23 @@ describe('error handler', () => {
     });
   });
 
+  it('handles frozen upstream errors without masking the response', async () => {
+    app = await buildTestServer();
+
+    app.get('/_test/frozen-error', { config: { auth: false } }, async () => {
+      throw Object.freeze(new Error('frozen upstream details should never leak'));
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/_test/frozen-error' });
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Internal server error',
+      },
+    });
+  });
+
   it('keeps server code but hides message/details for AppError 5xx responses', async () => {
     app = await buildTestServer();
 

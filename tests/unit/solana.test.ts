@@ -1,11 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { initializer } from '@whetstone-research/doppler-sdk/solana';
+import { generateKeyPairSigner } from '@solana/kit';
 
 import type { AppConfig } from '../../src/core/config';
 import {
   SOLANA_CONSTANTS,
   SolanaLaunchService,
-  buildDisabledSolanaHookArgs,
   dedicatedSolanaCreateLaunchRequestSchema,
   deriveSolanaCurveConfig,
   deriveSolanaLaunchSeed,
@@ -184,6 +183,59 @@ describe('Solana launch helpers', () => {
     ).toThrow(/minimumQuoteRaise is required/i);
   });
 
+  it('parses Solana cosigning hook config and rejects combining it with CPMM migration', async () => {
+    const cosigner = await generateKeyPairSigner();
+    const parsed = genericSolanaCreateLaunchRequestSchema.parse({
+      network: 'solanaDevnet',
+      tokenMetadata: { name: 'Cosign Token', symbol: 'CSGN', tokenURI: 'ipfs://cosign' },
+      economics: { totalSupply: '1000' },
+      governance: false,
+      migration: { type: 'none' },
+      auction: {
+        type: 'xyk',
+        curveConfig: { type: 'range', marketCapStartUsd: 100, marketCapEndUsd: 1000 },
+        cosigningHook: {
+          type: 'cosigner',
+          cosigner: cosigner.address,
+          expiry: {
+            mode: 'unixTimestamp',
+            value: '9999999999',
+          },
+        },
+      },
+    });
+
+    expect(parsed.auction.cosigningHook).toMatchObject({
+      type: 'cosigner',
+      cosigner: cosigner.address,
+      expiry: {
+        mode: 'unixTimestamp',
+        value: '9999999999',
+      },
+    });
+
+    expect(() =>
+      genericSolanaCreateLaunchRequestSchema.parse({
+        network: 'solanaDevnet',
+        tokenMetadata: { name: 'Bad Cosign', symbol: 'BCSGN', tokenURI: 'ipfs://bad-cosign' },
+        economics: {
+          totalSupply: '1000',
+          baseForDistribution: '100',
+        },
+        governance: false,
+        migration: { type: 'none', supportCpmm: true, minimumQuoteRaise: '1' },
+        auction: {
+          type: 'xyk',
+          curveConfig: { type: 'range', marketCapStartUsd: 100, marketCapEndUsd: 1000 },
+          cosigningHook: {
+            type: 'cosigner',
+            cosigner: cosigner.address,
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
   it('rejects governance, migration, and auction shapes that are outside the Solana profile', () => {
     expect(() =>
       genericSolanaCreateLaunchRequestSchema.parse({
@@ -305,22 +357,146 @@ describe('Solana launch helpers', () => {
     ).toThrow(/must be less than economics\.totalSupply/i);
   });
 
-  it('uses all-zero remaining-account hashes for disabled Solana hooks', () => {
-    const disabledHookArgs = buildDisabledSolanaHookArgs();
-    const zeroHash = Array.from(SOLANA_CONSTANTS.disabledHookRemainingAccountsHash);
+  it('rejects duplicate, invalid-sum, and max-count Solana fee beneficiaries', async () => {
+    const addresses = await Promise.all(
+      Array.from({ length: SOLANA_CONSTANTS.maxFeeBeneficiaries + 1 }, async () =>
+        generateKeyPairSigner(),
+      ),
+    );
 
-    expect(zeroHash).toHaveLength(32);
-    expect(zeroHash.every((value) => value === 0)).toBe(true);
-    expect(zeroHash).not.toEqual(Array.from(initializer.EMPTY_REMAINING_ACCOUNTS_HASH));
-    expect(Array.from(disabledHookArgs.hookCreateRemainingAccountsHash)).toEqual(zeroHash);
-    expect(Array.from(disabledHookArgs.hookRemainingAccountsHash)).toEqual(zeroHash);
-    expect(Array.from(disabledHookArgs.migratorInitRemainingAccountsHash)).toEqual(zeroHash);
-    expect(Array.from(disabledHookArgs.migratorRemainingAccountsHash)).toEqual(zeroHash);
-    expect(disabledHookArgs.hookFlags).toBe(0);
-    expect(disabledHookArgs.hookCreateRemainingAccountsLen).toBe(0);
-    expect(disabledHookArgs.hookPayload).toHaveLength(0);
-    expect(disabledHookArgs.migratorInitPayload).toHaveLength(0);
-    expect(disabledHookArgs.migratorMigratePayload).toHaveLength(0);
+    const baseRequest = {
+      network: 'solanaDevnet',
+      tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+      economics: { totalSupply: '1000' },
+      governance: false,
+      migration: { type: 'none' },
+      auction: {
+        type: 'xyk',
+        curveConfig: {
+          type: 'range',
+          marketCapStartUsd: 100,
+          marketCapEndUsd: 1000,
+        },
+      },
+    } as const;
+
+    expect(() =>
+      genericSolanaCreateLaunchRequestSchema.parse({
+        ...baseRequest,
+        feeBeneficiaries: [
+          { address: addresses[0].address, shareBps: 5000 },
+          { address: addresses[0].address, shareBps: 5000 },
+        ],
+      }),
+    ).toThrow(/duplicate address/i);
+
+    expect(() =>
+      genericSolanaCreateLaunchRequestSchema.parse({
+        ...baseRequest,
+        feeBeneficiaries: [
+          { address: addresses[0].address, shareBps: 5000 },
+          { address: addresses[1].address, shareBps: 4000 },
+        ],
+      }),
+    ).toThrow(/sum to 10000/i);
+
+    expect(() =>
+      genericSolanaCreateLaunchRequestSchema.parse({
+        ...baseRequest,
+        feeBeneficiaries: addresses.map((entry, index) => ({
+          address: entry.address,
+          shareBps: index === SOLANA_CONSTANTS.maxFeeBeneficiaries ? 2000 : 1000,
+        })),
+      }),
+    ).toThrow(/at most 8/i);
+  });
+
+  it('defaults and preserves Solana fee beneficiaries before SDK assembly', async () => {
+    const payer = await generateKeyPairSigner();
+    const protocolBeneficiary = await generateKeyPairSigner();
+    const customBeneficiary = await generateKeyPairSigner();
+    const service = new SolanaLaunchService({
+      config: buildConfig(),
+      pricingService: {
+        getUsdPriceByAssetId: vi.fn(),
+      } as any,
+    });
+    const initializerConfig = {
+      address: protocolBeneficiary.address,
+      admin: protocolBeneficiary.address,
+      protocolFeeBps: 500,
+      minSwapFeeBps: 0,
+      maxSwapFeeBps: 10_000,
+    };
+
+    const defaultBeneficiaries = (service as any).resolveFeeBeneficiaries(
+      {},
+      payer.address,
+      initializerConfig,
+    );
+    expect(defaultBeneficiaries).toEqual({
+      source: 'default',
+      beneficiaries: [{ wallet: payer.address, shareBps: SOLANA_CONSTANTS.feeBpsDenominator }],
+    });
+
+    const explicitBeneficiaries = (service as any).resolveFeeBeneficiaries(
+      {
+        feeBeneficiaries: [
+          {
+            address: customBeneficiary.address,
+            shareBps: SOLANA_CONSTANTS.feeBpsDenominator,
+          },
+        ],
+      },
+      payer.address,
+      initializerConfig,
+    );
+    expect(explicitBeneficiaries).toEqual({
+      source: 'request',
+      beneficiaries: [
+        {
+          wallet: customBeneficiary.address,
+          shareBps: SOLANA_CONSTANTS.feeBpsDenominator,
+        },
+      ],
+    });
+  });
+
+  it('rejects Solana protocol fee beneficiary and requires explicit beneficiary for protocol payer', async () => {
+    const protocolBeneficiary = await generateKeyPairSigner();
+    const customBeneficiary = await generateKeyPairSigner();
+    const service = new SolanaLaunchService({
+      config: buildConfig(),
+      pricingService: {
+        getUsdPriceByAssetId: vi.fn(),
+      } as any,
+    });
+    const initializerConfig = {
+      address: protocolBeneficiary.address,
+      admin: protocolBeneficiary.address,
+      protocolFeeBps: 500,
+      minSwapFeeBps: 0,
+      maxSwapFeeBps: 10_000,
+    };
+
+    expect(() =>
+      (service as any).resolveFeeBeneficiaries({}, protocolBeneficiary.address, initializerConfig),
+    ).toThrow(/feeBeneficiaries is required/i);
+
+    expect(() =>
+      (service as any).resolveFeeBeneficiaries(
+        {
+          feeBeneficiaries: [
+            {
+              address: protocolBeneficiary.address,
+              shareBps: SOLANA_CONSTANTS.feeBpsDenominator,
+            },
+          ],
+        },
+        customBeneficiary.address,
+        initializerConfig,
+      ),
+    ).toThrow(/cannot include the initializer protocol beneficiary/i);
   });
 
   it('resolves Solana numeraire price by request override, fixed env price, then CoinGecko', async () => {
@@ -384,6 +560,43 @@ describe('Solana launch helpers', () => {
     ).rejects.toMatchObject({
       statusCode: 422,
       code: 'SOLANA_NUMERAIRE_PRICE_REQUIRED',
+    });
+  });
+
+  it('fails create with SOLANA_NOT_READY when readiness checks fail', async () => {
+    const service = new SolanaLaunchService({
+      config: buildConfig(),
+      pricingService: {
+        getUsdPriceByAssetId: vi.fn(),
+      } as any,
+    });
+    vi.spyOn(service, 'getReadiness').mockResolvedValue({
+      enabled: true,
+      ok: false,
+      network: 'solanaDevnet',
+      checks: [{ name: 'rpcReachable', ok: false, error: 'rpc down' }],
+    });
+
+    await expect(
+      service.createLaunch({
+        network: 'solanaDevnet',
+        tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+        economics: { totalSupply: '1000' },
+        pricing: { numerairePriceUsd: 100 },
+        governance: false,
+        migration: { type: 'none' },
+        auction: {
+          type: 'xyk',
+          curveConfig: {
+            type: 'range',
+            marketCapStartUsd: 100,
+            marketCapEndUsd: 1000,
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      code: 'SOLANA_NOT_READY',
     });
   });
 });

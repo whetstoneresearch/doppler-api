@@ -878,6 +878,34 @@ components:
           type: number
           exclusiveMinimum: 0
       required: [type, marketCapStartUsd, marketCapEndUsd]
+    SolanaCosigningHookExpiry:
+      type: object
+      additionalProperties: false
+      properties:
+        mode:
+          type: string
+          enum: [disabled, unixTimestamp, slot]
+        value:
+          type: string
+          pattern: '^\d+$'
+          description: Required for unixTimestamp and slot expiry modes; omitted for disabled.
+      required: [mode]
+    SolanaCosigningHook:
+      type: object
+      additionalProperties: false
+      description: >
+        Doppler cosigner hook configuration for non-CPMM Solana launches. Cannot
+        be combined with migration.supportCpmm=true because CPMM migration uses
+        the initializer hook slot.
+      properties:
+        type:
+          type: string
+          const: cosigner
+        cosigner:
+          $ref: '#/components/schemas/SolanaAddress'
+        expiry:
+          $ref: '#/components/schemas/SolanaCosigningHookExpiry'
+      required: [type, cosigner]
     SolanaAuction:
       type: object
       additionalProperties: false
@@ -901,6 +929,8 @@ components:
           type: boolean
         allowSell:
           type: boolean
+        cosigningHook:
+          $ref: '#/components/schemas/SolanaCosigningHook'
       required: [type, curveConfig]
     DedicatedSolanaCreateLaunchRequest:
       type: object

@@ -78,6 +78,8 @@ Generic create endpoint.
 - `migration.minimumQuoteRaise` is required when `migration.supportCpmm=true` and is denominated in quote token atoms.
 - `economics.baseForDistribution` and `economics.baseForLiquidity` must be omitted or `0` unless `migration.supportCpmm=true`.
 - Non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled.
+- `auction.cosigningHook` configures the Doppler cosigner hook on non-CPMM launches. It requires `type: "cosigner"` and a Solana `cosigner` address. Optional `expiry.mode` supports `disabled`, `unixTimestamp`, and `slot`; timestamp and slot modes require `expiry.value`.
+- `auction.cosigningHook` cannot be combined with `migration.supportCpmm=true` because CPMM migration uses the initializer hook slot.
 - `feeBeneficiaries` supports up to 8 unique Solana addresses, uses `shareBps`, and custom shares must sum to `10000`. If the API payer is the initializer protocol beneficiary, provide a non-protocol beneficiary list.
 - Unsupported fields are rejected instead of ignored, including:
   - `economics.tokensForSale`
@@ -316,4 +318,4 @@ Dependency readiness probe.
 - RPC reachable
 - latest blockhash fetch
 - initializer config account decode
-- address lookup table presence when ALT is enabled
+- configured devnet address lookup table presence when `SOLANA_DEVNET_ALT_ADDRESS` is set

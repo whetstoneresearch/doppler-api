@@ -483,11 +483,16 @@ Example `GET /health`:
   - `launchId` is a launch PDA and `statusUrl` points to `GET /v1/solana/launches/:launchAddress`
   - only WSOL is supported as numeraire
   - Solana rejects unsupported EVM-only fields instead of ignoring them
+  - when `SOLANA_DEVNET_ALT_ADDRESS` is set, launch creation reuses that address lookup table; otherwise it creates a per-launch lookup table before submitting the initialize transaction
 - Solana `migration.type="none"` launches use the initializer curve:
   - set `migration.supportCpmm=true` and `migration.minimumQuoteRaise` to use the canonical CPMM hook and migrator
   - omit `economics.baseForDistribution` and `economics.baseForLiquidity`, or set both to `0`, unless `migration.supportCpmm=true`
   - non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled
   - `tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`
+- Solana `auction.cosigningHook` configures the Doppler cosigner hook on non-CPMM launches:
+  - `type` must be `"cosigner"` and `cosigner` must be a Solana address
+  - optional `expiry` supports `mode: "disabled" | "unixTimestamp" | "slot"`; timestamp and slot modes require `value`
+  - `auction.cosigningHook` cannot be combined with `migration.supportCpmm=true` because CPMM migration uses the initializer hook slot
 - Solana auction fee input:
   - prefer `auction.swapFeeBps`; `auction.curveFeeBps` remains accepted as a backward-compatible alias
   - if omitted, the API uses the on-chain initializer minimum swap fee
@@ -565,7 +570,11 @@ npm run test:live:governance
 npm run test:live:solana
 npm run test:live:solana:devnet
 npm run test:live:solana:defaults
+npm run test:live:solana:fees
+npm run test:live:solana:cpmm
+npm run test:live:solana:no-migration
 npm run test:live:solana:random
+npm run test:live:solana:cosigner
 npm run test:live:solana:failing
 LIVE_TEST_VERBOSE=true npm run test:live
 ```
@@ -573,8 +582,8 @@ LIVE_TEST_VERBOSE=true npm run test:live
 `test:live` performs real on-chain creation and verification when `LIVE_TEST_ENABLE=true` and funded credentials are configured.
 By default, live output is concise (launch summary table). Set `LIVE_TEST_VERBOSE=true` for full per-launch parameter and verification tables.
 Live launch tests run sequentially to avoid nonce conflicts from a single funded signer.
-`test:live` remains the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet matrix.
-Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR`, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, and enough SOL for account creation; override the readiness estimate with `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` when needed.
+`test:live` remains the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet matrix. The Solana matrix covers supported parity with the Base Sepolia defaults, fee-beneficiary, reserve-split/CPMM, launches with no migration criteria, generic-route replay, randomized parameter paths, and Doppler cosigner hook launches. Governance, vesting/vault locks, and static/dynamic EVM auction engines are EVM-only.
+Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR`, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, `SOLANA_DEVNET_ALT_ADDRESS`, and enough SOL for account creation; override the readiness estimate with `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` when needed.
 
 ## Lint, format, and git hooks
 

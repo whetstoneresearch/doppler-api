@@ -42,7 +42,11 @@ npm run test:live:governance
 npm run test:live:solana
 npm run test:live:solana:devnet
 npm run test:live:solana:defaults
+npm run test:live:solana:fees
+npm run test:live:solana:cpmm
+npm run test:live:solana:no-migration
 npm run test:live:solana:random
+npm run test:live:solana:cosigner
 npm run test:live:solana:failing
 LIVE_TEST_VERBOSE=true npm run test:live
 ```
@@ -50,8 +54,8 @@ LIVE_TEST_VERBOSE=true npm run test:live
 - Live tests are concise by default and print a launch summary table.
 - Set `LIVE_TEST_VERBOSE=true` to print per-launch parameter + onchain verification tables.
 - Live launch creation tests run sequentially to avoid nonce conflicts for one signer.
-- `test:live` is the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet create matrix.
-- Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR`, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, and enough SOL for launch account creation. Use `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` to tune the readiness gate.
+- `test:live` is the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet create matrix. Solana live parity covers the supported defaults, fee-beneficiary, reserve-split/CPMM, launches with no migration criteria, generic-route replay, randomized XYK paths, and Doppler cosigner hook launches; governance, vesting/vault locks, and static/dynamic EVM auction engines remain EVM-only.
+- Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR`, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, `SOLANA_DEVNET_ALT_ADDRESS`, and enough SOL for launch account creation. The configured ALT avoids per-launch setup during live runs. Use `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` to tune the readiness gate.
 
 Lint, format, and typecheck:
 
@@ -523,6 +527,8 @@ Custom-curve rules agents should enforce before submit:
 - Non-zero Solana reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled.
 - `effectiveConfig.tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`.
 - Prefer Solana `auction.swapFeeBps`; `auction.curveFeeBps` remains accepted as a backward-compatible alias.
+- Use Solana `auction.cosigningHook` to configure the Doppler cosigner hook on non-CPMM launches. `type` must be `"cosigner"`, `cosigner` must be a Solana address, optional `expiry` supports `disabled`, `unixTimestamp`, and `slot`, and timestamp/slot expiry modes require `value`.
+- Do not combine `auction.cosigningHook` with `migration.supportCpmm=true`; CPMM migration uses the initializer hook slot.
 - Solana `feeBeneficiaries` is optional, supports up to 8 unique addresses, uses `shareBps`, and custom shares must sum to `10000`. If the API payer is the initializer protocol beneficiary, provide a non-protocol beneficiary list.
 - Multicurve initializer defaults to `standard` (implemented as scheduled with `startTime=0`).
 - Supported multicurve initializer modes:

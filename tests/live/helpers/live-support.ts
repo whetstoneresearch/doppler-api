@@ -37,7 +37,11 @@ type LiveScenarioGroup =
   | 'solana'
   | 'solana-devnet'
   | 'solana-defaults'
+  | 'solana-fees'
+  | 'solana-cpmm'
+  | 'solana-no-migration'
   | 'solana-random'
+  | 'solana-cosigner'
   | 'solana-failing';
 
 const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
@@ -60,7 +64,11 @@ const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
   if (liveFilter === 'solana') return groups.includes('solana');
   if (liveFilter === 'solana-devnet') return groups.includes('solana-devnet');
   if (liveFilter === 'solana-defaults') return groups.includes('solana-defaults');
+  if (liveFilter === 'solana-fees') return groups.includes('solana-fees');
+  if (liveFilter === 'solana-cpmm') return groups.includes('solana-cpmm');
+  if (liveFilter === 'solana-no-migration') return groups.includes('solana-no-migration');
   if (liveFilter === 'solana-random') return groups.includes('solana-random');
+  if (liveFilter === 'solana-cosigner') return groups.includes('solana-cosigner');
   if (liveFilter === 'solana-failing') return groups.includes('solana-failing');
   return true;
 };

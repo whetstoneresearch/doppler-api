@@ -123,6 +123,32 @@ const solanaMigrationSchema = strictObject({
   }
 });
 
+const solanaCosigningHookSchema = strictObject({
+  type: z.literal('cosigner'),
+  cosigner: solanaAddressSchema,
+  expiry: strictObject({
+    mode: z.enum(['disabled', 'unixTimestamp', 'slot']),
+    value: u64NonNegativeStringSchema.optional(),
+  })
+    .superRefine((value, ctx) => {
+      if (value.mode !== 'disabled' && value.value === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['value'],
+          message: 'expiry.value is required when expiry.mode is unixTimestamp or slot',
+        });
+      }
+      if (value.mode === 'disabled' && value.value !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['value'],
+          message: 'expiry.value must be omitted when expiry.mode is disabled',
+        });
+      }
+    })
+    .optional(),
+});
+
 const solanaAuctionSchema = strictObject({
   type: z.literal('xyk'),
   curveConfig: strictObject({
@@ -134,6 +160,7 @@ const solanaAuctionSchema = strictObject({
   swapFeeBps: z.number().int().min(0).max(10_000).optional(),
   allowBuy: z.boolean().optional(),
   allowSell: z.boolean().optional(),
+  cosigningHook: solanaCosigningHookSchema.optional(),
 }).superRefine((value, ctx) => {
   if (
     value.curveFeeBps !== undefined &&
@@ -159,12 +186,27 @@ const baseSolanaCreateLaunchRequestShape = {
   auction: solanaAuctionSchema,
 } satisfies z.ZodRawShape;
 
-export const dedicatedSolanaCreateLaunchRequestSchema = strictObject({
+const solanaCreateLaunchRequestSchema = <T extends z.ZodRawShape>(shape: T) =>
+  strictObject(shape).superRefine((value, ctx) => {
+    const request = value as {
+      migration?: { supportCpmm?: boolean };
+      auction?: { cosigningHook?: unknown };
+    };
+    if (request.migration?.supportCpmm && request.auction?.cosigningHook) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['auction', 'cosigningHook'],
+        message: 'auction.cosigningHook cannot be combined with migration.supportCpmm',
+      });
+    }
+  });
+
+export const dedicatedSolanaCreateLaunchRequestSchema = solanaCreateLaunchRequestSchema({
   network: dedicatedSolanaNetworkSchema.optional(),
   ...baseSolanaCreateLaunchRequestShape,
 });
 
-export const genericSolanaCreateLaunchRequestSchema = strictObject({
+export const genericSolanaCreateLaunchRequestSchema = solanaCreateLaunchRequestSchema({
   network: canonicalSolanaNetworkSchema,
   ...baseSolanaCreateLaunchRequestShape,
 });

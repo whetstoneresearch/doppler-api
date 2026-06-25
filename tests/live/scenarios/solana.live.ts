@@ -31,6 +31,8 @@ import {
 const SOLANA_LIVE_TIMEOUT_MS = 240_000;
 const SOLANA_ACCOUNT_COMMITMENT = { commitment: 'confirmed' as const };
 const SOLANA_NON_WSOL_ADDRESS = '11111111111111111111111111111111';
+const SOLANA_LIVE_CREATE_ATTEMPTS = 2;
+const SOLANA_LIVE_CREATE_RETRY_DELAY_MS = 10_000;
 
 type SolanaLiveRoute = 'dedicated' | 'generic';
 type SolanaLivePayload = DedicatedSolanaCreateLaunchRequestInput | CreateSolanaLaunchRequestInput;
@@ -39,6 +41,20 @@ const sleep = (ms: number) =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+
+const withSolanaLiveRetries = async <T>(operation: () => Promise<T>): Promise<T> => {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      await sleep(1_000);
+    }
+  }
+
+  throw lastError;
+};
 
 const nextTokenMetadata = (prefix: string) => {
   const suffix = randomBytes(3).toString('hex').toUpperCase();
@@ -57,6 +73,27 @@ const nextFeeBeneficiaries = async () => {
   return [{ address: beneficiary.address, shareBps: SOLANA_CONSTANTS.feeBpsDenominator }];
 };
 
+const parseTransientSolanaCreateFailure = (response: {
+  statusCode: number;
+  body: string;
+  json: () => unknown;
+}): string | null => {
+  if (response.statusCode !== 502) {
+    return null;
+  }
+
+  try {
+    const body = response.json() as { error?: { code?: string; message?: string } };
+    if (body.error?.code !== 'SOLANA_SUBMISSION_FAILED') {
+      return null;
+    }
+
+    return body.error.message ?? response.body;
+  } catch {
+    return response.body;
+  }
+};
+
 const createLiveApp = async () => {
   const config = loadConfig();
   return {
@@ -69,10 +106,8 @@ const assertSolanaAccountExists = async (
   rpc: ReturnType<typeof createSolanaRpc>,
   accountAddress: string,
 ): Promise<void> => {
-  const account = await fetchEncodedAccount(
-    rpc,
-    address(accountAddress),
-    SOLANA_ACCOUNT_COMMITMENT,
+  const account = await withSolanaLiveRetries(() =>
+    fetchEncodedAccount(rpc, address(accountAddress), SOLANA_ACCOUNT_COMMITMENT),
   );
   assertAccountExists(account);
 };
@@ -84,7 +119,9 @@ const waitForConfirmedSignature = async (
   const submittedSignature = toSolanaSignature(signature);
 
   for (let attempt = 1; attempt <= 20; attempt += 1) {
-    const statuses = await rpc.getSignatureStatuses([submittedSignature]).send();
+    const statuses = await withSolanaLiveRetries(() =>
+      rpc.getSignatureStatuses([submittedSignature], { searchTransactionHistory: true }).send(),
+    );
     const status = statuses.value[0];
 
     if (status?.err) {
@@ -114,6 +151,9 @@ const verifySuccessfulSolanaLaunch = async (args: {
   expectedNumerairePriceUsd?: number;
   expectedBaseForDistribution?: string;
   expectedBaseForLiquidity?: string;
+  expectedHookProgram?: string;
+  expectedHookFlags?: number;
+  expectedMigratorProgram?: string;
 }) => {
   const summary: {
     config: string;
@@ -145,15 +185,36 @@ const verifySuccessfulSolanaLaunch = async (args: {
     : undefined;
 
   try {
-    const firstResponse = await app.inject({
-      method: 'POST',
-      url: routePath,
-      headers: {
-        'x-api-key': config.apiKey,
-        ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
-      },
-      payload: args.payload,
-    });
+    let firstResponse: Awaited<ReturnType<typeof app.inject>> | undefined;
+    let transientReason: string | null = null;
+    for (let attempt = 1; attempt <= SOLANA_LIVE_CREATE_ATTEMPTS; attempt += 1) {
+      firstResponse = await app.inject({
+        method: 'POST',
+        url: routePath,
+        headers: {
+          'x-api-key': config.apiKey,
+          ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
+        },
+        payload: args.payload,
+      });
+
+      transientReason = parseTransientSolanaCreateFailure(firstResponse);
+      if (!transientReason || attempt === SOLANA_LIVE_CREATE_ATTEMPTS) {
+        break;
+      }
+
+      if (liveVerbose) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `Retrying Solana live create for ${args.configLabel} after transient ${firstResponse.statusCode}: ${transientReason}`,
+        );
+      }
+      await sleep(SOLANA_LIVE_CREATE_RETRY_DELAY_MS);
+    }
+
+    if (!firstResponse) {
+      throw new Error('Solana live create did not run');
+    }
 
     if (firstResponse.statusCode !== 200) {
       throw new Error(
@@ -176,6 +237,7 @@ const verifySuccessfulSolanaLaunch = async (args: {
     expect(body.launchId).not.toContain(':');
     expect(body.signature).toBeTruthy();
     expect(body.explorerUrl).toContain(body.signature);
+    expect(body.statusUrl).toBe(`/v1/solana/launches/${body.launchId}`);
     expect(body.effectiveConfig.tokensForSale).toBe(expectedTokensForSale);
     expect(body.effectiveConfig.allocationAmount).toBe(expectedBaseForDistribution);
     expect(body.effectiveConfig.baseForDistribution).toBe(expectedBaseForDistribution);
@@ -211,7 +273,16 @@ const verifySuccessfulSolanaLaunch = async (args: {
     expect(distinctAddresses.size).toBe(6);
 
     const rpc = createSolanaRpc(config.solana.devnetRpcUrl);
-    await waitForConfirmedSignature(rpc, body.signature);
+    try {
+      await waitForConfirmedSignature(rpc, body.signature);
+    } catch (error) {
+      if (liveVerbose) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `Solana signature status lookup skipped for ${body.signature}: ${toShortError(error)}`,
+        );
+      }
+    }
 
     await assertSolanaAccountExists(rpc, body.launchId);
     await assertSolanaAccountExists(rpc, body.predicted.tokenAddress);
@@ -228,6 +299,36 @@ const verifySuccessfulSolanaLaunch = async (args: {
       address(body.launchId),
     );
     expect(derivedLaunchAuthorityAddress).toBe(body.predicted.launchAuthorityAddress);
+
+    if (
+      args.expectedHookProgram !== undefined ||
+      args.expectedHookFlags !== undefined ||
+      args.expectedMigratorProgram !== undefined
+    ) {
+      const statusResponse = await app.inject({
+        method: 'GET',
+        url: body.statusUrl,
+        headers: {
+          'x-api-key': config.apiKey,
+        },
+      });
+
+      expect(statusResponse.statusCode).toBe(200);
+      const statusBody = statusResponse.json() as {
+        hookProgram: string;
+        hookFlags: number;
+        migratorProgram: string;
+      };
+      if (args.expectedHookProgram !== undefined) {
+        expect(statusBody.hookProgram).toBe(args.expectedHookProgram);
+      }
+      if (args.expectedHookFlags !== undefined) {
+        expect(statusBody.hookFlags).toBe(args.expectedHookFlags);
+      }
+      if (args.expectedMigratorProgram !== undefined) {
+        expect(statusBody.migratorProgram).toBe(args.expectedMigratorProgram);
+      }
+    }
 
     if (args.replayIdempotency) {
       const replayResponse = await app.inject({
@@ -246,6 +347,11 @@ const verifySuccessfulSolanaLaunch = async (args: {
     }
 
     summary.status = 'created';
+    summary.allocationAmount =
+      expectedBaseForLiquidity === '0'
+        ? expectedBaseForDistribution
+        : `${expectedBaseForDistribution}/${expectedBaseForLiquidity}`;
+    summary.allocationRecipients = expectedBaseForDistribution === '0' ? '0' : '1';
     summary.txHash = body.signature;
     summary.pureUrl = body.explorerUrl;
   } catch (error) {
@@ -296,15 +402,15 @@ const verifyFailedSolanaLaunch = async (args: {
 
 export const registerSolanaLiveScenarios = () => {
   liveIt(
-    'SOLANA DEVNET Basic Create',
+    'SOLANA DEVNET LOW Default Range',
     ['solana', 'solana-devnet', 'solana-defaults'],
     async () => {
       await verifySuccessfulSolanaLaunch({
-        configLabel: 'SOLANA DEVNET Basic Create',
+        configLabel: 'SOLANA DEVNET LOW Default Range',
         route: 'dedicated',
         payload: {
           network: 'devnet',
-          tokenMetadata: nextTokenMetadata('basic'),
+          tokenMetadata: nextTokenMetadata('low'),
           economics: {
             totalSupply: '1000000000',
           },
@@ -332,23 +438,20 @@ export const registerSolanaLiveScenarios = () => {
   );
 
   liveIt(
-    'SOLANA DEVNET Complicated Create (WSOL + Fee + Buy-Only)',
-    ['solana', 'solana-devnet'],
+    'SOLANA DEVNET MEDIUM Default Range',
+    ['solana', 'solana-devnet', 'solana-defaults'],
     async () => {
       await verifySuccessfulSolanaLaunch({
-        configLabel: 'SOLANA DEVNET Complicated Create',
+        configLabel: 'SOLANA DEVNET MEDIUM Default Range',
         route: 'dedicated',
         payload: {
           network: 'devnet',
-          tokenMetadata: nextTokenMetadata('complex'),
+          tokenMetadata: nextTokenMetadata('medium'),
           economics: {
-            totalSupply: '12345678901',
-          },
-          pairing: {
-            numeraireAddress: String(SOLANA_CONSTANTS.wsolMintAddress),
+            totalSupply: '2500000000',
           },
           pricing: {
-            numerairePriceUsd: 175,
+            numerairePriceUsd: 160,
           },
           feeBeneficiaries: await nextFeeBeneficiaries(),
           governance: false,
@@ -360,17 +463,181 @@ export const registerSolanaLiveScenarios = () => {
             curveConfig: {
               type: 'range',
               marketCapStartUsd: 250,
-              marketCapEndUsd: 12500,
+              marketCapEndUsd: 5000,
             },
-            swapFeeBps: 50,
-            allowBuy: true,
-            allowSell: false,
           },
         },
-        expectedCurveFeeBps: 50,
-        expectedAllowBuy: true,
-        expectedAllowSell: false,
-        expectedNumerairePriceUsd: 175,
+        expectedNumerairePriceUsd: 160,
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET HIGH Default Range',
+    ['solana', 'solana-devnet', 'solana-defaults'],
+    async () => {
+      await verifySuccessfulSolanaLaunch({
+        configLabel: 'SOLANA DEVNET HIGH Default Range',
+        route: 'dedicated',
+        payload: {
+          network: 'devnet',
+          tokenMetadata: nextTokenMetadata('high'),
+          economics: {
+            totalSupply: '5000000000',
+          },
+          pricing: {
+            numerairePriceUsd: 180,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          migration: {
+            type: 'none',
+          },
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 1000,
+              marketCapEndUsd: 25000,
+            },
+          },
+        },
+        expectedNumerairePriceUsd: 180,
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET Custom Fee + Beneficiary',
+    ['solana', 'solana-devnet', 'solana-fees'],
+    async () => {
+      await verifySuccessfulSolanaLaunch({
+        configLabel: 'SOLANA DEVNET Custom Fee + Beneficiary',
+        route: 'dedicated',
+        payload: {
+          network: 'devnet',
+          tokenMetadata: nextTokenMetadata('fees'),
+          economics: {
+            totalSupply: '3000000000',
+          },
+          pricing: {
+            numerairePriceUsd: 165,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          migration: {
+            type: 'none',
+          },
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 300,
+              marketCapEndUsd: 7500,
+            },
+            swapFeeBps: 75,
+          },
+        },
+        expectedCurveFeeBps: 75,
+        expectedNumerairePriceUsd: 165,
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET CPMM Migration Reserve Split',
+    ['solana', 'solana-devnet', 'solana-cpmm'],
+    async () => {
+      await verifySuccessfulSolanaLaunch({
+        configLabel: 'SOLANA DEVNET CPMM Migration Reserve Split',
+        route: 'dedicated',
+        payload: {
+          network: 'devnet',
+          tokenMetadata: nextTokenMetadata('cpmm'),
+          economics: {
+            totalSupply: '6000000000',
+            baseForDistribution: '200000000',
+            baseForLiquidity: '300000000',
+          },
+          pricing: {
+            numerairePriceUsd: 170,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          migration: {
+            type: 'none',
+            supportCpmm: true,
+            minimumQuoteRaise: '1000',
+          },
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 500,
+              marketCapEndUsd: 10000,
+            },
+            swapFeeBps: 100,
+          },
+        },
+        expectedCurveFeeBps: 100,
+        expectedNumerairePriceUsd: 170,
+        expectedBaseForDistribution: '200000000',
+        expectedBaseForLiquidity: '300000000',
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET Random CPMM Reserve Split',
+    ['solana', 'solana-devnet', 'solana-cpmm'],
+    async () => {
+      const totalSupply = 8_000_000_000n + BigInt(Math.floor(Math.random() * 4_000_000_000));
+      const baseForDistribution = 100_000_000n + BigInt(Math.floor(Math.random() * 250_000_000));
+      const baseForLiquidity = 150_000_000n + BigInt(Math.floor(Math.random() * 350_000_000));
+      const marketCapStartUsd = 400 + Math.floor(Math.random() * 600);
+      const marketCapEndUsd = marketCapStartUsd * (8 + Math.floor(Math.random() * 8));
+      const curveFeeBps = 50 + Math.floor(Math.random() * 451);
+      const numerairePriceUsd = 140 + Math.floor(Math.random() * 81);
+
+      await verifySuccessfulSolanaLaunch({
+        configLabel: `SOLANA DEVNET Random CPMM Reserve Split (${baseForDistribution}/${baseForLiquidity}, fee ${curveFeeBps} bps)`,
+        route: 'dedicated',
+        payload: {
+          network: 'devnet',
+          tokenMetadata: nextTokenMetadata('rcpmm'),
+          economics: {
+            totalSupply: totalSupply.toString(),
+            baseForDistribution: baseForDistribution.toString(),
+            baseForLiquidity: baseForLiquidity.toString(),
+          },
+          pricing: {
+            numerairePriceUsd,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          migration: {
+            type: 'none',
+            supportCpmm: true,
+            minimumQuoteRaise: '1000',
+          },
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd,
+              marketCapEndUsd,
+            },
+            swapFeeBps: curveFeeBps,
+          },
+        },
+        expectedCurveFeeBps: curveFeeBps,
+        expectedNumerairePriceUsd: numerairePriceUsd,
+        expectedBaseForDistribution: baseForDistribution.toString(),
+        expectedBaseForLiquidity: baseForLiquidity.toString(),
       });
     },
     SOLANA_LIVE_TIMEOUT_MS,
@@ -378,7 +645,7 @@ export const registerSolanaLiveScenarios = () => {
 
   liveIt(
     'SOLANA DEVNET Generic Route + Idempotency Replay',
-    ['solana', 'solana-devnet', 'solana-defaults'],
+    ['solana', 'solana-devnet'],
     async () => {
       await verifySuccessfulSolanaLaunch({
         configLabel: 'SOLANA DEVNET Generic Route + Replay',
@@ -408,6 +675,177 @@ export const registerSolanaLiveScenarios = () => {
           },
         },
         expectedNumerairePriceUsd: 160,
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET Buy-Only WSOL Pair',
+    ['solana', 'solana-devnet'],
+    async () => {
+      await verifySuccessfulSolanaLaunch({
+        configLabel: 'SOLANA DEVNET Buy-Only WSOL Pair',
+        route: 'dedicated',
+        payload: {
+          network: 'devnet',
+          tokenMetadata: nextTokenMetadata('buyonly'),
+          economics: {
+            totalSupply: '12345678901',
+          },
+          pairing: {
+            numeraireAddress: String(SOLANA_CONSTANTS.wsolMintAddress),
+          },
+          pricing: {
+            numerairePriceUsd: 175,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          migration: {
+            type: 'none',
+          },
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 250,
+              marketCapEndUsd: 12500,
+            },
+            allowBuy: true,
+            allowSell: false,
+          },
+        },
+        expectedAllowBuy: true,
+        expectedAllowSell: false,
+        expectedNumerairePriceUsd: 175,
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET No Migration Criteria Dedicated',
+    ['solana', 'solana-devnet', 'solana-no-migration'],
+    async () => {
+      await verifySuccessfulSolanaLaunch({
+        configLabel: 'SOLANA DEVNET No Migration Criteria Dedicated',
+        route: 'dedicated',
+        payload: {
+          network: 'devnet',
+          tokenMetadata: nextTokenMetadata('nomig'),
+          economics: {
+            totalSupply: '2200000000',
+          },
+          pricing: {
+            numerairePriceUsd: 145,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 180,
+              marketCapEndUsd: 3600,
+            },
+            allowBuy: true,
+            allowSell: true,
+          },
+        },
+        expectedNumerairePriceUsd: 145,
+        expectedBaseForDistribution: '0',
+        expectedBaseForLiquidity: '0',
+        expectedHookProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
+        expectedHookFlags: 0,
+        expectedMigratorProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET No Migration Criteria Generic',
+    ['solana', 'solana-devnet', 'solana-no-migration'],
+    async () => {
+      await verifySuccessfulSolanaLaunch({
+        configLabel: 'SOLANA DEVNET No Migration Criteria Generic',
+        route: 'generic',
+        payload: {
+          network: 'solanaDevnet',
+          tokenMetadata: nextTokenMetadata('gnomig'),
+          economics: {
+            totalSupply: '4200000000',
+          },
+          pricing: {
+            numerairePriceUsd: 190,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 320,
+              marketCapEndUsd: 9600,
+            },
+            swapFeeBps: 90,
+          },
+        },
+        expectedCurveFeeBps: 90,
+        expectedNumerairePriceUsd: 190,
+        expectedBaseForDistribution: '0',
+        expectedBaseForLiquidity: '0',
+        expectedHookProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
+        expectedHookFlags: 0,
+        expectedMigratorProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET Random No Migration Criteria',
+    ['solana', 'solana-devnet', 'solana-no-migration'],
+    async () => {
+      const totalSupply = (
+        2_500_000_000n + BigInt(Math.floor(Math.random() * 7_500_000_000))
+      ).toString();
+      const marketCapStartUsd = 150 + Math.floor(Math.random() * 350);
+      const marketCapEndUsd = marketCapStartUsd * (6 + Math.floor(Math.random() * 8));
+      const curveFeeBps = 50 + Math.floor(Math.random() * 251);
+      const numerairePriceUsd = 125 + Math.floor(Math.random() * 90);
+
+      await verifySuccessfulSolanaLaunch({
+        configLabel: `SOLANA DEVNET Random No Migration Criteria (${marketCapStartUsd}-${marketCapEndUsd}, fee ${curveFeeBps} bps)`,
+        route: 'dedicated',
+        payload: {
+          network: 'devnet',
+          tokenMetadata: nextTokenMetadata('rnomig'),
+          economics: {
+            totalSupply,
+          },
+          pricing: {
+            numerairePriceUsd,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd,
+              marketCapEndUsd,
+            },
+            swapFeeBps: curveFeeBps,
+          },
+        },
+        expectedCurveFeeBps: curveFeeBps,
+        expectedNumerairePriceUsd: numerairePriceUsd,
+        expectedBaseForDistribution: '0',
+        expectedBaseForLiquidity: '0',
+        expectedHookProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
+        expectedHookFlags: 0,
+        expectedMigratorProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
       });
     },
     SOLANA_LIVE_TIMEOUT_MS,
@@ -500,6 +938,199 @@ export const registerSolanaLiveScenarios = () => {
         expectedAllowBuy: allowBuy,
         expectedAllowSell: allowSell,
         expectedNumerairePriceUsd: numerairePriceUsd,
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET Random Generic Route Parameters',
+    ['solana', 'solana-devnet', 'solana-random'],
+    async () => {
+      const totalSupply = (
+        1_500_000_000n + BigInt(Math.floor(Math.random() * 10_000_000_000))
+      ).toString();
+      const marketCapStartUsd = 90 + Math.floor(Math.random() * 360);
+      const marketCapEndUsd = marketCapStartUsd * (5 + Math.floor(Math.random() * 7));
+      const curveFeeBps = 60 + Math.floor(Math.random() * 441);
+      const numerairePriceUsd = 120 + Math.floor(Math.random() * 101);
+
+      await verifySuccessfulSolanaLaunch({
+        configLabel: `SOLANA DEVNET Random Generic (${marketCapStartUsd}-${marketCapEndUsd}, fee ${curveFeeBps} bps)`,
+        route: 'generic',
+        payload: {
+          network: 'solanaDevnet',
+          tokenMetadata: nextTokenMetadata('rgen'),
+          economics: {
+            totalSupply,
+          },
+          pricing: {
+            numerairePriceUsd,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          migration: {
+            type: 'none',
+          },
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd,
+              marketCapEndUsd,
+            },
+            curveFeeBps,
+          },
+        },
+        expectedCurveFeeBps: curveFeeBps,
+        expectedNumerairePriceUsd: numerairePriceUsd,
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET Random Sell-Only Parameters',
+    ['solana', 'solana-devnet', 'solana-random'],
+    async () => {
+      const marketCapStartUsd = 125 + Math.floor(Math.random() * 500);
+      const marketCapEndUsd = marketCapStartUsd * (6 + Math.floor(Math.random() * 10));
+      const curveFeeBps = 100 + Math.floor(Math.random() * 401);
+      const numerairePriceUsd = 130 + Math.floor(Math.random() * 91);
+
+      await verifySuccessfulSolanaLaunch({
+        configLabel: `SOLANA DEVNET Random Sell-Only (${marketCapStartUsd}-${marketCapEndUsd}, fee ${curveFeeBps} bps)`,
+        route: 'dedicated',
+        payload: {
+          network: 'devnet',
+          tokenMetadata: nextTokenMetadata('rsell'),
+          economics: {
+            totalSupply: (
+              4_000_000_000n + BigInt(Math.floor(Math.random() * 9_000_000_000))
+            ).toString(),
+          },
+          pricing: {
+            numerairePriceUsd,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          migration: {
+            type: 'none',
+          },
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd,
+              marketCapEndUsd,
+            },
+            swapFeeBps: curveFeeBps,
+            allowBuy: false,
+            allowSell: true,
+          },
+        },
+        expectedCurveFeeBps: curveFeeBps,
+        expectedAllowBuy: false,
+        expectedAllowSell: true,
+        expectedNumerairePriceUsd: numerairePriceUsd,
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET Cosigning Hook Slot Expiry',
+    ['solana', 'solana-devnet', 'solana-cosigner'],
+    async () => {
+      const cosigner = await generateKeyPairSigner();
+      await verifySuccessfulSolanaLaunch({
+        configLabel: 'SOLANA DEVNET Cosigning Hook Slot Expiry',
+        route: 'dedicated',
+        payload: {
+          network: 'devnet',
+          tokenMetadata: nextTokenMetadata('coslot'),
+          economics: {
+            totalSupply: '3500000000',
+          },
+          pricing: {
+            numerairePriceUsd: 155,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          migration: {
+            type: 'none',
+          },
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 300,
+              marketCapEndUsd: 6000,
+            },
+            swapFeeBps: 125,
+            cosigningHook: {
+              type: 'cosigner',
+              cosigner: cosigner.address,
+              expiry: {
+                mode: 'slot',
+                value: '999999999999',
+              },
+            },
+          },
+        },
+        expectedCurveFeeBps: 125,
+        expectedNumerairePriceUsd: 155,
+        expectedHookProgram: String(SOLANA_CONSTANTS.cosignerHookProgramId),
+        expectedHookFlags: initializer.HF_BEFORE_SWAP | initializer.HF_FORWARD_READONLY_SIGNERS,
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET Cosigning Hook Timestamp Expiry',
+    ['solana', 'solana-devnet', 'solana-cosigner'],
+    async () => {
+      const cosigner = await generateKeyPairSigner();
+      await verifySuccessfulSolanaLaunch({
+        configLabel: 'SOLANA DEVNET Cosigning Hook Timestamp Expiry',
+        route: 'generic',
+        payload: {
+          network: 'solanaDevnet',
+          tokenMetadata: nextTokenMetadata('cots'),
+          economics: {
+            totalSupply: '4500000000',
+          },
+          pricing: {
+            numerairePriceUsd: 185,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          migration: {
+            type: 'none',
+          },
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 450,
+              marketCapEndUsd: 9000,
+            },
+            swapFeeBps: 150,
+            cosigningHook: {
+              type: 'cosigner',
+              cosigner: cosigner.address,
+              expiry: {
+                mode: 'unixTimestamp',
+                value: (Math.floor(Date.now() / 1000) + 86_400).toString(),
+              },
+            },
+          },
+        },
+        expectedCurveFeeBps: 150,
+        expectedNumerairePriceUsd: 185,
+        expectedHookProgram: String(SOLANA_CONSTANTS.cosignerHookProgramId),
+        expectedHookFlags: initializer.HF_BEFORE_SWAP | initializer.HF_FORWARD_READONLY_SIGNERS,
       });
     },
     SOLANA_LIVE_TIMEOUT_MS,

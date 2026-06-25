@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { parseEther } from 'viem';
 import { describe, expect, it } from 'vitest';
 import {
@@ -32,14 +33,42 @@ describe('live readiness check', () => {
   });
 
   it('estimates Solana launch counts and filter detection', () => {
-    expect(estimateLiveSolanaLaunchCount('solana')).toBe(4);
-    expect(estimateLiveSolanaLaunchCount('solana-devnet')).toBe(4);
-    expect(estimateLiveSolanaLaunchCount('solana-defaults')).toBe(2);
-    expect(estimateLiveSolanaLaunchCount('solana-random')).toBe(1);
+    expect(estimateLiveSolanaLaunchCount('solana')).toBe(17);
+    expect(estimateLiveSolanaLaunchCount('solana-devnet')).toBe(17);
+    expect(estimateLiveSolanaLaunchCount('solana-defaults')).toBe(3);
+    expect(estimateLiveSolanaLaunchCount('solana-fees')).toBe(1);
+    expect(estimateLiveSolanaLaunchCount('solana-cpmm')).toBe(2);
+    expect(estimateLiveSolanaLaunchCount('solana-no-migration')).toBe(3);
+    expect(estimateLiveSolanaLaunchCount('solana-random')).toBe(3);
+    expect(estimateLiveSolanaLaunchCount('solana-cosigner')).toBe(2);
     expect(estimateLiveSolanaLaunchCount('solana-failing')).toBe(0);
     expect(isSolanaLiveFilter('solana')).toBe(true);
     expect(isSolanaLiveFilter('solana-devnet')).toBe(true);
     expect(isSolanaLiveFilter('multicurve')).toBe(false);
+  });
+
+  it('keeps Solana live scripts aligned with readiness filters', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+
+    const expectedSolanaScripts = {
+      'test:live:solana': 'solana',
+      'test:live:solana:devnet': 'solana-devnet',
+      'test:live:solana:defaults': 'solana-defaults',
+      'test:live:solana:fees': 'solana-fees',
+      'test:live:solana:cpmm': 'solana-cpmm',
+      'test:live:solana:no-migration': 'solana-no-migration',
+      'test:live:solana:random': 'solana-random',
+      'test:live:solana:cosigner': 'solana-cosigner',
+      'test:live:solana:failing': 'solana-failing',
+    };
+
+    for (const [scriptName, liveFilter] of Object.entries(expectedSolanaScripts)) {
+      expect(packageJson.scripts[scriptName]).toContain('LIVE_TEST_ENABLE=true');
+      expect(packageJson.scripts[scriptName]).toContain(`LIVE_TEST_FILTER=${liveFilter}`);
+      expect(packageJson.scripts[scriptName]).toContain('tests/live/create-and-verify.test.ts');
+    }
   });
 
   it('computes estimated required wei using defaults', () => {
@@ -79,9 +108,9 @@ describe('live readiness check', () => {
     });
 
     expect(requirement).not.toBeNull();
-    expect(formatSolAmount(requirement!.requiredLamports)).toBe(formatSolAmount(60_000_000n));
+    expect(formatSolAmount(requirement!.requiredLamports)).toBe(formatSolAmount(85_000_000n));
     expect(requirement!.reason).toContain(
-      `estimate: 2 launch tx * ${DEFAULT_LIVE_ESTIMATED_TX_COST_SOL} SOL + ${DEFAULT_LIVE_ESTIMATED_OVERHEAD_SOL} SOL overhead`,
+      `estimate: 3 launch tx * ${DEFAULT_LIVE_ESTIMATED_TX_COST_SOL} SOL + ${DEFAULT_LIVE_ESTIMATED_OVERHEAD_SOL} SOL overhead`,
     );
   });
 
