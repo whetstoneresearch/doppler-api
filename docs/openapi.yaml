@@ -804,6 +804,10 @@ components:
     SolanaEconomics:
       type: object
       additionalProperties: false
+      description: >
+        Solana launches use the initializer curve. baseForDistribution and
+        baseForLiquidity must be omitted or set to 0 unless
+        migration.supportCpmm is true.
       properties:
         totalSupply:
           type: string
@@ -828,13 +832,37 @@ components:
         numerairePriceUsd:
           type: number
           exclusiveMinimum: 0
+    SolanaFeeBeneficiary:
+      type: object
+      additionalProperties: false
+      properties:
+        address:
+          $ref: '#/components/schemas/SolanaAddress'
+        shareBps:
+          type: integer
+          minimum: 1
+          maximum: 10000
+      required: [address, shareBps]
     SolanaMigration:
       type: object
       additionalProperties: false
       properties:
         type:
           type: string
-          const: noOp
+          const: none
+        supportCpmm:
+          type: boolean
+          default: false
+          description: >
+            When true, initialize the launch with the canonical CPMM hook and
+            migrator. When false or omitted, use the system program for hook and
+            migrator.
+        minimumQuoteRaise:
+          type: string
+          pattern: '^\d+$'
+          description: >
+            Quote token atoms required before CPMM migration can occur. Required
+            when supportCpmm is true.
       required: [type]
     SolanaCurveConfig:
       type: object
@@ -850,6 +878,34 @@ components:
           type: number
           exclusiveMinimum: 0
       required: [type, marketCapStartUsd, marketCapEndUsd]
+    SolanaCosigningHookExpiry:
+      type: object
+      additionalProperties: false
+      properties:
+        mode:
+          type: string
+          enum: [disabled, unixTimestamp, slot]
+        value:
+          type: string
+          pattern: '^\d+$'
+          description: Required for unixTimestamp and slot expiry modes; omitted for disabled.
+      required: [mode]
+    SolanaCosigningHook:
+      type: object
+      additionalProperties: false
+      description: >
+        Doppler cosigner hook configuration for non-CPMM Solana launches. Cannot
+        be combined with migration.supportCpmm=true because CPMM migration uses
+        the initializer hook slot.
+      properties:
+        type:
+          type: string
+          const: cosigner
+        cosigner:
+          $ref: '#/components/schemas/SolanaAddress'
+        expiry:
+          $ref: '#/components/schemas/SolanaCosigningHookExpiry'
+      required: [type, cosigner]
     SolanaAuction:
       type: object
       additionalProperties: false
@@ -863,10 +919,18 @@ components:
           type: integer
           minimum: 0
           maximum: 10000
+          description: Backward-compatible alias for swapFeeBps.
+        swapFeeBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: Preferred Solana swap fee input; constrained by on-chain initializer min/max.
         allowBuy:
           type: boolean
         allowSell:
           type: boolean
+        cosigningHook:
+          $ref: '#/components/schemas/SolanaCosigningHook'
       required: [type, curveConfig]
     DedicatedSolanaCreateLaunchRequest:
       type: object
@@ -882,6 +946,12 @@ components:
           $ref: '#/components/schemas/SolanaPairing'
         pricing:
           $ref: '#/components/schemas/SolanaPricing'
+        feeBeneficiaries:
+          type: array
+          maxItems: 8
+          description: Optional post-protocol-fee split. Custom shareBps values must sum to 10000.
+          items:
+            $ref: '#/components/schemas/SolanaFeeBeneficiary'
         governance:
           type: boolean
           enum: [false]
@@ -904,6 +974,12 @@ components:
           $ref: '#/components/schemas/SolanaPairing'
         pricing:
           $ref: '#/components/schemas/SolanaPricing'
+        feeBeneficiaries:
+          type: array
+          maxItems: 8
+          description: Optional post-protocol-fee split. Custom shareBps values must sum to 10000.
+          items:
+            $ref: '#/components/schemas/SolanaFeeBeneficiary'
         governance:
           type: boolean
           enum: [false]
@@ -1080,11 +1156,20 @@ components:
               $ref: '#/components/schemas/SolanaAddress'
             launchAuthorityAddress:
               $ref: '#/components/schemas/SolanaAddress'
+            launchFeeStateAddress:
+              $ref: '#/components/schemas/SolanaAddress'
             baseVaultAddress:
               $ref: '#/components/schemas/SolanaAddress'
             quoteVaultAddress:
               $ref: '#/components/schemas/SolanaAddress'
-          required: [tokenAddress, launchAuthorityAddress, baseVaultAddress, quoteVaultAddress]
+          required:
+            [
+              tokenAddress,
+              launchAuthorityAddress,
+              launchFeeStateAddress,
+              baseVaultAddress,
+              quoteVaultAddress,
+            ]
         effectiveConfig:
           type: object
           properties:
@@ -1109,12 +1194,22 @@ components:
               type: string
             curveFeeBps:
               type: integer
+            swapFeeBps:
+              type: integer
+            feeBeneficiariesSource:
+              type: string
+              enum: [default, request]
+            feeBeneficiaries:
+              type: array
+              items:
+                $ref: '#/components/schemas/SolanaFeeBeneficiary'
             allowBuy:
               type: boolean
             allowSell:
               type: boolean
             tokenDecimals:
               type: integer
+              description: Fixed Solana base token decimals. Currently 6.
           required:
             [
               tokensForSale,
@@ -1127,6 +1222,9 @@ components:
               curveVirtualBase,
               curveVirtualQuote,
               curveFeeBps,
+              swapFeeBps,
+              feeBeneficiariesSource,
+              feeBeneficiaries,
               allowBuy,
               allowSell,
               tokenDecimals,
@@ -1174,12 +1272,23 @@ components:
           type: string
         curveFeeBps:
           type: integer
+        swapFeeBps:
+          type: integer
         allowBuy:
           type: boolean
         allowSell:
           type: boolean
+        hookProgram:
+          $ref: '#/components/schemas/SolanaAddress'
+        hookFlags:
+          type: integer
+        migratorProgram:
+          $ref: '#/components/schemas/SolanaAddress'
+        quoteDeposited:
+          type: string
         tokenDecimals:
           type: integer
+          description: Fixed Solana base token decimals. Currently 6.
       required:
         [
           network,
@@ -1198,8 +1307,13 @@ components:
           curveVirtualBase,
           curveVirtualQuote,
           curveFeeBps,
+          swapFeeBps,
           allowBuy,
           allowSell,
+          hookProgram,
+          hookFlags,
+          migratorProgram,
+          quoteDeposited,
           tokenDecimals,
         ]
     LaunchStatusResult:

@@ -29,7 +29,15 @@ describe('live create verification', () => {
   beforeAll(async () => {
     if (!runLive) return;
 
-    const config = loadConfig();
+    let config: ReturnType<typeof loadConfig>;
+    try {
+      config = loadConfig();
+    } catch (error) {
+      throw new Error(
+        `[${LIVE_READINESS_ERROR_MARKER}] LIVE_TEST_FILTER=${liveFilter} could not load app config: ${toShortError(error)}.`,
+        { cause: error as Error },
+      );
+    }
 
     if (isSolanaLiveFilter(liveFilter)) {
       if (!config.solana.enabled) {
@@ -40,6 +48,11 @@ describe('live create verification', () => {
       if (!config.solana.keypairBytes) {
         throw new Error(
           `[${LIVE_READINESS_ERROR_MARKER}] LIVE_TEST_FILTER=${liveFilter} requires SOLANA_KEYPAIR to be configured.`,
+        );
+      }
+      if (liveFilter !== 'solana-failing' && !config.solana.altAddress) {
+        throw new Error(
+          `[${LIVE_READINESS_ERROR_MARKER}] LIVE_TEST_FILTER=${liveFilter} requires SOLANA_DEVNET_ALT_ADDRESS to avoid per-launch address lookup table setup during live Solana tests.`,
         );
       }
 

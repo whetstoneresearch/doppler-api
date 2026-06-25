@@ -3,6 +3,21 @@ import { ZodError } from 'zod';
 
 import { asAppError } from '../../core/errors';
 
+const serializeLogError = (error: unknown) => {
+  if (error instanceof Error) {
+    return {
+      type: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+
+  return {
+    type: typeof error,
+    message: String(error),
+  };
+};
+
 export default fp(async (fastify) => {
   fastify.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
@@ -22,7 +37,7 @@ export default fp(async (fastify) => {
     const details = !isServerError && appError.details !== undefined ? appError.details : undefined;
 
     request.log.error(
-      { err: error, code: appError.code, statusCode: appError.statusCode },
+      { error: serializeLogError(error), code: appError.code, statusCode: appError.statusCode },
       appError.message,
     );
     reply.status(appError.statusCode).send({

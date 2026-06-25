@@ -201,14 +201,19 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
         marketCapEndUsd?: number;
       };
       curveFeeBps?: number;
+      swapFeeBps?: number;
       allowBuy?: boolean;
       allowSell?: boolean;
+    };
+    migration?: {
+      supportCpmm?: boolean;
     };
   }) => {
     const totalSupply = payload?.economics?.totalSupply ?? '1000';
     const baseForDistribution = BigInt(payload?.economics?.baseForDistribution ?? '0');
     const baseForLiquidity = BigInt(payload?.economics?.baseForLiquidity ?? '0');
     const tokensForSale = (BigInt(totalSupply) - baseForDistribution - baseForLiquidity).toString();
+    const swapFeeBps = payload?.auction?.swapFeeBps ?? payload?.auction?.curveFeeBps ?? 0;
 
     return {
       launchId: '8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
@@ -221,6 +226,7 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
       predicted: {
         tokenAddress: '6QWeT6FpJrm8AF1btu6WH2k2Xhq6t5vbheKVfQavmeoZ',
         launchAuthorityAddress: 'E7Ud4m8S7fC2YdUQdL7p9V2sRrMfQjQ9fA5spuR4T9gQ',
+        launchFeeStateAddress: 'F7Ud4m8S7fC2YdUQdL7p9V2sRrMfQjQ9fA5spuR4T9gR',
         baseVaultAddress: '9xQeWvG816bUx9EPjHmaT23yvVMHh2eHq9cYqB9Yg6xT',
         quoteVaultAddress: 'J1veWvV6BF8L7rN8D66zCFAaj6MqFmoVoeAQMtkP8dwF',
       },
@@ -235,10 +241,13 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
         numerairePriceUsd: payload?.pricing?.numerairePriceUsd ?? 100,
         curveVirtualBase: '1000000000',
         curveVirtualQuote: '100000000',
-        curveFeeBps: payload?.auction?.curveFeeBps ?? 0,
+        curveFeeBps: swapFeeBps,
+        swapFeeBps,
+        feeBeneficiariesSource: 'default' as const,
+        feeBeneficiaries: [],
         allowBuy: payload?.auction?.allowBuy ?? true,
         allowSell: payload?.auction?.allowSell ?? true,
-        tokenDecimals: 9,
+        tokenDecimals: 6,
       },
     };
   };
@@ -249,6 +258,13 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
     if (typeof input === 'object' && input !== null && 'network' in input) {
       const solanaInput = input as {
         network?: 'solanaDevnet' | 'solanaMainnetBeta';
+        economics?: {
+          baseForDistribution?: string;
+          baseForLiquidity?: string;
+        };
+        migration?: {
+          supportCpmm?: boolean;
+        };
         auction?: {
           curveConfig?: {
             marketCapStartUsd?: number;
@@ -256,12 +272,24 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
           };
         };
       };
-
       if (solanaInput.network === 'solanaMainnetBeta') {
         throw new AppError(
           501,
           'SOLANA_NETWORK_UNSUPPORTED',
           'solanaMainnetBeta is scaffolded but not executable in this API profile',
+        );
+      }
+
+      const baseForDistribution = BigInt(solanaInput.economics?.baseForDistribution ?? '0');
+      const baseForLiquidity = BigInt(solanaInput.economics?.baseForLiquidity ?? '0');
+      if (
+        solanaInput.migration?.supportCpmm !== true &&
+        (baseForDistribution > 0n || baseForLiquidity > 0n)
+      ) {
+        throw new AppError(
+          422,
+          'SOLANA_INVALID_ECONOMICS',
+          'Solana launches without CPMM migration cannot reserve base tokens; omit baseForDistribution and baseForLiquidity or set migration.supportCpmm=true',
         );
       }
 
@@ -364,9 +392,14 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
           curveVirtualBase: '1000000000',
           curveVirtualQuote: '100000000',
           curveFeeBps: 25,
+          swapFeeBps: 25,
           allowBuy: true,
+          hookProgram: '11111111111111111111111111111111',
+          hookFlags: 0,
+          migratorProgram: '11111111111111111111111111111111',
+          quoteDeposited: '0',
           allowSell: false,
-          tokenDecimals: 9,
+          tokenDecimals: 6,
         };
       },
     } as any,

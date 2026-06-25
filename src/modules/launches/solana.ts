@@ -19,8 +19,13 @@ import {
   signature,
   signTransactionMessageWithSigners,
 } from '@solana/kit';
-import { cpmm, initializer } from '@whetstone-research/doppler-sdk/solana';
-import { z } from 'zod';
+import { TOKEN_PROGRAM_ADDRESS, findAssociatedTokenPda } from '@solana-program/token';
+import {
+  cosignerHook,
+  cpmm,
+  cpmmMigrator,
+  initializer,
+} from '@whetstone-research/doppler-sdk/solana';
 
 import type { AppConfig } from '../../core/config';
 import { AppError } from '../../core/errors';
@@ -30,134 +35,61 @@ import type {
   SolanaNetwork,
 } from '../../core/types';
 import type { PricingService } from '../pricing/service';
+import {
+  SOLANA_FEE_BPS_DENOMINATOR,
+  SOLANA_MAX_FEE_BENEFICIARIES,
+  type CreateSolanaLaunchRequestInput,
+} from './solana-schema';
+import {
+  SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH,
+  SOLANA_RENT_SYSVAR_ADDRESS,
+  SOLANA_SYSTEM_PROGRAM_ADDRESS,
+  SOLANA_TOKEN_DECIMALS,
+  buildSolanaCosigningHookConfig,
+  buildSolanaLaunchConfirmationLookupError,
+  buildSolanaLaunchConfirmationTimeoutError,
+  buildSolanaCpmmMigrationPayloads,
+  buildSolanaLookupTableConfirmTimeoutError,
+  buildSolanaLookupTableSubmitError,
+  buildSolanaLookupTableWarmupTimeoutError,
+  buildSolanaSimulationProgramError,
+  buildSolanaSimulationRpcError,
+  buildSolanaInitializeLaunchInstructionArgs,
+  isSolanaSignatureConfirmed,
+  throwIfSolanaSignatureRejected,
+} from './solana-assembly';
+export {
+  dedicatedSolanaCreateLaunchRequestSchema,
+  genericSolanaCreateLaunchRequestSchema,
+  isSolanaCanonicalNetwork,
+  normalizeDedicatedSolanaCreateRequest,
+  parseDedicatedSolanaCreateLaunchRequest,
+  parseGenericSolanaCreateLaunchRequest,
+} from './solana-schema';
+export type {
+  CreateSolanaLaunchRequestInput,
+  DedicatedSolanaCreateLaunchRequestInput,
+} from './solana-schema';
+export {
+  buildDisabledSolanaHookArgs,
+  buildSolanaLaunchConfirmationLookupError,
+  buildSolanaLaunchConfirmationTimeoutError,
+  buildSolanaCpmmMigrationPayloads,
+  buildSolanaLookupTableConfirmTimeoutError,
+  buildSolanaLookupTableSubmitError,
+  buildSolanaLookupTableWarmupTimeoutError,
+  buildSolanaSimulationProgramError,
+  buildSolanaSimulationRpcError,
+  buildSolanaInitializeLaunchInstructionArgs,
+  buildSolanaCosigningHookConfig,
+  isSolanaSignatureConfirmed,
+  throwIfSolanaSignatureRejected,
+} from './solana-assembly';
 
 const U64_MAX = 18_446_744_073_709_551_615n;
-const SOLANA_TOKEN_DECIMALS = 9;
 const SOLANA_NUMERAIRE_DECIMALS = 9;
 const SOLANA_CONFIRM_POLL_INTERVAL_MS = 500;
 const SOLANA_WSOL_MINT_ADDRESS = address('So11111111111111111111111111111111111111112');
-const SOLANA_SYSTEM_PROGRAM_ADDRESS = address('11111111111111111111111111111111');
-const SOLANA_RENT_SYSVAR_ADDRESS = address('SysvarRent111111111111111111111111111111111');
-const SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH = new Uint8Array(32);
-
-export const buildDisabledSolanaHookArgs = () => ({
-  sentinelFlags: 0,
-  sentinelCalldata: new Uint8Array(),
-  sentinelCreateRemainingAccountsLen: 0,
-  sentinelCreateRemainingAccountsHash: new Uint8Array(SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH),
-  sentinelRemainingAccountsHash: new Uint8Array(SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH),
-  migratorInitCalldata: new Uint8Array(),
-  migratorMigrateCalldata: new Uint8Array(),
-  migratorInitRemainingAccountsHash: new Uint8Array(SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH),
-  migratorRemainingAccountsHash: new Uint8Array(SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH),
-});
-
-const strictObject = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
-
-const positiveFiniteNumberSchema = z
-  .number()
-  .refine((value) => Number.isFinite(value) && value > 0, 'must be a positive number');
-
-const solanaAddressSchema = z.string().refine((value) => {
-  try {
-    address(value);
-    return true;
-  } catch {
-    return false;
-  }
-}, 'must be a valid Solana address');
-
-const u64StringSchema = z
-  .string()
-  .regex(/^\d+$/, 'must be a positive integer string')
-  .refine((value) => {
-    const parsed = BigInt(value);
-    return parsed > 0n && parsed <= U64_MAX;
-  }, 'must be a positive u64 integer string');
-
-const u64NonNegativeStringSchema = z
-  .string()
-  .regex(/^\d+$/, 'must be a non-negative integer string')
-  .refine((value) => {
-    const parsed = BigInt(value);
-    return parsed <= U64_MAX;
-  }, 'must be a non-negative u64 integer string');
-
-const canonicalSolanaNetworkSchema = z.enum(['solanaDevnet', 'solanaMainnetBeta']);
-const dedicatedSolanaNetworkSchema = z.enum(['devnet', 'mainnet-beta']);
-
-const solanaTokenMetadataSchema = strictObject({
-  name: z.string().min(1).max(32),
-  symbol: z.string().min(1).max(10),
-  tokenURI: z.string().min(1).max(200),
-});
-
-const solanaEconomicsSchema = strictObject({
-  totalSupply: u64StringSchema,
-  baseForDistribution: u64NonNegativeStringSchema.optional(),
-  baseForLiquidity: u64NonNegativeStringSchema.optional(),
-}).superRefine((value, ctx) => {
-  const totalSupply = BigInt(value.totalSupply);
-  const baseForDistribution = BigInt(value.baseForDistribution ?? '0');
-  const baseForLiquidity = BigInt(value.baseForLiquidity ?? '0');
-
-  if (baseForDistribution + baseForLiquidity >= totalSupply) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['baseForDistribution'],
-      message: 'baseForDistribution + baseForLiquidity must be less than economics.totalSupply',
-    });
-  }
-});
-
-const solanaPairingSchema = strictObject({
-  numeraireAddress: solanaAddressSchema.optional(),
-});
-
-const solanaPricingSchema = strictObject({
-  numerairePriceUsd: positiveFiniteNumberSchema.optional(),
-});
-
-const solanaMigrationSchema = strictObject({
-  type: z.literal('noOp'),
-});
-
-const solanaAuctionSchema = strictObject({
-  type: z.literal('xyk'),
-  curveConfig: strictObject({
-    type: z.literal('range'),
-    marketCapStartUsd: positiveFiniteNumberSchema,
-    marketCapEndUsd: positiveFiniteNumberSchema,
-  }),
-  curveFeeBps: z.number().int().min(0).max(10_000).optional(),
-  allowBuy: z.boolean().optional(),
-  allowSell: z.boolean().optional(),
-});
-
-const baseSolanaCreateLaunchRequestShape = {
-  tokenMetadata: solanaTokenMetadataSchema,
-  economics: solanaEconomicsSchema,
-  pairing: solanaPairingSchema.optional(),
-  pricing: solanaPricingSchema.optional(),
-  governance: z.literal(false).optional(),
-  migration: solanaMigrationSchema.optional(),
-  auction: solanaAuctionSchema,
-} satisfies z.ZodRawShape;
-
-export const dedicatedSolanaCreateLaunchRequestSchema = strictObject({
-  network: dedicatedSolanaNetworkSchema.optional(),
-  ...baseSolanaCreateLaunchRequestShape,
-});
-
-export const genericSolanaCreateLaunchRequestSchema = strictObject({
-  network: canonicalSolanaNetworkSchema,
-  ...baseSolanaCreateLaunchRequestShape,
-});
-
-export type DedicatedSolanaCreateLaunchRequestInput = z.infer<
-  typeof dedicatedSolanaCreateLaunchRequestSchema
->;
-export type CreateSolanaLaunchRequestInput = z.infer<typeof genericSolanaCreateLaunchRequestSchema>;
 
 export interface SolanaReadinessCheck {
   name: 'rpcReachable' | 'latestBlockhash' | 'initializerConfig' | 'addressLookupTable';
@@ -177,81 +109,18 @@ interface DerivedCurveConfig {
   curveVirtualQuote: bigint;
 }
 
-const toCanonicalSolanaNetwork = (
-  network: z.infer<typeof dedicatedSolanaNetworkSchema>,
-): SolanaNetwork => {
-  if (network === 'devnet') {
-    return 'solanaDevnet';
-  }
+interface SolanaInitializerConfig {
+  address: Address;
+  admin: Address;
+  protocolFeeBps: number;
+  minSwapFeeBps: number;
+  maxSwapFeeBps: number;
+}
 
-  return 'solanaMainnetBeta';
-};
-
-export const isSolanaCanonicalNetwork = (value: unknown): value is SolanaNetwork =>
-  value === 'solanaDevnet' || value === 'solanaMainnetBeta';
-
-export const normalizeDedicatedSolanaCreateRequest = (
-  input: DedicatedSolanaCreateLaunchRequestInput,
-  defaultNetwork: SolanaNetwork,
-): CreateSolanaLaunchRequestInput =>
-  genericSolanaCreateLaunchRequestSchema.parse({
-    ...input,
-    network: input.network ? toCanonicalSolanaNetwork(input.network) : defaultNetwork,
-  });
-
-const remapSolanaSchemaError = (error: z.ZodError): never => {
-  const metadataIssue = error.issues.find((issue) => issue.path[0] === 'tokenMetadata');
-  if (metadataIssue) {
-    throw new AppError(422, 'SOLANA_INVALID_METADATA', 'Invalid Solana token metadata', {
-      issues: error.issues,
-    });
-  }
-
-  const curveIssue = error.issues.find(
-    (issue) =>
-      issue.path[0] === 'auction' &&
-      (issue.path[1] === 'type' ||
-        issue.path[1] === 'curveConfig' ||
-        issue.path[1] === 'curveFeeBps'),
-  );
-  if (curveIssue) {
-    throw new AppError(422, 'SOLANA_INVALID_CURVE', 'Invalid Solana XYK curve configuration', {
-      issues: error.issues,
-    });
-  }
-
-  throw error;
-};
-
-export const parseDedicatedSolanaCreateLaunchRequest = (
-  body: unknown,
-  defaultNetwork: SolanaNetwork,
-): CreateSolanaLaunchRequestInput => {
-  try {
-    const parsed = dedicatedSolanaCreateLaunchRequestSchema.parse(body);
-    return normalizeDedicatedSolanaCreateRequest(parsed, defaultNetwork);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      remapSolanaSchemaError(error);
-    }
-
-    throw error;
-  }
-};
-
-export const parseGenericSolanaCreateLaunchRequest = (
-  body: unknown,
-): CreateSolanaLaunchRequestInput => {
-  try {
-    return genericSolanaCreateLaunchRequestSchema.parse(body);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      remapSolanaSchemaError(error);
-    }
-
-    throw error;
-  }
-};
+interface SolanaResolvedFeeBeneficiaries {
+  source: 'default' | 'request';
+  beneficiaries: Array<{ wallet: Address; shareBps: number }>;
+}
 
 export const deriveSolanaLaunchSeed = (
   network: SolanaNetwork,
@@ -422,10 +291,8 @@ export class SolanaLaunchService {
     this.rpc = createSolanaRpc(this.config.solana.devnetRpcUrl);
   }
 
-  private getAltAddress(): Address {
-    return this.config.solana.altAddress
-      ? address(this.config.solana.altAddress)
-      : initializer.DOPPLER_DEVNET_ALT;
+  private getAltAddress(): Address | undefined {
+    return this.config.solana.altAddress ? address(this.config.solana.altAddress) : undefined;
   }
 
   private async getPayerSigner() {
@@ -526,11 +393,27 @@ export class SolanaLaunchService {
       baseForCurve: launch.baseForCurve.toString(),
       curveVirtualBase: launch.curveVirtualBase.toString(),
       curveVirtualQuote: launch.curveVirtualQuote.toString(),
-      curveFeeBps: launch.curveFeeBps,
+      curveFeeBps: launch.swapFeeBps,
+      swapFeeBps: launch.swapFeeBps,
       allowBuy: launch.allowBuy !== 0,
       allowSell: launch.allowSell !== 0,
+      hookProgram: launch.hookProgram,
+      hookFlags: launch.hookFlags,
+      migratorProgram: launch.migratorProgram,
+      quoteDeposited: launch.quoteDeposited.toString(),
       tokenDecimals: SOLANA_TOKEN_DECIMALS,
     };
+  }
+
+  private async launchAccountExists(launchAddress: Address): Promise<boolean> {
+    try {
+      const launchAccount = await fetchEncodedAccount(this.rpc, launchAddress, {
+        commitment: 'confirmed',
+      });
+      return launchAccount.exists;
+    } catch {
+      return false;
+    }
   }
 
   private async resolveNumerairePriceUsd(
@@ -572,14 +455,91 @@ export class SolanaLaunchService {
     );
   }
 
-  private async fetchInitializerConfigAddress(): Promise<Address> {
+  private async fetchInitializerConfig(): Promise<SolanaInitializerConfig> {
     const [configAddress] = await initializer.getConfigAddress();
     const encodedAccount = await fetchEncodedAccount(this.rpc, configAddress, {
       commitment: 'confirmed',
     });
     const decodedAccount = decodeAccount(encodedAccount, initializer.getInitConfigDecoder());
     assertAccountExists(decodedAccount);
-    return configAddress;
+    return {
+      address: configAddress,
+      admin: decodedAccount.data.admin,
+      protocolFeeBps: decodedAccount.data.protocolFeeBps,
+      minSwapFeeBps: decodedAccount.data.minSwapFeeBps,
+      maxSwapFeeBps: decodedAccount.data.maxSwapFeeBps,
+    };
+  }
+
+  private resolveSwapFeeBps(
+    input: CreateSolanaLaunchRequestInput,
+    initializerConfig: SolanaInitializerConfig,
+  ): number {
+    const requested = input.auction.swapFeeBps ?? input.auction.curveFeeBps;
+    const swapFeeBps = requested ?? initializerConfig.minSwapFeeBps;
+
+    if (
+      swapFeeBps < initializerConfig.minSwapFeeBps ||
+      swapFeeBps > initializerConfig.maxSwapFeeBps
+    ) {
+      throw new AppError(
+        422,
+        'SOLANA_INVALID_CURVE',
+        `Solana swapFeeBps must be between ${initializerConfig.minSwapFeeBps} and ${initializerConfig.maxSwapFeeBps}`,
+      );
+    }
+
+    return swapFeeBps;
+  }
+
+  private resolveFeeBeneficiaries(
+    input: CreateSolanaLaunchRequestInput,
+    payerAddress: Address,
+    initializerConfig: SolanaInitializerConfig,
+  ): SolanaResolvedFeeBeneficiaries {
+    const requested = input.feeBeneficiaries ?? [];
+    const protocolBeneficiary = initializerConfig.admin;
+    if (
+      requested.length === 0 &&
+      initializerConfig.protocolFeeBps < SOLANA_FEE_BPS_DENOMINATOR &&
+      payerAddress === protocolBeneficiary
+    ) {
+      throw new AppError(
+        422,
+        'SOLANA_INVALID_FEE_BENEFICIARIES',
+        'Solana feeBeneficiaries is required when the configured payer is the initializer protocol beneficiary',
+        { protocolBeneficiary },
+      );
+    }
+
+    const beneficiaries =
+      requested.length > 0
+        ? requested.map((beneficiary) => ({
+            wallet: address(beneficiary.address),
+            shareBps: beneficiary.shareBps,
+          }))
+        : initializerConfig.protocolFeeBps >= SOLANA_FEE_BPS_DENOMINATOR
+          ? []
+          : [{ wallet: payerAddress, shareBps: SOLANA_FEE_BPS_DENOMINATOR }];
+    const protocolBeneficiaryIndex = beneficiaries.findIndex(
+      (beneficiary) => beneficiary.wallet === protocolBeneficiary,
+    );
+    if (protocolBeneficiaryIndex !== -1) {
+      throw new AppError(
+        422,
+        'SOLANA_INVALID_FEE_BENEFICIARIES',
+        'Solana fee beneficiaries cannot include the initializer protocol beneficiary',
+        {
+          protocolBeneficiary,
+          index: protocolBeneficiaryIndex,
+        },
+      );
+    }
+
+    return {
+      source: requested.length > 0 ? 'request' : 'default',
+      beneficiaries,
+    };
   }
 
   async getReadiness(): Promise<SolanaReadinessResult> {
@@ -604,20 +564,22 @@ export class SolanaLaunchService {
     }
 
     try {
-      await this.fetchInitializerConfigAddress();
+      await this.fetchInitializerConfig();
       checks.push({ name: 'initializerConfig', ok: true });
     } catch (error) {
       checks.push({ name: 'initializerConfig', ok: false, error: errorMessage(error) });
     }
 
     const altAddress = this.getAltAddress();
-    try {
-      await fetchAddressesForLookupTables([altAddress], this.rpc, {
-        commitment: 'confirmed',
-      });
-      checks.push({ name: 'addressLookupTable', ok: true });
-    } catch (error) {
-      checks.push({ name: 'addressLookupTable', ok: false, error: errorMessage(error) });
+    if (altAddress) {
+      try {
+        await fetchAddressesForLookupTables([altAddress], this.rpc, {
+          commitment: 'confirmed',
+        });
+        checks.push({ name: 'addressLookupTable', ok: true });
+      } catch (error) {
+        checks.push({ name: 'addressLookupTable', ok: false, error: errorMessage(error) });
+      }
     }
 
     return {
@@ -640,13 +602,24 @@ export class SolanaLaunchService {
       throw new AppError(503, 'SOLANA_NOT_READY', 'Solana devnet is not ready for launch creation');
     }
 
+    const supportCpmmMigration = input.migration?.supportCpmm ?? false;
     const totalSupply = BigInt(input.economics.totalSupply);
     const baseForDistribution = BigInt(input.economics.baseForDistribution ?? '0');
     const baseForLiquidity = BigInt(input.economics.baseForLiquidity ?? '0');
+    if (!supportCpmmMigration && (baseForDistribution > 0n || baseForLiquidity > 0n)) {
+      throw new AppError(
+        422,
+        'SOLANA_INVALID_ECONOMICS',
+        'Solana launches without CPMM migration cannot reserve base tokens; omit baseForDistribution and baseForLiquidity or set migration.supportCpmm=true',
+      );
+    }
+    const minimumQuoteRaise = supportCpmmMigration
+      ? BigInt(input.migration?.minimumQuoteRaise ?? '0')
+      : 0n;
+
     const tokensForSale = totalSupply - baseForDistribution - baseForLiquidity;
     const numeraireAddress = this.resolveNumeraireAddress(input);
     const numerairePriceUsd = await this.resolveNumerairePriceUsd(input, numeraireAddress);
-    const curveFeeBps = input.auction.curveFeeBps ?? 0;
     const allowBuy = input.auction.allowBuy ?? true;
     const allowSell = input.auction.allowSell ?? true;
     const curveConfig = deriveSolanaCurveConfig({
@@ -659,20 +632,59 @@ export class SolanaLaunchService {
     });
 
     const payer = await this.getPayerSigner();
+    const initializerConfig = await this.fetchInitializerConfig();
+    const swapFeeBps = this.resolveSwapFeeBps(input, initializerConfig);
+    const feeBeneficiaries = this.resolveFeeBeneficiaries(input, payer.address, initializerConfig);
+    const cosigningHookConfig = await buildSolanaCosigningHookConfig(input.auction.cosigningHook);
     const launchSeed = deriveSolanaLaunchSeed(input.network, idempotencyKey);
     const namespace = payer.address;
     const [launchAddress] = await initializer.getLaunchAddress(namespace, launchSeed);
     const [launchAuthorityAddress] = await initializer.getLaunchAuthorityAddress(launchAddress);
-    const configAddress = await this.fetchInitializerConfigAddress();
+    const [launchFeeStateAddress] = await initializer.getLaunchFeeStateAddress(launchAddress);
+    const configAddress = initializerConfig.address;
     const baseMint = await generateKeyPairSigner();
     const baseVault = await generateKeyPairSigner();
     const quoteVault = await generateKeyPairSigner();
     const metadataAddress = await initializer.getTokenMetadataAddress(baseMint.address);
-    const altAddress = this.getAltAddress();
+    const [payerBaseAta] = await findAssociatedTokenPda({
+      owner: payer.address,
+      mint: baseMint.address,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    });
+    const [payerQuoteAta] = await findAssociatedTokenPda({
+      owner: payer.address,
+      mint: numeraireAddress,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    });
+    const recipientAtas = supportCpmmMigration && baseForDistribution > 0n ? [payerBaseAta] : [];
+    const migrationAccounts = supportCpmmMigration
+      ? await cpmmMigrator.buildCpmmMigrationRemainingAccounts({
+          launch: launchAddress,
+          baseMint: baseMint.address,
+          quoteMint: numeraireAddress,
+          launchAuthority: launchAuthorityAddress,
+          adminBaseAta: payerBaseAta,
+          adminQuoteAta: payerQuoteAta,
+          recipientAtas,
+          cpmmProgram: cpmm.CPMM_PROGRAM_ID,
+          cpmmMigratorProgram: cpmmMigrator.CPMM_MIGRATOR_PROGRAM_ID,
+        })
+      : null;
+    const { migratorInitPayload, migratorMigratePayload } = buildSolanaCpmmMigrationPayloads({
+      supportCpmmMigration,
+      migrationAccounts,
+      payerAddress: payer.address,
+      baseForDistribution,
+      baseForLiquidity,
+      minimumQuoteRaise,
+      swapFeeBps,
+      feeBpsDenominator: SOLANA_FEE_BPS_DENOMINATOR,
+    });
 
     const distinctAddresses = new Set([
       launchAddress,
       launchAuthorityAddress,
+      launchFeeStateAddress,
       configAddress,
       baseMint.address,
       baseVault.address,
@@ -680,7 +692,7 @@ export class SolanaLaunchService {
       metadataAddress,
       numeraireAddress,
     ]);
-    if (distinctAddresses.size !== 8) {
+    if (distinctAddresses.size !== 9) {
       throw new AppError(
         500,
         'SOLANA_SUBMISSION_FAILED',
@@ -688,55 +700,195 @@ export class SolanaLaunchService {
       );
     }
 
+    const [initializeAccounts, initializeArgs] = buildSolanaInitializeLaunchInstructionArgs({
+      supportCpmmMigration,
+      cosigningHookConfig,
+      configAddress,
+      launchAddress,
+      launchAuthorityAddress,
+      launchFeeStateAddress,
+      baseMint,
+      quoteMint: numeraireAddress,
+      baseVault,
+      quoteVault,
+      metadataAddress,
+      payer,
+      namespace,
+      launchSeed,
+      totalSupply,
+      baseForDistribution,
+      baseForLiquidity,
+      curveConfig,
+      swapFeeBps,
+      allowBuy,
+      allowSell,
+      migrationAccounts,
+      migratorInitPayload,
+      migratorMigratePayload,
+      tokenMetadata: input.tokenMetadata,
+      feeBeneficiaries: feeBeneficiaries.beneficiaries,
+    });
+
     // The published SDK currently defines the initializer account list for this path.
     // Live Solana create remains dependent on the SDK/IDL staying in sync with the
     // deployed devnet program's initialize_launch accounts.
     const instruction = await initializer.createInitializeLaunchInstruction(
-      {
-        config: configAddress,
-        launch: launchAddress,
-        launchAuthority: launchAuthorityAddress,
-        baseMint,
-        quoteMint: numeraireAddress,
-        baseVault,
-        quoteVault,
-        payer,
-        authority: payer,
-        // The initializer still expects a migrator program account even for no-op launches.
-        migratorProgram: SOLANA_SYSTEM_PROGRAM_ADDRESS,
-        rent: SOLANA_RENT_SYSVAR_ADDRESS,
-        metadataAccount: metadataAddress,
-        ...(altAddress ? { addressLookupTable: altAddress } : {}),
-      },
-      {
-        namespace,
-        launchId: launchSeed,
-        baseDecimals: SOLANA_TOKEN_DECIMALS,
-        baseTotalSupply: totalSupply,
-        baseForDistribution,
-        baseForLiquidity,
-        curveVirtualBase: curveConfig.curveVirtualBase,
-        curveVirtualQuote: curveConfig.curveVirtualQuote,
-        curveFeeBps,
-        curveKind: initializer.CURVE_KIND_XYK,
-        curveParams: new Uint8Array([initializer.CURVE_PARAMS_FORMAT_XYK_V0]),
-        allowBuy,
-        allowSell,
-        sentinelProgram: SOLANA_SYSTEM_PROGRAM_ADDRESS,
-        ...buildDisabledSolanaHookArgs(),
-        metadataName: input.tokenMetadata.name,
-        metadataSymbol: input.tokenMetadata.symbol,
-        metadataUri: input.tokenMetadata.tokenURI,
-      },
+      initializeAccounts,
+      initializeArgs,
     );
 
+    let lookupTable: { lookupTableAddress: Address; addresses: readonly Address[] };
+    const configuredAltAddress = this.getAltAddress();
+    if (configuredAltAddress) {
+      const lookupTables = await fetchAddressesForLookupTables([configuredAltAddress], this.rpc, {
+        commitment: 'confirmed',
+      });
+      const configuredAltAddresses = lookupTables[configuredAltAddress];
+      if (!configuredAltAddresses) {
+        throw new AppError(
+          503,
+          'SOLANA_NOT_READY',
+          'Configured Solana address lookup table is not available',
+          { altAddress: configuredAltAddress },
+        );
+      }
+
+      lookupTable = {
+        lookupTableAddress: configuredAltAddress,
+        addresses: configuredAltAddresses,
+      };
+    } else {
+      const lookupTableAuthority = await generateKeyPairSigner();
+      const recentSlot = await this.rpc.getSlot({ commitment: 'finalized' }).send();
+      const lookupTableSetup = await initializer.buildAddressLookupTableSetupInstructions({
+        authority: lookupTableAuthority,
+        payer,
+        recentSlot,
+        addresses: initializer.getInstructionLookupTableAddresses(instruction),
+      });
+      lookupTable = {
+        lookupTableAddress: lookupTableSetup.lookupTableAddress,
+        addresses: lookupTableSetup.addresses,
+      };
+
+      const lookupTableSetupBlockhash = await this.rpc
+        .getLatestBlockhash({ commitment: 'confirmed' })
+        .send();
+      const lookupTableSetupMessage = appendTransactionMessageInstructions(
+        [lookupTableSetup.createInstruction, ...lookupTableSetup.extendInstructions],
+        setTransactionMessageLifetimeUsingBlockhash(
+          lookupTableSetupBlockhash.value,
+          setTransactionMessageFeePayerSigner(payer, createTransactionMessage({ version: 0 })),
+        ),
+      );
+      const signedLookupTableSetup =
+        await signTransactionMessageWithSigners(lookupTableSetupMessage);
+      const lookupTableSetupSignatureBytes = signedLookupTableSetup.signatures[payer.address];
+      if (!lookupTableSetupSignatureBytes) {
+        throw new AppError(
+          500,
+          'SOLANA_SUBMISSION_FAILED',
+          'Failed to sign Solana lookup table setup transaction with the configured payer',
+        );
+      }
+      const lookupTableSetupSignature = signature(
+        getBase58Decoder().decode(lookupTableSetupSignatureBytes),
+      );
+      const lookupTableSetupWire = getBase64EncodedWireTransaction(signedLookupTableSetup);
+
+      try {
+        await this.rpc
+          .sendTransaction(lookupTableSetupWire, {
+            encoding: 'base64',
+            preflightCommitment: 'confirmed',
+            skipPreflight: false,
+          })
+          .send();
+      } catch (error) {
+        throw buildSolanaLookupTableSubmitError(errorMessage(error));
+      }
+
+      const lookupTableDeadline = Date.now() + this.config.solana.confirmTimeoutMs;
+      for (;;) {
+        let status: Parameters<typeof throwIfSolanaSignatureRejected>[0];
+        try {
+          const statuses = await this.rpc.getSignatureStatuses([lookupTableSetupSignature]).send();
+          status = statuses.value[0];
+        } catch (_error) {
+          if (Date.now() >= lookupTableDeadline) {
+            throw buildSolanaLookupTableConfirmTimeoutError();
+          }
+
+          await delay(SOLANA_CONFIRM_POLL_INTERVAL_MS);
+          continue;
+        }
+
+        throwIfSolanaSignatureRejected(
+          status,
+          'Solana lookup table setup transaction was rejected after submission',
+        );
+
+        if (isSolanaSignatureConfirmed(status)) {
+          break;
+        }
+
+        if (Date.now() >= lookupTableDeadline) {
+          throw buildSolanaLookupTableConfirmTimeoutError();
+        }
+
+        await delay(SOLANA_CONFIRM_POLL_INTERVAL_MS);
+      }
+
+      let lookupTableSetupSlot: bigint;
+      for (;;) {
+        try {
+          lookupTableSetupSlot = await this.rpc.getSlot({ commitment: 'confirmed' }).send();
+          break;
+        } catch (_error) {
+          if (Date.now() >= lookupTableDeadline) {
+            throw buildSolanaLookupTableWarmupTimeoutError();
+          }
+
+          await delay(SOLANA_CONFIRM_POLL_INTERVAL_MS);
+        }
+      }
+
+      for (;;) {
+        let currentSlot: bigint;
+        try {
+          currentSlot = await this.rpc.getSlot({ commitment: 'confirmed' }).send();
+        } catch (_error) {
+          if (Date.now() >= lookupTableDeadline) {
+            throw buildSolanaLookupTableWarmupTimeoutError();
+          }
+
+          await delay(SOLANA_CONFIRM_POLL_INTERVAL_MS);
+          continue;
+        }
+
+        if (currentSlot > lookupTableSetupSlot) {
+          break;
+        }
+
+        if (Date.now() >= lookupTableDeadline) {
+          throw buildSolanaLookupTableWarmupTimeoutError();
+        }
+
+        await delay(SOLANA_CONFIRM_POLL_INTERVAL_MS);
+      }
+    }
+
     const latestBlockhash = await this.rpc.getLatestBlockhash({ commitment: 'confirmed' }).send();
-    const transactionMessage = appendTransactionMessageInstructions(
+    const uncompressedTransactionMessage = appendTransactionMessageInstructions(
       [instruction],
       setTransactionMessageLifetimeUsingBlockhash(
         latestBlockhash.value,
         setTransactionMessageFeePayerSigner(payer, createTransactionMessage({ version: 0 })),
       ),
+    );
+    const transactionMessage = initializer.compressTransactionMessageWithLookupTable(
+      uncompressedTransactionMessage,
+      lookupTable,
     );
 
     const signedTransaction = await signTransactionMessageWithSigners(transactionMessage);
@@ -764,41 +916,20 @@ export class SolanaLaunchService {
         })
         .send();
     } catch (error) {
-      throw new AppError(
-        502,
-        'SOLANA_SIMULATION_FAILED',
-        'Failed to simulate Solana launch transaction',
-        { cause: errorMessage(error) },
-      );
+      throw buildSolanaSimulationRpcError(errorMessage(error));
     }
 
     const simulationLogs = simulation.value.logs ?? [];
     if (simulation.value.err) {
-      const parsedError = cpmm.parseErrorFromLogs(simulationLogs);
-      throw new AppError(
-        422,
-        'SOLANA_SIMULATION_FAILED',
-        parsedError?.message ?? 'Solana launch simulation failed',
-        parsedError
-          ? {
-              programError: {
-                code: parsedError.code,
-                codeName: parsedError.codeName,
-                message: parsedError.message,
-              },
-              logs: simulationLogs,
-            }
-          : { logs: simulationLogs },
-      );
+      throw buildSolanaSimulationProgramError(simulationLogs);
     }
 
     try {
       await this.rpc
         .sendTransaction(wireTransaction, {
           encoding: 'base64',
-          maxRetries: 0n,
           preflightCommitment: 'confirmed',
-          skipPreflight: true,
+          skipPreflight: false,
         })
         .send();
     } catch (error) {
@@ -813,35 +944,46 @@ export class SolanaLaunchService {
     const deadline = Date.now() + this.config.solana.confirmTimeoutMs;
     try {
       for (;;) {
-        const statuses = await this.rpc.getSignatureStatuses([transactionSignature]).send();
-        const status = statuses.value[0];
-        if (status?.err) {
-          throw new AppError(
-            502,
-            'SOLANA_SUBMISSION_FAILED',
-            'Solana launch transaction was rejected after submission',
-            { status: status.err },
-          );
+        let status: Parameters<typeof throwIfSolanaSignatureRejected>[0];
+        try {
+          const statuses = await this.rpc.getSignatureStatuses([transactionSignature]).send();
+          status = statuses.value[0];
+        } catch (_error) {
+          if (await this.launchAccountExists(launchAddress)) {
+            break;
+          }
+
+          if (Date.now() >= deadline) {
+            throw buildSolanaLaunchConfirmationLookupError({
+              launchId: launchAddress,
+              signature: transactionSignature,
+              explorerUrl,
+            });
+          }
+
+          await delay(SOLANA_CONFIRM_POLL_INTERVAL_MS);
+          continue;
         }
 
-        if (
-          status?.confirmationStatus === 'confirmed' ||
-          status?.confirmationStatus === 'finalized'
-        ) {
+        throwIfSolanaSignatureRejected(
+          status,
+          'Solana launch transaction was rejected after submission',
+        );
+
+        if (isSolanaSignatureConfirmed(status)) {
           break;
         }
 
         if (Date.now() >= deadline) {
-          throw new AppError(
-            409,
-            'IDEMPOTENCY_KEY_IN_DOUBT',
-            'Solana launch submission completed but confirmation did not resolve before timeout',
-            {
-              launchId: launchAddress,
-              signature: transactionSignature,
-              explorerUrl,
-            },
-          );
+          if (await this.launchAccountExists(launchAddress)) {
+            break;
+          }
+
+          throw buildSolanaLaunchConfirmationTimeoutError({
+            launchId: launchAddress,
+            signature: transactionSignature,
+            explorerUrl,
+          });
         }
 
         await delay(SOLANA_CONFIRM_POLL_INTERVAL_MS);
@@ -851,16 +993,11 @@ export class SolanaLaunchService {
         throw error;
       }
 
-      throw new AppError(
-        409,
-        'IDEMPOTENCY_KEY_IN_DOUBT',
-        'Solana launch submission completed but confirmation could not be verified',
-        {
-          launchId: launchAddress,
-          signature: transactionSignature,
-          explorerUrl,
-        },
-      );
+      throw buildSolanaLaunchConfirmationLookupError({
+        launchId: launchAddress,
+        signature: transactionSignature,
+        explorerUrl,
+      });
     }
 
     return {
@@ -872,6 +1009,7 @@ export class SolanaLaunchService {
       predicted: {
         tokenAddress: baseMint.address,
         launchAuthorityAddress,
+        launchFeeStateAddress,
         baseVaultAddress: baseVault.address,
         quoteVaultAddress: quoteVault.address,
       },
@@ -885,7 +1023,13 @@ export class SolanaLaunchService {
         numerairePriceUsd,
         curveVirtualBase: curveConfig.curveVirtualBase.toString(),
         curveVirtualQuote: curveConfig.curveVirtualQuote.toString(),
-        curveFeeBps,
+        curveFeeBps: swapFeeBps,
+        swapFeeBps,
+        feeBeneficiariesSource: feeBeneficiaries.source,
+        feeBeneficiaries: feeBeneficiaries.beneficiaries.map((beneficiary) => ({
+          address: beneficiary.wallet,
+          shareBps: beneficiary.shareBps,
+        })),
         allowBuy,
         allowSell,
         tokenDecimals: SOLANA_TOKEN_DECIMALS,
@@ -897,5 +1041,12 @@ export class SolanaLaunchService {
 export const SOLANA_CONSTANTS = {
   tokenDecimals: SOLANA_TOKEN_DECIMALS,
   wsolMintAddress: SOLANA_WSOL_MINT_ADDRESS,
+  systemProgramAddress: SOLANA_SYSTEM_PROGRAM_ADDRESS,
+  rentSysvarAddress: SOLANA_RENT_SYSVAR_ADDRESS,
+  cpmmHookProgramId: initializer.CPMM_HOOK_PROGRAM_ID,
+  cosignerHookProgramId: cosignerHook.COSIGNER_HOOK_PROGRAM_ID,
+  cpmmMigratorProgramId: cpmmMigrator.CPMM_MIGRATOR_PROGRAM_ID,
   disabledHookRemainingAccountsHash: SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH,
+  feeBpsDenominator: SOLANA_FEE_BPS_DENOMINATOR,
+  maxFeeBeneficiaries: SOLANA_MAX_FEE_BENEFICIARIES,
 };
