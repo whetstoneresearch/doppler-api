@@ -24,6 +24,7 @@ import {
   cosignerHook,
   cpmm,
   cpmmMigrator,
+  dynamicFeeHook,
   initializer,
 } from '@whetstone-research/doppler-sdk/solana';
 
@@ -58,7 +59,6 @@ import {
   isSolanaSignatureConfirmed,
   throwIfSolanaSignatureRejected,
 } from './solana-assembly';
-import * as dynamicFeeHook from './solana-dynamic-fee-hook';
 export {
   dedicatedSolanaCreateLaunchRequestSchema,
   genericSolanaCreateLaunchRequestSchema,

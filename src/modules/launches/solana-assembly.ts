@@ -4,11 +4,11 @@ import {
   cosignerHook,
   cpmm,
   cpmmMigrator,
+  dynamicFeeHook,
   initializer,
 } from '@whetstone-research/doppler-sdk/solana';
 
 import { AppError } from '../../core/errors';
-import * as dynamicFeeHook from './solana-dynamic-fee-hook';
 import type { CreateSolanaLaunchRequestInput } from './solana-schema';
 
 export const SOLANA_TOKEN_DECIMALS = 6;

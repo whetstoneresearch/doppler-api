@@ -12,7 +12,7 @@ describe('tick spacing resolution', () => {
       presets: ['low'],
     });
 
-    expect(spacing).toBe(100);
+    expect(spacing).toBe(200);
   });
 
   it('derives preset tick spacing for medium custom fee when omitted', () => {

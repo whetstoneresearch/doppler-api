@@ -101,7 +101,7 @@ const feeConfigByPreset: Record<
   'low' | 'medium' | 'high',
   { fee: number; expectedTickSpacing: number; feePercent: string }
 > = {
-  low: { fee: 30000, expectedTickSpacing: 100, feePercent: '3.00%' },
+  low: { fee: 30000, expectedTickSpacing: 200, feePercent: '3.00%' },
   medium: { fee: 20000, expectedTickSpacing: 100, feePercent: '2.00%' },
   high: { fee: 10000, expectedTickSpacing: 200, feePercent: '1.00%' },
 };

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSigner } from '@solana/kit';
-import { cosignerHook, initializer } from '@whetstone-research/doppler-sdk/solana';
+import { cosignerHook, dynamicFeeHook, initializer } from '@whetstone-research/doppler-sdk/solana';
 
 import {
   SOLANA_CONSTANTS,
@@ -19,7 +19,6 @@ import {
   isSolanaSignatureConfirmed,
   throwIfSolanaSignatureRejected,
 } from '../../src/modules/launches/solana';
-import * as dynamicFeeHook from '../../src/modules/launches/solana-dynamic-fee-hook';
 
 describe('Solana SDK assembly helpers', () => {
   it('uses all-zero remaining-account hashes for disabled Solana hooks', () => {
