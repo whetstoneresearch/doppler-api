@@ -1137,6 +1137,71 @@ export const registerSolanaLiveScenarios = () => {
   );
 
   liveIt(
+    'SOLANA DEVNET Dynamic Fee Hook With CPMM Cosigner',
+    ['solana', 'solana-devnet', 'solana-dynamic-fee'],
+    async () => {
+      const cosigner = await generateKeyPairSigner();
+      await verifySuccessfulSolanaLaunch({
+        configLabel: 'SOLANA DEVNET Dynamic Fee Hook With CPMM Cosigner',
+        route: 'dedicated',
+        payload: {
+          network: 'devnet',
+          tokenMetadata: nextTokenMetadata('dfcpmm'),
+          economics: {
+            totalSupply: '6000000000',
+            baseForDistribution: '300000000',
+            baseForLiquidity: '300000000',
+          },
+          pricing: {
+            numerairePriceUsd: 175,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          migration: {
+            type: 'none',
+            supportCpmm: true,
+            minimumQuoteRaise: '100000000',
+          },
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 500,
+              marketCapEndUsd: 10000,
+            },
+            swapFeeBps: 200,
+            dynamicFee: {
+              startingTime: '0',
+              startFeeBps: 8000,
+              endFeeBps: 200,
+              durationSeconds: '600',
+            },
+            cosigningHook: {
+              type: 'cosigner',
+              cosigner: cosigner.address,
+              expiry: {
+                mode: 'unixTimestamp',
+                value: (Math.floor(Date.now() / 1000) + 86_400).toString(),
+              },
+            },
+          },
+        },
+        expectedCurveFeeBps: 200,
+        expectedNumerairePriceUsd: 175,
+        expectedBaseForDistribution: '300000000',
+        expectedBaseForLiquidity: '300000000',
+        expectedHookProgram: String(SOLANA_CONSTANTS.dynamicFeeHookProgramId),
+        expectedHookFlags:
+          initializer.HF_BEFORE_CREATE |
+          initializer.HF_BEFORE_SWAP |
+          initializer.HF_FORWARD_READONLY_SIGNERS,
+        expectedMigratorProgram: String(SOLANA_CONSTANTS.cpmmMigratorProgramId),
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
     'SOLANA Generic Route Rejects Short Alias',
     ['solana', 'solana-devnet', 'solana-failing'],
     async () => {

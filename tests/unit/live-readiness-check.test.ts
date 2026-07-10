@@ -33,14 +33,15 @@ describe('live readiness check', () => {
   });
 
   it('estimates Solana launch counts and filter detection', () => {
-    expect(estimateLiveSolanaLaunchCount('solana')).toBe(17);
-    expect(estimateLiveSolanaLaunchCount('solana-devnet')).toBe(17);
+    expect(estimateLiveSolanaLaunchCount('solana')).toBe(18);
+    expect(estimateLiveSolanaLaunchCount('solana-devnet')).toBe(18);
     expect(estimateLiveSolanaLaunchCount('solana-defaults')).toBe(3);
     expect(estimateLiveSolanaLaunchCount('solana-fees')).toBe(1);
     expect(estimateLiveSolanaLaunchCount('solana-cpmm')).toBe(2);
     expect(estimateLiveSolanaLaunchCount('solana-no-migration')).toBe(3);
     expect(estimateLiveSolanaLaunchCount('solana-random')).toBe(3);
     expect(estimateLiveSolanaLaunchCount('solana-cosigner')).toBe(2);
+    expect(estimateLiveSolanaLaunchCount('solana-dynamic-fee')).toBe(1);
     expect(estimateLiveSolanaLaunchCount('solana-failing')).toBe(0);
     expect(isSolanaLiveFilter('solana')).toBe(true);
     expect(isSolanaLiveFilter('solana-devnet')).toBe(true);
@@ -61,6 +62,7 @@ describe('live readiness check', () => {
       'test:live:solana:no-migration': 'solana-no-migration',
       'test:live:solana:random': 'solana-random',
       'test:live:solana:cosigner': 'solana-cosigner',
+      'test:live:solana:dynamic-fee': 'solana-dynamic-fee',
       'test:live:solana:failing': 'solana-failing',
     };
 

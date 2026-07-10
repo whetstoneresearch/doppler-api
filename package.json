@@ -40,6 +40,7 @@
     "test:live:solana:no-migration": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=solana-no-migration vitest run tests/live/create-and-verify.test.ts",
     "test:live:solana:random": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=solana-random vitest run tests/live/create-and-verify.test.ts",
     "test:live:solana:cosigner": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=solana-cosigner vitest run tests/live/create-and-verify.test.ts",
+    "test:live:solana:dynamic-fee": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=solana-dynamic-fee vitest run tests/live/create-and-verify.test.ts",
     "test:live:solana:failing": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=solana-failing vitest run tests/live/create-and-verify.test.ts",
     "test:all": "node scripts/test-runner.mjs --with-live"
   },

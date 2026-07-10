@@ -854,9 +854,9 @@ components:
           type: boolean
           default: false
           description: >
-            When true, initialize the launch with the canonical CPMM hook and
-            migrator. When false or omitted, use the system program for hook and
-            migrator.
+            When true, register the launch with the CPMM migrator. The
+            canonical CPMM hook is used by default; auction.dynamicFee replaces
+            that hook while keeping CPMM migration enabled.
         minimumQuoteRaise:
           type: string
           pattern: '^\d+$'
@@ -894,9 +894,9 @@ components:
       type: object
       additionalProperties: false
       description: >
-        Doppler cosigner hook configuration for non-CPMM Solana launches. Cannot
-        be combined with migration.supportCpmm=true because CPMM migration uses
-        the initializer hook slot.
+        Doppler cosigner hook configuration for Solana launches. When combined
+        with migration.supportCpmm=true, auction.dynamicFee is required so the
+        dynamic fee hook can enforce both policies.
       properties:
         type:
           type: string
@@ -906,6 +906,31 @@ components:
         expiry:
           $ref: '#/components/schemas/SolanaCosigningHookExpiry'
       required: [type, cosigner]
+    SolanaDynamicFee:
+      type: object
+      additionalProperties: false
+      description: >
+        Dynamic fee hook schedule for Solana launches. Omit startingTime or set
+        it to "0" to normalize the schedule start to launch creation.
+      properties:
+        startingTime:
+          type: string
+          pattern: '^\d+$'
+          description: Optional non-negative Unix timestamp string.
+        startFeeBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        endFeeBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: Must be less than or equal to startFeeBps.
+        durationSeconds:
+          type: string
+          pattern: '^\d+$'
+          description: Non-negative u32 string; must be non-zero for decaying schedules.
+      required: [startFeeBps, endFeeBps, durationSeconds]
     SolanaAuction:
       type: object
       additionalProperties: false
@@ -931,6 +956,8 @@ components:
           type: boolean
         cosigningHook:
           $ref: '#/components/schemas/SolanaCosigningHook'
+        dynamicFee:
+          $ref: '#/components/schemas/SolanaDynamicFee'
       required: [type, curveConfig]
     DedicatedSolanaCreateLaunchRequest:
       type: object

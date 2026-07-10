@@ -45,10 +45,10 @@ import {
   SOLANA_RENT_SYSVAR_ADDRESS,
   SOLANA_SYSTEM_PROGRAM_ADDRESS,
   SOLANA_TOKEN_DECIMALS,
-  buildSolanaCosigningHookConfig,
   buildSolanaLaunchConfirmationLookupError,
   buildSolanaLaunchConfirmationTimeoutError,
   buildSolanaCpmmMigrationPayloads,
+  buildSolanaLaunchHookConfig,
   buildSolanaLookupTableConfirmTimeoutError,
   buildSolanaLookupTableSubmitError,
   buildSolanaLookupTableWarmupTimeoutError,
@@ -58,6 +58,7 @@ import {
   isSolanaSignatureConfirmed,
   throwIfSolanaSignatureRejected,
 } from './solana-assembly';
+import * as dynamicFeeHook from './solana-dynamic-fee-hook';
 export {
   dedicatedSolanaCreateLaunchRequestSchema,
   genericSolanaCreateLaunchRequestSchema,
@@ -82,6 +83,7 @@ export {
   buildSolanaSimulationRpcError,
   buildSolanaInitializeLaunchInstructionArgs,
   buildSolanaCosigningHookConfig,
+  buildSolanaLaunchHookConfig,
   isSolanaSignatureConfirmed,
   throwIfSolanaSignatureRejected,
 } from './solana-assembly';
@@ -635,9 +637,13 @@ export class SolanaLaunchService {
     const initializerConfig = await this.fetchInitializerConfig();
     const swapFeeBps = this.resolveSwapFeeBps(input, initializerConfig);
     const feeBeneficiaries = this.resolveFeeBeneficiaries(input, payer.address, initializerConfig);
-    const cosigningHookConfig = await buildSolanaCosigningHookConfig(input.auction.cosigningHook);
     const launchSeed = deriveSolanaLaunchSeed(input.network, idempotencyKey);
     const namespace = payer.address;
+    const launchHookConfig = await buildSolanaLaunchHookConfig({
+      dynamicFee: input.auction.dynamicFee,
+      cosigningHook: input.auction.cosigningHook,
+      namespace,
+    });
     const [launchAddress] = await initializer.getLaunchAddress(namespace, launchSeed);
     const [launchAuthorityAddress] = await initializer.getLaunchAuthorityAddress(launchAddress);
     const [launchFeeStateAddress] = await initializer.getLaunchFeeStateAddress(launchAddress);
@@ -702,7 +708,7 @@ export class SolanaLaunchService {
 
     const [initializeAccounts, initializeArgs] = buildSolanaInitializeLaunchInstructionArgs({
       supportCpmmMigration,
-      cosigningHookConfig,
+      launchHookConfig,
       configAddress,
       launchAddress,
       launchAuthorityAddress,
@@ -1045,6 +1051,7 @@ export const SOLANA_CONSTANTS = {
   rentSysvarAddress: SOLANA_RENT_SYSVAR_ADDRESS,
   cpmmHookProgramId: initializer.CPMM_HOOK_PROGRAM_ID,
   cosignerHookProgramId: cosignerHook.COSIGNER_HOOK_PROGRAM_ID,
+  dynamicFeeHookProgramId: dynamicFeeHook.DYNAMIC_FEE_HOOK_PROGRAM_ID,
   cpmmMigratorProgramId: cpmmMigrator.CPMM_MIGRATOR_PROGRAM_ID,
   disabledHookRemainingAccountsHash: SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH,
   feeBpsDenominator: SOLANA_FEE_BPS_DENOMINATOR,
