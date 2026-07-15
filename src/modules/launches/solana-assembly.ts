@@ -43,20 +43,6 @@ export type SolanaLaunchHookConfig = {
   hookRemainingAccountsHash: Uint8Array;
 };
 
-export type SolanaCosigningHookConfig = SolanaLaunchHookConfig;
-
-export const buildDisabledSolanaHookArgs = () => ({
-  hookFlags: 0,
-  hookPayload: new Uint8Array(),
-  hookCreateRemainingAccountsLen: 0,
-  hookCreateRemainingAccountsHash: new Uint8Array(SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH),
-  hookRemainingAccountsHash: new Uint8Array(SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH),
-  migratorInitPayload: new Uint8Array(),
-  migratorMigratePayload: new Uint8Array(),
-  migratorInitRemainingAccountsHash: new Uint8Array(SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH),
-  migratorRemainingAccountsHash: new Uint8Array(SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH),
-});
-
 const toCosignerHookExpiryMode = (
   mode: Exclude<
     NonNullable<
@@ -71,26 +57,13 @@ const toCosignerHookExpiryMode = (
 
 const buildCosignerGateExpiry = (
   hook: CreateSolanaLaunchRequestInput['auction']['cosigningHook'],
-):
-  | {
-      mode: typeof cosignerHook.GATE_EXPIRY_DISABLED;
-      value: 0n;
-    }
-  | {
-      mode: typeof cosignerHook.GATE_EXPIRY_UNIX_TIMESTAMP | typeof cosignerHook.GATE_EXPIRY_SLOT;
-      value: bigint;
-      cosigner: Address;
-    }
-  | null => {
-  if (!hook) {
+): {
+  mode: typeof cosignerHook.GATE_EXPIRY_UNIX_TIMESTAMP | typeof cosignerHook.GATE_EXPIRY_SLOT;
+  value: bigint;
+  cosigner: Address;
+} | null => {
+  if (!hook?.expiry || hook.expiry.mode === 'disabled') {
     return null;
-  }
-
-  if (!hook.expiry || hook.expiry.mode === 'disabled') {
-    return {
-      mode: cosignerHook.GATE_EXPIRY_DISABLED,
-      value: 0n,
-    };
   }
 
   const expiryValue = hook.expiry.value;
@@ -102,32 +75,6 @@ const buildCosignerGateExpiry = (
     mode: toCosignerHookExpiryMode(hook.expiry.mode),
     value: BigInt(expiryValue),
     cosigner: address(hook.cosigner),
-  };
-};
-
-const buildStandaloneCosigningHookConfig = (args: {
-  hook: NonNullable<CreateSolanaLaunchRequestInput['auction']['cosigningHook']>;
-  namespace: Address;
-  configAddress: Address;
-}): SolanaCosigningHookConfig => {
-  const cosigner = address(args.hook.cosigner);
-  const gateExpiry = buildCosignerGateExpiry(args.hook);
-  const hookPayload = gateExpiry
-    ? cosignerHook.encodeCosignerGateExpiryPayload(gateExpiry)
-    : new Uint8Array();
-  const hookRemainingAccounts =
-    args.namespace === args.configAddress
-      ? [args.configAddress, cosigner]
-      : [args.namespace, args.configAddress, cosigner];
-
-  return {
-    hookProgram: cosignerHook.COSIGNER_HOOK_PROGRAM_ID,
-    hookFlags: initializer.HF_BEFORE_SWAP | initializer.HF_FORWARD_READONLY_SIGNERS,
-    hookPayload,
-    hookCreateRemainingAccountsLen: 0,
-    hookCreateRemainingAccountsHash: new Uint8Array(SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH),
-    hookRemainingAccounts,
-    hookRemainingAccountsHash: initializer.computeRemainingAccountsHash(hookRemainingAccounts),
   };
 };
 
@@ -178,40 +125,11 @@ export const buildSolanaLaunchHookConfig = async (args: {
   dynamicFee: CreateSolanaLaunchRequestInput['auction']['dynamicFee'];
   cosigningHook: CreateSolanaLaunchRequestInput['auction']['cosigningHook'];
   namespace: Address;
-}): Promise<SolanaLaunchHookConfig | null> => {
-  if (args.dynamicFee) {
-    return buildDynamicFeeLaunchHookConfig(args);
-  }
-  if (!args.cosigningHook) {
-    return null;
-  }
-
-  const [configAddress] = await cosignerHook.getCosignerHookConfigAddress();
-  return buildStandaloneCosigningHookConfig({
-    hook: args.cosigningHook,
-    namespace: args.namespace,
-    configAddress,
-  });
-};
-
-export const buildSolanaCosigningHookConfig = async (
-  hook: CreateSolanaLaunchRequestInput['auction']['cosigningHook'],
-): Promise<SolanaCosigningHookConfig | null> => {
-  if (!hook) {
-    return null;
-  }
-
-  const [configAddress] = await cosignerHook.getCosignerHookConfigAddress();
-  return buildStandaloneCosigningHookConfig({
-    hook,
-    namespace: configAddress,
-    configAddress,
-  });
-};
+}): Promise<SolanaLaunchHookConfig> => buildDynamicFeeLaunchHookConfig(args);
 
 export const buildSolanaInitializeLaunchInstructionArgs = (args: {
   supportCpmmMigration: boolean;
-  launchHookConfig: SolanaLaunchHookConfig | null;
+  launchHookConfig: SolanaLaunchHookConfig;
   configAddress: Address;
   launchAddress: Address;
   launchAuthorityAddress: Address;
@@ -251,11 +169,7 @@ export const buildSolanaInitializeLaunchInstructionArgs = (args: {
     launchFeeState: args.launchFeeStateAddress,
     payer: args.payer,
     authority: args.payer,
-    hookProgram:
-      args.launchHookConfig?.hookProgram ??
-      (args.supportCpmmMigration
-        ? initializer.CPMM_HOOK_PROGRAM_ID
-        : SOLANA_SYSTEM_PROGRAM_ADDRESS),
+    hookProgram: args.launchHookConfig.hookProgram,
     migratorProgram: args.supportCpmmMigration
       ? cpmmMigrator.CPMM_MIGRATOR_PROGRAM_ID
       : SOLANA_SYSTEM_PROGRAM_ADDRESS,
@@ -266,8 +180,6 @@ export const buildSolanaInitializeLaunchInstructionArgs = (args: {
     rent: SOLANA_RENT_SYSVAR_ADDRESS,
     metadataAccount: args.metadataAddress,
   };
-  const disabledHookArgs = buildDisabledSolanaHookArgs();
-
   const instructionArgs: SolanaInitializeLaunchArgs = {
     namespace: args.namespace,
     launchId: args.launchSeed,
@@ -282,31 +194,11 @@ export const buildSolanaInitializeLaunchInstructionArgs = (args: {
     curveParams: new Uint8Array([initializer.CURVE_PARAMS_FORMAT_XYK_V0]),
     allowBuy: args.allowBuy,
     allowSell: args.allowSell,
-    ...(args.launchHookConfig
-      ? {
-          hookFlags: args.launchHookConfig.hookFlags,
-          hookPayload: args.launchHookConfig.hookPayload,
-          hookCreateRemainingAccountsLen: args.launchHookConfig.hookCreateRemainingAccountsLen,
-          hookCreateRemainingAccountsHash: args.launchHookConfig.hookCreateRemainingAccountsHash,
-          hookRemainingAccountsHash: args.launchHookConfig.hookRemainingAccountsHash,
-        }
-      : args.supportCpmmMigration && args.migrationAccounts
-        ? {
-            hookFlags: initializer.HF_BEFORE_SWAP,
-            hookPayload: new Uint8Array(),
-            hookCreateRemainingAccountsLen: 0,
-            hookCreateRemainingAccountsHash: new Uint8Array(
-              SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH,
-            ),
-            hookRemainingAccountsHash: args.migrationAccounts.hash,
-          }
-        : {
-            hookFlags: disabledHookArgs.hookFlags,
-            hookPayload: disabledHookArgs.hookPayload,
-            hookCreateRemainingAccountsLen: disabledHookArgs.hookCreateRemainingAccountsLen,
-            hookCreateRemainingAccountsHash: disabledHookArgs.hookCreateRemainingAccountsHash,
-            hookRemainingAccountsHash: disabledHookArgs.hookRemainingAccountsHash,
-          }),
+    hookFlags: args.launchHookConfig.hookFlags,
+    hookPayload: args.launchHookConfig.hookPayload,
+    hookCreateRemainingAccountsLen: args.launchHookConfig.hookCreateRemainingAccountsLen,
+    hookCreateRemainingAccountsHash: args.launchHookConfig.hookCreateRemainingAccountsHash,
+    hookRemainingAccountsHash: args.launchHookConfig.hookRemainingAccountsHash,
     ...(args.supportCpmmMigration && args.migrationAccounts
       ? {
           migratorInitPayload: args.migratorInitPayload,

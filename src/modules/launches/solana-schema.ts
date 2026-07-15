@@ -227,32 +227,12 @@ const baseSolanaCreateLaunchRequestShape = {
   auction: solanaAuctionSchema,
 } satisfies z.ZodRawShape;
 
-const solanaCreateLaunchRequestSchema = <T extends z.ZodRawShape>(shape: T) =>
-  strictObject(shape).superRefine((value, ctx) => {
-    const request = value as {
-      migration?: { supportCpmm?: boolean };
-      auction?: { cosigningHook?: unknown; dynamicFee?: unknown };
-    };
-    if (
-      request.migration?.supportCpmm &&
-      request.auction?.cosigningHook &&
-      !request.auction.dynamicFee
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['auction', 'cosigningHook'],
-        message:
-          'auction.cosigningHook with migration.supportCpmm requires auction.dynamicFee so the dynamic fee hook can enforce both policies',
-      });
-    }
-  });
-
-export const dedicatedSolanaCreateLaunchRequestSchema = solanaCreateLaunchRequestSchema({
+export const dedicatedSolanaCreateLaunchRequestSchema = strictObject({
   network: dedicatedSolanaNetworkSchema.optional(),
   ...baseSolanaCreateLaunchRequestShape,
 });
 
-export const genericSolanaCreateLaunchRequestSchema = solanaCreateLaunchRequestSchema({
+export const genericSolanaCreateLaunchRequestSchema = strictObject({
   network: canonicalSolanaNetworkSchema,
   ...baseSolanaCreateLaunchRequestShape,
 });

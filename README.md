@@ -486,20 +486,21 @@ Example `GET /health`:
   - when `SOLANA_DEVNET_ALT_ADDRESS` is set, launch creation reuses that address lookup table; otherwise it creates a per-launch lookup table before submitting the initialize transaction
 - Solana `migration.type="none"` launches use the initializer curve:
   - set `migration.supportCpmm=true` and `migration.minimumQuoteRaise` to register the launch with the CPMM migrator
-  - CPMM migration uses the canonical CPMM hook by default; `auction.dynamicFee` replaces that hook while keeping CPMM migration enabled
+  - all API-created launches use the dynamic fee hook; CPMM migration registration is independent of hook features
   - omit `economics.baseForDistribution` and `economics.baseForLiquidity`, or set both to `0`, unless `migration.supportCpmm=true`
   - non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled
   - `tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`
-- Solana `auction.cosigningHook` configures cosigner gating:
+- Solana `auction.cosigningHook` configures cosigner gating through the dynamic fee hook:
   - `type` must be `"cosigner"` and `cosigner` must be a Solana address
-  - optional `expiry` supports `mode: "disabled" | "unixTimestamp" | "slot"`; timestamp and slot modes require `value`
+  - optional `expiry` supports `mode: "disabled" | "unixTimestamp" | "slot"`; omitting it or using `disabled` creates an indefinite gate, while timestamp and slot modes require `value`
+  - cosigner gating can be used with or without CPMM migration
 - Solana `auction.dynamicFee` configures the dynamic fee hook:
   - `startFeeBps` and `endFeeBps` are integer basis points between `0` and `10000`
   - `endFeeBps` must be less than or equal to `startFeeBps`
   - `durationSeconds` is a non-negative integer string; it must be non-zero when the fee decays
   - `startingTime` is an optional non-negative Unix timestamp string; omit it or set it to `"0"` to start at launch creation
-  - combine `auction.dynamicFee` with `auction.cosigningHook` to enforce cosigning through the dynamic fee hook
-  - `auction.cosigningHook` with `migration.supportCpmm=true` requires `auction.dynamicFee`
+  - combine `auction.dynamicFee` with `auction.cosigningHook` to enable both features on the same hook
+  - the effective swap fee is the greater of the dynamic schedule fee and `auction.swapFeeBps`
 - Solana auction fee input:
   - prefer `auction.swapFeeBps`; `auction.curveFeeBps` remains accepted as a backward-compatible alias
   - if omitted, the API uses the on-chain initializer minimum swap fee
@@ -590,7 +591,7 @@ LIVE_TEST_VERBOSE=true npm run test:live
 `test:live` performs real on-chain creation and verification when `LIVE_TEST_ENABLE=true` and funded credentials are configured.
 By default, live output is concise (launch summary table). Set `LIVE_TEST_VERBOSE=true` for full per-launch parameter and verification tables.
 Live launch tests run sequentially to avoid nonce conflicts from a single funded signer.
-`test:live` remains the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet matrix. The Solana matrix covers supported parity with the Base Sepolia defaults, fee-beneficiary, reserve-split/CPMM, launches with no migration criteria, generic-route replay, randomized parameter paths, Doppler cosigner hook launches, and dynamic fee hook launches. Governance, vesting/vault locks, and static/dynamic EVM auction engines are EVM-only.
+`test:live` remains the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet matrix. The Solana matrix covers supported parity with the Base Sepolia defaults, fee-beneficiary, reserve-split/CPMM, launches with no migration criteria, generic-route replay, randomized parameter paths, cosigner-gated dynamic hook launches, and scheduled dynamic fee hook launches. Governance, vesting/vault locks, and static/dynamic EVM auction engines are EVM-only.
 Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR`, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, `SOLANA_DEVNET_ALT_ADDRESS`, and enough SOL for account creation; override the readiness estimate with `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` when needed.
 
 ## Lint, format, and git hooks

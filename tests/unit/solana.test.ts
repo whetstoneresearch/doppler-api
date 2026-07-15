@@ -226,26 +226,27 @@ describe('Solana launch helpers', () => {
       durationSeconds: '600',
     });
 
-    expect(() =>
-      genericSolanaCreateLaunchRequestSchema.parse({
-        network: 'solanaDevnet',
-        tokenMetadata: { name: 'Bad Cosign', symbol: 'BCSGN', tokenURI: 'ipfs://bad-cosign' },
-        economics: {
-          totalSupply: '1000',
-          baseForDistribution: '100',
+    const cpmmCosignerLaunch = genericSolanaCreateLaunchRequestSchema.parse({
+      network: 'solanaDevnet',
+      tokenMetadata: { name: 'CPMM Cosign', symbol: 'CCSGN', tokenURI: 'ipfs://cpmm-cosign' },
+      economics: {
+        totalSupply: '1000',
+        baseForDistribution: '100',
+      },
+      governance: false,
+      migration: { type: 'none', supportCpmm: true, minimumQuoteRaise: '1' },
+      auction: {
+        type: 'xyk',
+        curveConfig: { type: 'range', marketCapStartUsd: 100, marketCapEndUsd: 1000 },
+        cosigningHook: {
+          type: 'cosigner',
+          cosigner: cosigner.address,
         },
-        governance: false,
-        migration: { type: 'none', supportCpmm: true, minimumQuoteRaise: '1' },
-        auction: {
-          type: 'xyk',
-          curveConfig: { type: 'range', marketCapStartUsd: 100, marketCapEndUsd: 1000 },
-          cosigningHook: {
-            type: 'cosigner',
-            cosigner: cosigner.address,
-          },
-        },
-      }),
-    ).toThrow(/requires auction.dynamicFee/i);
+      },
+    });
+    expect(cpmmCosignerLaunch.migration?.supportCpmm).toBe(true);
+    expect(cpmmCosignerLaunch.auction.cosigningHook?.cosigner).toBe(cosigner.address);
+    expect(cpmmCosignerLaunch.auction.dynamicFee).toBeUndefined();
 
     expect(
       genericSolanaCreateLaunchRequestSchema.parse({

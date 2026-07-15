@@ -854,9 +854,9 @@ components:
           type: boolean
           default: false
           description: >
-            When true, register the launch with the CPMM migrator. The
-            canonical CPMM hook is used by default; auction.dynamicFee replaces
-            that hook while keeping CPMM migration enabled.
+            When true, register the launch with the CPMM migrator. All
+            API-created launches use the dynamic fee hook; migration
+            registration and hook features are independent.
         minimumQuoteRaise:
           type: string
           pattern: '^\d+$'
@@ -881,6 +881,7 @@ components:
     SolanaCosigningHookExpiry:
       type: object
       additionalProperties: false
+      description: Omit expiry or use disabled for an indefinite cosigner gate.
       properties:
         mode:
           type: string
@@ -888,15 +889,14 @@ components:
         value:
           type: string
           pattern: '^\d+$'
-          description: Required for unixTimestamp and slot expiry modes; omitted for disabled.
+          description: Required for unixTimestamp and slot expiry modes; omitted for indefinite disabled mode.
       required: [mode]
     SolanaCosigningHook:
       type: object
       additionalProperties: false
       description: >
-        Doppler cosigner hook configuration for Solana launches. When combined
-        with migration.supportCpmm=true, auction.dynamicFee is required so the
-        dynamic fee hook can enforce both policies.
+        Cosigner gating through the dynamic fee hook. It can be used with or
+        without CPMM migration and can be combined with auction.dynamicFee.
       properties:
         type:
           type: string
@@ -911,7 +911,8 @@ components:
       additionalProperties: false
       description: >
         Dynamic fee hook schedule for Solana launches. Omit startingTime or set
-        it to "0" to normalize the schedule start to launch creation.
+        it to "0" to normalize the schedule start to launch creation. The
+        effective swap fee is the greater of the schedule fee and swapFeeBps.
       properties:
         startingTime:
           type: string

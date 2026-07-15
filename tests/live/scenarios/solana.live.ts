@@ -755,8 +755,8 @@ export const registerSolanaLiveScenarios = () => {
         expectedNumerairePriceUsd: 145,
         expectedBaseForDistribution: '0',
         expectedBaseForLiquidity: '0',
-        expectedHookProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
-        expectedHookFlags: 0,
+        expectedHookProgram: String(SOLANA_CONSTANTS.dynamicFeeHookProgramId),
+        expectedHookFlags: initializer.HF_BEFORE_SWAP,
         expectedMigratorProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
       });
     },
@@ -795,8 +795,8 @@ export const registerSolanaLiveScenarios = () => {
         expectedNumerairePriceUsd: 190,
         expectedBaseForDistribution: '0',
         expectedBaseForLiquidity: '0',
-        expectedHookProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
-        expectedHookFlags: 0,
+        expectedHookProgram: String(SOLANA_CONSTANTS.dynamicFeeHookProgramId),
+        expectedHookFlags: initializer.HF_BEFORE_SWAP,
         expectedMigratorProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
       });
     },
@@ -843,8 +843,8 @@ export const registerSolanaLiveScenarios = () => {
         expectedNumerairePriceUsd: numerairePriceUsd,
         expectedBaseForDistribution: '0',
         expectedBaseForLiquidity: '0',
-        expectedHookProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
-        expectedHookFlags: 0,
+        expectedHookProgram: String(SOLANA_CONSTANTS.dynamicFeeHookProgramId),
+        expectedHookFlags: initializer.HF_BEFORE_SWAP,
         expectedMigratorProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
       });
     },
@@ -1080,7 +1080,7 @@ export const registerSolanaLiveScenarios = () => {
         },
         expectedCurveFeeBps: 125,
         expectedNumerairePriceUsd: 155,
-        expectedHookProgram: String(SOLANA_CONSTANTS.cosignerHookProgramId),
+        expectedHookProgram: String(SOLANA_CONSTANTS.dynamicFeeHookProgramId),
         expectedHookFlags: initializer.HF_BEFORE_SWAP | initializer.HF_FORWARD_READONLY_SIGNERS,
       });
     },
@@ -1129,7 +1129,7 @@ export const registerSolanaLiveScenarios = () => {
         },
         expectedCurveFeeBps: 150,
         expectedNumerairePriceUsd: 185,
-        expectedHookProgram: String(SOLANA_CONSTANTS.cosignerHookProgramId),
+        expectedHookProgram: String(SOLANA_CONSTANTS.dynamicFeeHookProgramId),
         expectedHookFlags: initializer.HF_BEFORE_SWAP | initializer.HF_FORWARD_READONLY_SIGNERS,
       });
     },

@@ -76,13 +76,13 @@ Generic create endpoint.
 - Solana create responses include `statusUrl` for `GET /v1/solana/launches/:launchAddress`.
 - `solanaMainnetBeta` is scaffolded but returns `501 SOLANA_NETWORK_UNSUPPORTED`.
 - WSOL is the only supported numeraire.
-- `migration.supportCpmm=true` registers the launch with the CPMM migrator and uses the canonical CPMM hook by default; `auction.dynamicFee` replaces that hook while keeping CPMM migration enabled.
+- `migration.supportCpmm=true` registers the launch with the CPMM migrator. All API-created launches use the dynamic fee hook; migration registration and hook features are independent.
 - `migration.minimumQuoteRaise` is required when `migration.supportCpmm=true` and is denominated in quote token atoms.
 - `economics.baseForDistribution` and `economics.baseForLiquidity` must be omitted or `0` unless `migration.supportCpmm=true`.
 - Non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled.
-- `auction.cosigningHook` configures cosigner gating. It requires `type: "cosigner"` and a Solana `cosigner` address. Optional `expiry.mode` supports `disabled`, `unixTimestamp`, and `slot`; timestamp and slot modes require `expiry.value`.
-- `auction.dynamicFee` configures the dynamic fee hook. `startFeeBps` and `endFeeBps` are basis points, `durationSeconds` is a non-negative integer string, and optional `startingTime` defaults to launch creation when omitted or `"0"`.
-- `auction.dynamicFee` can be combined with `auction.cosigningHook`; `auction.cosigningHook` with `migration.supportCpmm=true` requires `auction.dynamicFee`.
+- `auction.cosigningHook` configures cosigner gating through the dynamic fee hook, with or without CPMM migration. It requires `type: "cosigner"` and a Solana `cosigner` address. Optional `expiry.mode` supports `disabled`, `unixTimestamp`, and `slot`; omitted or `disabled` expiry is indefinite, while timestamp and slot modes require `expiry.value`.
+- `auction.dynamicFee` configures the dynamic fee hook. `startFeeBps` and `endFeeBps` are basis points, `durationSeconds` is a non-negative integer string, and optional `startingTime` defaults to launch creation when omitted or `"0"`. The effective swap fee is `max(dynamicFee, swapFeeBps)`.
+- `auction.dynamicFee` can be combined with `auction.cosigningHook` to enable both features on the same hook.
 - `feeBeneficiaries` supports up to 8 unique Solana addresses, uses `shareBps`, and custom shares must sum to `10000`. If the API payer is the initializer protocol beneficiary, provide a non-protocol beneficiary list.
 - Unsupported fields are rejected instead of ignored, including:
   - `economics.tokensForSale`
