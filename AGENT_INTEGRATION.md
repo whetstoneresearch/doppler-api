@@ -528,9 +528,9 @@ Custom-curve rules agents should enforce before submit:
 - Non-zero Solana reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled.
 - `effectiveConfig.tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`.
 - Prefer Solana `auction.swapFeeBps`; `auction.curveFeeBps` remains accepted as a backward-compatible alias.
-- Use Solana `auction.cosigningHook` to configure cosigner gating through the dynamic fee hook, with or without CPMM migration. `type` must be `"cosigner"`, `cosigner` must be a Solana address, and optional `expiry` supports `disabled`, `unixTimestamp`, and `slot`. Omitted or `disabled` expiry is indefinite; timestamp/slot expiry modes require `value`.
+- Use Solana `auction.cosignerGate` to configure cosigner gating through the dynamic fee hook, with or without CPMM migration. `type` must be `"cosigner"`, `cosigner` must be a Solana address, and optional `expiry` supports `disabled`, `unixTimestamp`, and `slot`. Omitted or `disabled` expiry is indefinite; timestamp/slot expiry modes require `value`.
 - Use Solana `auction.dynamicFee` to configure the dynamic fee hook. `startFeeBps` and `endFeeBps` are basis points, `durationSeconds` is a non-negative integer string, and optional `startingTime` defaults to launch creation when omitted or `"0"`. The effective swap fee is the greater of the schedule fee and `auction.swapFeeBps`.
-- Combine `auction.dynamicFee` with `auction.cosigningHook` to enable both features on the same hook.
+- Combine `auction.dynamicFee` with `auction.cosignerGate` to enable both features on the same hook.
 - Solana `feeBeneficiaries` is optional, supports up to 8 unique addresses, uses `shareBps`, and custom shares must sum to `10000`. If the API payer is the initializer protocol beneficiary, provide a non-protocol beneficiary list.
 - Multicurve initializer defaults to `standard` (implemented as scheduled with `startTime=0`).
 - Supported multicurve initializer modes:

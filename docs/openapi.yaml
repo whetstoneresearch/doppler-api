@@ -878,7 +878,7 @@ components:
           type: number
           exclusiveMinimum: 0
       required: [type, marketCapStartUsd, marketCapEndUsd]
-    SolanaCosigningHookExpiry:
+    SolanaCosignerGateExpiry:
       type: object
       additionalProperties: false
       description: Omit expiry or use disabled for an indefinite cosigner gate.
@@ -891,7 +891,7 @@ components:
           pattern: '^\d+$'
           description: Required for unixTimestamp and slot expiry modes; omitted for indefinite disabled mode.
       required: [mode]
-    SolanaCosigningHook:
+    SolanaCosignerGate:
       type: object
       additionalProperties: false
       description: >
@@ -904,7 +904,7 @@ components:
         cosigner:
           $ref: '#/components/schemas/SolanaAddress'
         expiry:
-          $ref: '#/components/schemas/SolanaCosigningHookExpiry'
+          $ref: '#/components/schemas/SolanaCosignerGateExpiry'
       required: [type, cosigner]
     SolanaDynamicFee:
       type: object
@@ -955,8 +955,8 @@ components:
           type: boolean
         allowSell:
           type: boolean
-        cosigningHook:
-          $ref: '#/components/schemas/SolanaCosigningHook'
+        cosignerGate:
+          $ref: '#/components/schemas/SolanaCosignerGate'
         dynamicFee:
           $ref: '#/components/schemas/SolanaDynamicFee'
       required: [type, curveConfig]

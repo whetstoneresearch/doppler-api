@@ -194,7 +194,7 @@ describe('Solana launch helpers', () => {
       auction: {
         type: 'xyk',
         curveConfig: { type: 'range', marketCapStartUsd: 100, marketCapEndUsd: 1000 },
-        cosigningHook: {
+        cosignerGate: {
           type: 'cosigner',
           cosigner: cosigner.address,
           expiry: {
@@ -211,7 +211,7 @@ describe('Solana launch helpers', () => {
       },
     });
 
-    expect(parsed.auction.cosigningHook).toMatchObject({
+    expect(parsed.auction.cosignerGate).toMatchObject({
       type: 'cosigner',
       cosigner: cosigner.address,
       expiry: {
@@ -238,14 +238,14 @@ describe('Solana launch helpers', () => {
       auction: {
         type: 'xyk',
         curveConfig: { type: 'range', marketCapStartUsd: 100, marketCapEndUsd: 1000 },
-        cosigningHook: {
+        cosignerGate: {
           type: 'cosigner',
           cosigner: cosigner.address,
         },
       },
     });
     expect(cpmmCosignerLaunch.migration?.supportCpmm).toBe(true);
-    expect(cpmmCosignerLaunch.auction.cosigningHook?.cosigner).toBe(cosigner.address);
+    expect(cpmmCosignerLaunch.auction.cosignerGate?.cosigner).toBe(cosigner.address);
     expect(cpmmCosignerLaunch.auction.dynamicFee).toBeUndefined();
 
     expect(
@@ -266,7 +266,7 @@ describe('Solana launch helpers', () => {
             endFeeBps: 200,
             durationSeconds: '600',
           },
-          cosigningHook: {
+          cosignerGate: {
             type: 'cosigner',
             cosigner: cosigner.address,
           },

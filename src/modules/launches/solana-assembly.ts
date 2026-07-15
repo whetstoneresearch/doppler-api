@@ -1,7 +1,6 @@
 import { address, type Address } from '@solana/kit';
 import type { generateKeyPairSigner } from '@solana/kit';
 import {
-  cosignerHook,
   cpmm,
   cpmmMigrator,
   dynamicFeeHook,
@@ -15,6 +14,8 @@ export const SOLANA_TOKEN_DECIMALS = 6;
 export const SOLANA_SYSTEM_PROGRAM_ADDRESS = address('11111111111111111111111111111111');
 export const SOLANA_RENT_SYSVAR_ADDRESS = address('SysvarRent111111111111111111111111111111111');
 export const SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH = new Uint8Array(32);
+const DYNAMIC_FEE_GATE_EXPIRY_UNIX_TIMESTAMP = 1 as const;
+const DYNAMIC_FEE_GATE_EXPIRY_SLOT = 2 as const;
 
 type SolanaSigner = Awaited<ReturnType<typeof generateKeyPairSigner>>;
 type SolanaInitializeLaunchAccounts = Parameters<
@@ -29,6 +30,9 @@ type SolanaCpmmMigrationAccounts = {
   hash: Uint8Array;
 };
 type SolanaParsedProgramError = ReturnType<typeof cpmm.parseErrorFromLogs>;
+type DynamicFeeCosignerGate = Parameters<
+  typeof dynamicFeeHook.encodeDynamicFeeCosignerGatePayload
+>[0];
 type SolanaSignatureStatus = {
   err?: unknown;
   confirmationStatus?: string | null;
@@ -43,47 +47,43 @@ export type SolanaLaunchHookConfig = {
   hookRemainingAccountsHash: Uint8Array;
 };
 
-const toCosignerHookExpiryMode = (
+const toCosignerGateExpiryMode = (
   mode: Exclude<
     NonNullable<
-      NonNullable<CreateSolanaLaunchRequestInput['auction']['cosigningHook']>['expiry']
+      NonNullable<CreateSolanaLaunchRequestInput['auction']['cosignerGate']>['expiry']
     >['mode'],
     'disabled'
   >,
-): 1 | 2 => {
-  if (mode === 'unixTimestamp') return cosignerHook.GATE_EXPIRY_UNIX_TIMESTAMP;
-  return cosignerHook.GATE_EXPIRY_SLOT;
+): DynamicFeeCosignerGate['mode'] => {
+  if (mode === 'unixTimestamp') return DYNAMIC_FEE_GATE_EXPIRY_UNIX_TIMESTAMP;
+  return DYNAMIC_FEE_GATE_EXPIRY_SLOT;
 };
 
 const buildCosignerGateExpiry = (
-  hook: CreateSolanaLaunchRequestInput['auction']['cosigningHook'],
-): {
-  mode: typeof cosignerHook.GATE_EXPIRY_UNIX_TIMESTAMP | typeof cosignerHook.GATE_EXPIRY_SLOT;
-  value: bigint;
-  cosigner: Address;
-} | null => {
-  if (!hook?.expiry || hook.expiry.mode === 'disabled') {
+  gate: CreateSolanaLaunchRequestInput['auction']['cosignerGate'],
+): DynamicFeeCosignerGate | null => {
+  if (!gate?.expiry || gate.expiry.mode === 'disabled') {
     return null;
   }
 
-  const expiryValue = hook.expiry.value;
+  const expiryValue = gate.expiry.value;
   if (expiryValue === undefined) {
-    throw new Error('cosigner hook expiry value is required');
+    throw new Error('cosigner gate expiry value is required');
   }
 
   return {
-    mode: toCosignerHookExpiryMode(hook.expiry.mode),
+    mode: toCosignerGateExpiryMode(gate.expiry.mode),
     value: BigInt(expiryValue),
-    cosigner: address(hook.cosigner),
+    cosigner: address(gate.cosigner),
   };
 };
 
 const buildDynamicFeeLaunchHookConfig = async (args: {
   dynamicFee: CreateSolanaLaunchRequestInput['auction']['dynamicFee'];
-  cosigningHook: CreateSolanaLaunchRequestInput['auction']['cosigningHook'];
+  cosignerGate: CreateSolanaLaunchRequestInput['auction']['cosignerGate'];
   namespace: Address;
 }): Promise<SolanaLaunchHookConfig> => {
-  const cosigner = args.cosigningHook ? address(args.cosigningHook.cosigner) : undefined;
+  const cosigner = args.cosignerGate ? address(args.cosignerGate.cosigner) : undefined;
   const configAddress = cosigner
     ? (await dynamicFeeHook.getDynamicFeeHookConfigAddress())[0]
     : undefined;
@@ -93,7 +93,7 @@ const buildDynamicFeeLaunchHookConfig = async (args: {
     cosigner,
   });
   const hasSchedule = args.dynamicFee !== undefined;
-  const gateExpiry = buildCosignerGateExpiry(args.cosigningHook);
+  const gateExpiry = buildCosignerGateExpiry(args.cosignerGate);
 
   return {
     hookProgram: dynamicFeeHook.DYNAMIC_FEE_HOOK_PROGRAM_ID,
@@ -123,7 +123,7 @@ const buildDynamicFeeLaunchHookConfig = async (args: {
 
 export const buildSolanaLaunchHookConfig = async (args: {
   dynamicFee: CreateSolanaLaunchRequestInput['auction']['dynamicFee'];
-  cosigningHook: CreateSolanaLaunchRequestInput['auction']['cosigningHook'];
+  cosignerGate: CreateSolanaLaunchRequestInput['auction']['cosignerGate'];
   namespace: Address;
 }): Promise<SolanaLaunchHookConfig> => buildDynamicFeeLaunchHookConfig(args);
 

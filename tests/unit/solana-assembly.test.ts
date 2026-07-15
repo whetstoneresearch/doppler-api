@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSigner } from '@solana/kit';
-import { cosignerHook, dynamicFeeHook, initializer } from '@whetstone-research/doppler-sdk/solana';
+import { dynamicFeeHook, initializer } from '@whetstone-research/doppler-sdk/solana';
 
 import {
   SOLANA_CONSTANTS,
@@ -45,7 +45,7 @@ describe('Solana SDK assembly helpers', () => {
     const launchHookConfig = await buildSolanaLaunchHookConfig({
       namespace: payer.address,
       dynamicFee: undefined,
-      cosigningHook: undefined,
+      cosignerGate: undefined,
     });
 
     const [accounts, instructionArgs] = buildSolanaInitializeLaunchInstructionArgs({
@@ -160,7 +160,7 @@ describe('Solana SDK assembly helpers', () => {
     const launchHookConfig = await buildSolanaLaunchHookConfig({
       namespace: payer.address,
       dynamicFee: undefined,
-      cosigningHook: undefined,
+      cosignerGate: undefined,
     });
 
     const [accounts, instructionArgs] = buildSolanaInitializeLaunchInstructionArgs({
@@ -239,7 +239,7 @@ describe('Solana SDK assembly helpers', () => {
     const hookConfig = await buildSolanaLaunchHookConfig({
       namespace: namespace.address,
       dynamicFee: undefined,
-      cosigningHook: {
+      cosignerGate: {
         type: 'cosigner',
         cosigner: cosigner.address,
       },
@@ -271,7 +271,7 @@ describe('Solana SDK assembly helpers', () => {
     const namespace = await generateKeyPairSigner();
     const hookConfig = await buildSolanaLaunchHookConfig({
       namespace: namespace.address,
-      cosigningHook: undefined,
+      cosignerGate: undefined,
       dynamicFee: {
         startingTime: '0',
         startFeeBps: 8000,
@@ -307,7 +307,7 @@ describe('Solana SDK assembly helpers', () => {
         endFeeBps: 200,
         durationSeconds: '600',
       },
-      cosigningHook: {
+      cosignerGate: {
         type: 'cosigner',
         cosigner: cosigner.address,
       },
@@ -362,7 +362,7 @@ describe('Solana SDK assembly helpers', () => {
         endFeeBps: 200,
         durationSeconds: '600',
       },
-      cosigningHook: {
+      cosignerGate: {
         type: 'cosigner',
         cosigner: cosigner.address,
         expiry: {
@@ -418,8 +418,16 @@ describe('Solana SDK assembly helpers', () => {
         initializer.HF_BEFORE_SWAP |
         initializer.HF_FORWARD_READONLY_SIGNERS,
     );
+    const expectedGatePayload = dynamicFeeHook.encodeDynamicFeeCosignerGatePayload({
+      mode: 1,
+      value: 9_999_999_999n,
+      cosigner: cosigner.address,
+    });
     expect(instructionArgs.hookPayload).toHaveLength(
-      dynamicFeeHook.DYNAMIC_FEE_SCHEDULE_LEN + cosignerHook.GATE_EXPIRY_PAYLOAD_LEN,
+      dynamicFeeHook.DYNAMIC_FEE_SCHEDULE_LEN + expectedGatePayload.length,
+    );
+    expect(instructionArgs.hookPayload.slice(dynamicFeeHook.DYNAMIC_FEE_SCHEDULE_LEN)).toEqual(
+      expectedGatePayload,
     );
     expect(Array.from(instructionArgs.migratorInitPayload)).toEqual([1, 2, 3]);
     expect(Array.from(instructionArgs.migratorMigratePayload)).toEqual([4, 5, 6]);

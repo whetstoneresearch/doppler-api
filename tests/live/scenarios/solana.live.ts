@@ -1068,7 +1068,7 @@ export const registerSolanaLiveScenarios = () => {
               marketCapEndUsd: 6000,
             },
             swapFeeBps: 125,
-            cosigningHook: {
+            cosignerGate: {
               type: 'cosigner',
               cosigner: cosigner.address,
               expiry: {
@@ -1117,7 +1117,7 @@ export const registerSolanaLiveScenarios = () => {
               marketCapEndUsd: 9000,
             },
             swapFeeBps: 150,
-            cosigningHook: {
+            cosignerGate: {
               type: 'cosigner',
               cosigner: cosigner.address,
               expiry: {
@@ -1176,7 +1176,7 @@ export const registerSolanaLiveScenarios = () => {
               endFeeBps: 200,
               durationSeconds: '600',
             },
-            cosigningHook: {
+            cosignerGate: {
               type: 'cosigner',
               cosigner: cosigner.address,
               expiry: {

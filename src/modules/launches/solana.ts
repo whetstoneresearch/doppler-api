@@ -638,7 +638,7 @@ export class SolanaLaunchService {
     const namespace = payer.address;
     const launchHookConfig = await buildSolanaLaunchHookConfig({
       dynamicFee: input.auction.dynamicFee,
-      cosigningHook: input.auction.cosigningHook,
+      cosignerGate: input.auction.cosignerGate,
       namespace,
     });
     const [launchAddress] = await initializer.getLaunchAddress(namespace, launchSeed);

@@ -490,7 +490,7 @@ Example `GET /health`:
   - omit `economics.baseForDistribution` and `economics.baseForLiquidity`, or set both to `0`, unless `migration.supportCpmm=true`
   - non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled
   - `tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`
-- Solana `auction.cosigningHook` configures cosigner gating through the dynamic fee hook:
+- Solana `auction.cosignerGate` configures cosigner gating through the dynamic fee hook:
   - `type` must be `"cosigner"` and `cosigner` must be a Solana address
   - optional `expiry` supports `mode: "disabled" | "unixTimestamp" | "slot"`; omitting it or using `disabled` creates an indefinite gate, while timestamp and slot modes require `value`
   - cosigner gating can be used with or without CPMM migration
@@ -499,7 +499,7 @@ Example `GET /health`:
   - `endFeeBps` must be less than or equal to `startFeeBps`
   - `durationSeconds` is a non-negative integer string; it must be non-zero when the fee decays
   - `startingTime` is an optional non-negative Unix timestamp string; omit it or set it to `"0"` to start at launch creation
-  - combine `auction.dynamicFee` with `auction.cosigningHook` to enable both features on the same hook
+  - combine `auction.dynamicFee` with `auction.cosignerGate` to enable both features on the same hook
   - the effective swap fee is the greater of the dynamic schedule fee and `auction.swapFeeBps`
 - Solana auction fee input:
   - prefer `auction.swapFeeBps`; `auction.curveFeeBps` remains accepted as a backward-compatible alias

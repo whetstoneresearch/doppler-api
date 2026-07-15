@@ -141,7 +141,7 @@ const solanaMigrationSchema = strictObject({
   }
 });
 
-const solanaCosigningHookSchema = strictObject({
+const solanaCosignerGateSchema = strictObject({
   type: z.literal('cosigner'),
   cosigner: solanaAddressSchema,
   expiry: strictObject({
@@ -200,7 +200,7 @@ const solanaAuctionSchema = strictObject({
   swapFeeBps: z.number().int().min(0).max(10_000).optional(),
   allowBuy: z.boolean().optional(),
   allowSell: z.boolean().optional(),
-  cosigningHook: solanaCosigningHookSchema.optional(),
+  cosignerGate: solanaCosignerGateSchema.optional(),
   dynamicFee: solanaDynamicFeeSchema.optional(),
 }).superRefine((value, ctx) => {
   if (
