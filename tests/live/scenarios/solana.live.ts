@@ -755,8 +755,8 @@ export const registerSolanaLiveScenarios = () => {
         expectedNumerairePriceUsd: 145,
         expectedBaseForDistribution: '0',
         expectedBaseForLiquidity: '0',
-        expectedHookProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
-        expectedHookFlags: 0,
+        expectedHookProgram: String(SOLANA_CONSTANTS.cpmmHookProgramId),
+        expectedHookFlags: initializer.HF_BEFORE_SWAP,
         expectedMigratorProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
       });
     },
@@ -795,8 +795,8 @@ export const registerSolanaLiveScenarios = () => {
         expectedNumerairePriceUsd: 190,
         expectedBaseForDistribution: '0',
         expectedBaseForLiquidity: '0',
-        expectedHookProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
-        expectedHookFlags: 0,
+        expectedHookProgram: String(SOLANA_CONSTANTS.cpmmHookProgramId),
+        expectedHookFlags: initializer.HF_BEFORE_SWAP,
         expectedMigratorProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
       });
     },
@@ -843,8 +843,8 @@ export const registerSolanaLiveScenarios = () => {
         expectedNumerairePriceUsd: numerairePriceUsd,
         expectedBaseForDistribution: '0',
         expectedBaseForLiquidity: '0',
-        expectedHookProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
-        expectedHookFlags: 0,
+        expectedHookProgram: String(SOLANA_CONSTANTS.cpmmHookProgramId),
+        expectedHookFlags: initializer.HF_BEFORE_SWAP,
         expectedMigratorProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
       });
     },
@@ -1039,12 +1039,12 @@ export const registerSolanaLiveScenarios = () => {
   );
 
   liveIt(
-    'SOLANA DEVNET Cosigning Hook Slot Expiry',
+    'SOLANA DEVNET CPMM Hook Cosigner Slot Expiry',
     ['solana', 'solana-devnet', 'solana-cosigner'],
     async () => {
       const cosigner = await generateKeyPairSigner();
       await verifySuccessfulSolanaLaunch({
-        configLabel: 'SOLANA DEVNET Cosigning Hook Slot Expiry',
+        configLabel: 'SOLANA DEVNET CPMM Hook Cosigner Slot Expiry',
         route: 'dedicated',
         payload: {
           network: 'devnet',
@@ -1068,7 +1068,7 @@ export const registerSolanaLiveScenarios = () => {
               marketCapEndUsd: 6000,
             },
             swapFeeBps: 125,
-            cosigningHook: {
+            cosignerGate: {
               type: 'cosigner',
               cosigner: cosigner.address,
               expiry: {
@@ -1080,7 +1080,7 @@ export const registerSolanaLiveScenarios = () => {
         },
         expectedCurveFeeBps: 125,
         expectedNumerairePriceUsd: 155,
-        expectedHookProgram: String(SOLANA_CONSTANTS.cosignerHookProgramId),
+        expectedHookProgram: String(SOLANA_CONSTANTS.cpmmHookProgramId),
         expectedHookFlags: initializer.HF_BEFORE_SWAP | initializer.HF_FORWARD_READONLY_SIGNERS,
       });
     },
@@ -1088,12 +1088,12 @@ export const registerSolanaLiveScenarios = () => {
   );
 
   liveIt(
-    'SOLANA DEVNET Cosigning Hook Timestamp Expiry',
+    'SOLANA DEVNET CPMM Hook Cosigner Timestamp Expiry',
     ['solana', 'solana-devnet', 'solana-cosigner'],
     async () => {
       const cosigner = await generateKeyPairSigner();
       await verifySuccessfulSolanaLaunch({
-        configLabel: 'SOLANA DEVNET Cosigning Hook Timestamp Expiry',
+        configLabel: 'SOLANA DEVNET CPMM Hook Cosigner Timestamp Expiry',
         route: 'generic',
         payload: {
           network: 'solanaDevnet',
@@ -1117,7 +1117,7 @@ export const registerSolanaLiveScenarios = () => {
               marketCapEndUsd: 9000,
             },
             swapFeeBps: 150,
-            cosigningHook: {
+            cosignerGate: {
               type: 'cosigner',
               cosigner: cosigner.address,
               expiry: {
@@ -1129,8 +1129,73 @@ export const registerSolanaLiveScenarios = () => {
         },
         expectedCurveFeeBps: 150,
         expectedNumerairePriceUsd: 185,
-        expectedHookProgram: String(SOLANA_CONSTANTS.cosignerHookProgramId),
+        expectedHookProgram: String(SOLANA_CONSTANTS.cpmmHookProgramId),
         expectedHookFlags: initializer.HF_BEFORE_SWAP | initializer.HF_FORWARD_READONLY_SIGNERS,
+      });
+    },
+    SOLANA_LIVE_TIMEOUT_MS,
+  );
+
+  liveIt(
+    'SOLANA DEVNET CPMM Hook With Dynamic Fee And Cosigner',
+    ['solana', 'solana-devnet', 'solana-dynamic-fee'],
+    async () => {
+      const cosigner = await generateKeyPairSigner();
+      await verifySuccessfulSolanaLaunch({
+        configLabel: 'SOLANA DEVNET CPMM Hook With Dynamic Fee And Cosigner',
+        route: 'dedicated',
+        payload: {
+          network: 'devnet',
+          tokenMetadata: nextTokenMetadata('dfcpmm'),
+          economics: {
+            totalSupply: '6000000000',
+            baseForDistribution: '300000000',
+            baseForLiquidity: '300000000',
+          },
+          pricing: {
+            numerairePriceUsd: 175,
+          },
+          feeBeneficiaries: await nextFeeBeneficiaries(),
+          governance: false,
+          migration: {
+            type: 'none',
+            supportCpmm: true,
+            minimumQuoteRaise: '100000000',
+          },
+          auction: {
+            type: 'xyk',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 500,
+              marketCapEndUsd: 10000,
+            },
+            swapFeeBps: 200,
+            dynamicFee: {
+              startingTime: '0',
+              startFeeBps: 8000,
+              endFeeBps: 200,
+              durationSeconds: '600',
+            },
+            cosignerGate: {
+              type: 'cosigner',
+              cosigner: cosigner.address,
+              expiry: {
+                mode: 'unixTimestamp',
+                value: (Math.floor(Date.now() / 1000) + 86_400).toString(),
+              },
+            },
+          },
+        },
+        expectedCurveFeeBps: 200,
+        expectedNumerairePriceUsd: 175,
+        expectedBaseForDistribution: '300000000',
+        expectedBaseForLiquidity: '300000000',
+        expectedHookProgram: String(SOLANA_CONSTANTS.cpmmHookProgramId),
+        expectedHookFlags:
+          initializer.HF_BEFORE_CREATE |
+          initializer.HF_BEFORE_SWAP |
+          initializer.HF_FORWARD_READONLY_SIGNERS,
+        expectedMigratorProgram: String(SOLANA_CONSTANTS.cpmmMigratorProgramId),
       });
     },
     SOLANA_LIVE_TIMEOUT_MS,

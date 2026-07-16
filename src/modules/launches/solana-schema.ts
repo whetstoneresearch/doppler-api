@@ -5,6 +5,8 @@ import { AppError } from '../../core/errors';
 import type { SolanaNetwork } from '../../core/types';
 
 const U64_MAX = 18_446_744_073_709_551_615n;
+const I64_MAX = 9_223_372_036_854_775_807n;
+const U32_MAX = 4_294_967_295n;
 export const SOLANA_FEE_BPS_DENOMINATOR = 10_000;
 export const SOLANA_MAX_FEE_BENEFICIARIES = 8;
 
@@ -38,6 +40,22 @@ const u64NonNegativeStringSchema = z
     const parsed = BigInt(value);
     return parsed <= U64_MAX;
   }, 'must be a non-negative u64 integer string');
+
+const i64NonNegativeStringSchema = z
+  .string()
+  .regex(/^\d+$/, 'must be a non-negative integer string')
+  .refine((value) => {
+    const parsed = BigInt(value);
+    return parsed <= I64_MAX;
+  }, 'must be a non-negative i64 integer string');
+
+const u32NonNegativeStringSchema = z
+  .string()
+  .regex(/^\d+$/, 'must be a non-negative integer string')
+  .refine((value) => {
+    const parsed = BigInt(value);
+    return parsed <= U32_MAX;
+  }, 'must be a non-negative u32 integer string');
 
 const canonicalSolanaNetworkSchema = z.enum(['solanaDevnet', 'solanaMainnetBeta']);
 const dedicatedSolanaNetworkSchema = z.enum(['devnet', 'mainnet-beta']);
@@ -123,7 +141,7 @@ const solanaMigrationSchema = strictObject({
   }
 });
 
-const solanaCosigningHookSchema = strictObject({
+const solanaCosignerGateSchema = strictObject({
   type: z.literal('cosigner'),
   cosigner: solanaAddressSchema,
   expiry: strictObject({
@@ -149,6 +167,28 @@ const solanaCosigningHookSchema = strictObject({
     .optional(),
 });
 
+const solanaDynamicFeeSchema = strictObject({
+  startingTime: i64NonNegativeStringSchema.optional(),
+  startFeeBps: z.number().int().min(0).max(SOLANA_FEE_BPS_DENOMINATOR),
+  endFeeBps: z.number().int().min(0).max(SOLANA_FEE_BPS_DENOMINATOR),
+  durationSeconds: u32NonNegativeStringSchema,
+}).superRefine((value, ctx) => {
+  if (value.endFeeBps > value.startFeeBps) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endFeeBps'],
+      message: 'dynamicFee.endFeeBps must be less than or equal to dynamicFee.startFeeBps',
+    });
+  }
+  if (value.startFeeBps > value.endFeeBps && BigInt(value.durationSeconds) === 0n) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['durationSeconds'],
+      message: 'dynamicFee.durationSeconds must be non-zero for decaying schedules',
+    });
+  }
+});
+
 const solanaAuctionSchema = strictObject({
   type: z.literal('xyk'),
   curveConfig: strictObject({
@@ -160,7 +200,8 @@ const solanaAuctionSchema = strictObject({
   swapFeeBps: z.number().int().min(0).max(10_000).optional(),
   allowBuy: z.boolean().optional(),
   allowSell: z.boolean().optional(),
-  cosigningHook: solanaCosigningHookSchema.optional(),
+  cosignerGate: solanaCosignerGateSchema.optional(),
+  dynamicFee: solanaDynamicFeeSchema.optional(),
 }).superRefine((value, ctx) => {
   if (
     value.curveFeeBps !== undefined &&
@@ -186,27 +227,12 @@ const baseSolanaCreateLaunchRequestShape = {
   auction: solanaAuctionSchema,
 } satisfies z.ZodRawShape;
 
-const solanaCreateLaunchRequestSchema = <T extends z.ZodRawShape>(shape: T) =>
-  strictObject(shape).superRefine((value, ctx) => {
-    const request = value as {
-      migration?: { supportCpmm?: boolean };
-      auction?: { cosigningHook?: unknown };
-    };
-    if (request.migration?.supportCpmm && request.auction?.cosigningHook) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['auction', 'cosigningHook'],
-        message: 'auction.cosigningHook cannot be combined with migration.supportCpmm',
-      });
-    }
-  });
-
-export const dedicatedSolanaCreateLaunchRequestSchema = solanaCreateLaunchRequestSchema({
+export const dedicatedSolanaCreateLaunchRequestSchema = strictObject({
   network: dedicatedSolanaNetworkSchema.optional(),
   ...baseSolanaCreateLaunchRequestShape,
 });
 
-export const genericSolanaCreateLaunchRequestSchema = solanaCreateLaunchRequestSchema({
+export const genericSolanaCreateLaunchRequestSchema = strictObject({
   network: canonicalSolanaNetworkSchema,
   ...baseSolanaCreateLaunchRequestShape,
 });
@@ -252,7 +278,8 @@ const remapSolanaSchemaError = (error: z.ZodError): never => {
       (issue.path[1] === 'type' ||
         issue.path[1] === 'curveConfig' ||
         issue.path[1] === 'curveFeeBps' ||
-        issue.path[1] === 'swapFeeBps'),
+        issue.path[1] === 'swapFeeBps' ||
+        issue.path[1] === 'dynamicFee'),
   );
   if (curveIssue) {
     throw new AppError(422, 'SOLANA_INVALID_CURVE', 'Invalid Solana XYK curve configuration', {

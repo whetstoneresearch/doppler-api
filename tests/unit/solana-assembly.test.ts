@@ -1,13 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSigner } from '@solana/kit';
-import { initializer } from '@whetstone-research/doppler-sdk/solana';
+import { cpmmHook, initializer } from '@whetstone-research/doppler-sdk/solana';
 
 import {
   SOLANA_CONSTANTS,
-  buildDisabledSolanaHookArgs,
   buildSolanaCpmmMigrationPayloads,
-  buildSolanaCosigningHookConfig,
   buildSolanaInitializeLaunchInstructionArgs,
+  buildSolanaLaunchHookConfig,
   buildSolanaLaunchConfirmationLookupError,
   buildSolanaLaunchConfirmationTimeoutError,
   buildSolanaLookupTableConfirmTimeoutError,
@@ -20,22 +19,12 @@ import {
 } from '../../src/modules/launches/solana';
 
 describe('Solana SDK assembly helpers', () => {
-  it('uses all-zero remaining-account hashes for disabled Solana hooks', () => {
-    const disabledHookArgs = buildDisabledSolanaHookArgs();
+  it('uses an all-zero sentinel for inactive hook phases', () => {
     const zeroHash = Array.from(SOLANA_CONSTANTS.disabledHookRemainingAccountsHash);
 
     expect(zeroHash).toHaveLength(32);
     expect(zeroHash.every((value) => value === 0)).toBe(true);
     expect(zeroHash).not.toEqual(Array.from(initializer.EMPTY_REMAINING_ACCOUNTS_HASH));
-    expect(Array.from(disabledHookArgs.hookCreateRemainingAccountsHash)).toEqual(zeroHash);
-    expect(Array.from(disabledHookArgs.hookRemainingAccountsHash)).toEqual(zeroHash);
-    expect(Array.from(disabledHookArgs.migratorInitRemainingAccountsHash)).toEqual(zeroHash);
-    expect(Array.from(disabledHookArgs.migratorRemainingAccountsHash)).toEqual(zeroHash);
-    expect(disabledHookArgs.hookFlags).toBe(0);
-    expect(disabledHookArgs.hookCreateRemainingAccountsLen).toBe(0);
-    expect(disabledHookArgs.hookPayload).toHaveLength(0);
-    expect(disabledHookArgs.migratorInitPayload).toHaveLength(0);
-    expect(disabledHookArgs.migratorMigratePayload).toHaveLength(0);
   });
 
   it('assembles basic non-CPMM Solana create instruction inputs for the SDK', async () => {
@@ -53,10 +42,15 @@ describe('Solana SDK assembly helpers', () => {
     const feeBeneficiaries = [
       { wallet: beneficiary.address, shareBps: SOLANA_CONSTANTS.feeBpsDenominator },
     ];
+    const launchHookConfig = await buildSolanaLaunchHookConfig({
+      namespace: payer.address,
+      dynamicFee: undefined,
+      cosignerGate: undefined,
+    });
 
     const [accounts, instructionArgs] = buildSolanaInitializeLaunchInstructionArgs({
       supportCpmmMigration: false,
-      cosigningHookConfig: null,
+      launchHookConfig,
       configAddress: config.address,
       launchAddress: launch.address,
       launchAuthorityAddress: launchAuthority.address,
@@ -101,7 +95,7 @@ describe('Solana SDK assembly helpers', () => {
       launchFeeState: launchFeeState.address,
       payer,
       authority: payer,
-      hookProgram: SOLANA_CONSTANTS.systemProgramAddress,
+      hookProgram: SOLANA_CONSTANTS.cpmmHookProgramId,
       migratorProgram: SOLANA_CONSTANTS.systemProgramAddress,
       rent: SOLANA_CONSTANTS.rentSysvarAddress,
       metadataAccount: metadata.address,
@@ -118,7 +112,7 @@ describe('Solana SDK assembly helpers', () => {
       swapFeeBps: 75,
       allowBuy: true,
       allowSell: false,
-      hookFlags: 0,
+      hookFlags: initializer.HF_BEFORE_SWAP,
       hookCreateRemainingAccountsLen: 0,
       metadataName: 'SDK Shape',
       metadataSymbol: 'SDK',
@@ -130,7 +124,7 @@ describe('Solana SDK assembly helpers', () => {
       Array.from(SOLANA_CONSTANTS.disabledHookRemainingAccountsHash),
     );
     expect(Array.from(instructionArgs.hookRemainingAccountsHash!)).toEqual(
-      Array.from(SOLANA_CONSTANTS.disabledHookRemainingAccountsHash),
+      Array.from(initializer.computeRemainingAccountsHash([payer.address])),
     );
     expect(Array.from(instructionArgs.migratorInitRemainingAccountsHash!)).toEqual(
       Array.from(SOLANA_CONSTANTS.disabledHookRemainingAccountsHash),
@@ -163,10 +157,15 @@ describe('Solana SDK assembly helpers', () => {
       cpmmConfig: cpmmConfig.address,
       hash: migratorRemainingAccountsHash,
     } as any;
+    const launchHookConfig = await buildSolanaLaunchHookConfig({
+      namespace: payer.address,
+      dynamicFee: undefined,
+      cosignerGate: undefined,
+    });
 
     const [accounts, instructionArgs] = buildSolanaInitializeLaunchInstructionArgs({
       supportCpmmMigration: true,
-      cosigningHookConfig: null,
+      launchHookConfig,
       configAddress: config.address,
       launchAddress: launch.address,
       launchAuthorityAddress: launchAuthority.address,
@@ -229,31 +228,216 @@ describe('Solana SDK assembly helpers', () => {
       Array.from(SOLANA_CONSTANTS.disabledHookRemainingAccountsHash),
     );
     expect(Array.from(instructionArgs.hookRemainingAccountsHash!)).toEqual(
-      Array.from(migratorRemainingAccountsHash),
+      Array.from(initializer.computeRemainingAccountsHash([payer.address])),
     );
   });
 
-  it('assembles Solana cosigning hook config for initializer SDK inputs', async () => {
+  it('routes cosigner-only launches through the CPMM hook', async () => {
+    const namespace = await generateKeyPairSigner();
     const cosigner = await generateKeyPairSigner();
-    const hookConfig = await buildSolanaCosigningHookConfig({
-      type: 'cosigner',
-      cosigner: cosigner.address,
-      expiry: {
-        mode: 'slot',
-        value: '123456',
+    const [configAddress] = await cpmmHook.getCpmmHookConfigAddress();
+    const hookConfig = await buildSolanaLaunchHookConfig({
+      namespace: namespace.address,
+      dynamicFee: undefined,
+      cosignerGate: {
+        type: 'cosigner',
+        cosigner: cosigner.address,
       },
     });
 
     expect(hookConfig).not.toBeNull();
-    expect(hookConfig!.hookProgram).toBe(SOLANA_CONSTANTS.cosignerHookProgramId);
+    expect(hookConfig!.hookProgram).toBe(SOLANA_CONSTANTS.cpmmHookProgramId);
     expect(hookConfig!.hookFlags).toBe(
       initializer.HF_BEFORE_SWAP | initializer.HF_FORWARD_READONLY_SIGNERS,
     );
-    expect(hookConfig!.hookPayload).toHaveLength(42);
-    expect(hookConfig!.hookRemainingAccounts).toHaveLength(2);
-    expect(hookConfig!.hookRemainingAccounts[1]).toBe(cosigner.address);
+    expect(hookConfig!.hookPayload).toHaveLength(0);
+    expect(hookConfig!.hookRemainingAccounts).toEqual([
+      namespace.address,
+      configAddress,
+      cosigner.address,
+    ]);
     expect(Array.from(hookConfig!.hookRemainingAccountsHash)).toEqual(
-      Array.from(initializer.computeRemainingAccountsHash(hookConfig!.hookRemainingAccounts)),
+      Array.from(
+        initializer.computeRemainingAccountsHash([
+          namespace.address,
+          configAddress,
+          cosigner.address,
+        ]),
+      ),
+    );
+  });
+
+  it('assembles Solana CPMM hook config for initializer SDK inputs', async () => {
+    const namespace = await generateKeyPairSigner();
+    const hookConfig = await buildSolanaLaunchHookConfig({
+      namespace: namespace.address,
+      cosignerGate: undefined,
+      dynamicFee: {
+        startingTime: '0',
+        startFeeBps: 8000,
+        endFeeBps: 200,
+        durationSeconds: '600',
+      },
+    });
+
+    expect(hookConfig).not.toBeNull();
+    expect(hookConfig!.hookProgram).toBe(SOLANA_CONSTANTS.cpmmHookProgramId);
+    expect(hookConfig!.hookFlags).toBe(initializer.HF_BEFORE_CREATE | initializer.HF_BEFORE_SWAP);
+    expect(hookConfig!.hookPayload).toHaveLength(cpmmHook.DYNAMIC_FEE_SCHEDULE_LEN);
+    expect(cpmmHook.isDynamicFeeSchedulePayload(hookConfig!.hookPayload)).toBe(true);
+    expect(hookConfig!.hookCreateRemainingAccountsLen).toBe(0);
+    expect(Array.from(hookConfig!.hookCreateRemainingAccountsHash)).toEqual(
+      Array.from(initializer.computeRemainingAccountsHash([])),
+    );
+    expect(hookConfig!.hookRemainingAccounts).toEqual([namespace.address]);
+    expect(Array.from(hookConfig!.hookRemainingAccountsHash)).toEqual(
+      Array.from(initializer.computeRemainingAccountsHash([namespace.address])),
+    );
+  });
+
+  it('encodes dynamic fees with an indefinite cosigner gate', async () => {
+    const namespace = await generateKeyPairSigner();
+    const cosigner = await generateKeyPairSigner();
+    const [configAddress] = await cpmmHook.getCpmmHookConfigAddress();
+    const hookConfig = await buildSolanaLaunchHookConfig({
+      namespace: namespace.address,
+      dynamicFee: {
+        startingTime: '0',
+        startFeeBps: 8000,
+        endFeeBps: 200,
+        durationSeconds: '600',
+      },
+      cosignerGate: {
+        type: 'cosigner',
+        cosigner: cosigner.address,
+      },
+    });
+
+    expect(hookConfig).not.toBeNull();
+    expect(hookConfig!.hookFlags).toBe(
+      initializer.HF_BEFORE_CREATE |
+        initializer.HF_BEFORE_SWAP |
+        initializer.HF_FORWARD_READONLY_SIGNERS,
+    );
+    expect(hookConfig!.hookPayload).toHaveLength(cpmmHook.DYNAMIC_FEE_SCHEDULE_LEN);
+    expect(hookConfig!.hookRemainingAccounts).toEqual([
+      namespace.address,
+      configAddress,
+      cosigner.address,
+    ]);
+    expect(Array.from(hookConfig!.hookRemainingAccountsHash)).toEqual(
+      Array.from(
+        initializer.computeRemainingAccountsHash([
+          namespace.address,
+          configAddress,
+          cosigner.address,
+        ]),
+      ),
+    );
+  });
+
+  it('preserves CPMM migration payloads when the CPMM hook is configured', async () => {
+    const payer = await generateKeyPairSigner();
+    const config = await generateKeyPairSigner();
+    const launch = await generateKeyPairSigner();
+    const launchAuthority = await generateKeyPairSigner();
+    const launchFeeState = await generateKeyPairSigner();
+    const baseMint = await generateKeyPairSigner();
+    const baseVault = await generateKeyPairSigner();
+    const quoteVault = await generateKeyPairSigner();
+    const metadata = await generateKeyPairSigner();
+    const cpmmMigrationState = await generateKeyPairSigner();
+    const cpmmConfig = await generateKeyPairSigner();
+    const cosigner = await generateKeyPairSigner();
+    const migrationAccounts = {
+      cpmmMigrationState: cpmmMigrationState.address,
+      cpmmConfig: cpmmConfig.address,
+      hash: new Uint8Array(32).fill(9),
+    };
+    const launchHookConfig = await buildSolanaLaunchHookConfig({
+      namespace: payer.address,
+      dynamicFee: {
+        startingTime: '0',
+        startFeeBps: 8000,
+        endFeeBps: 200,
+        durationSeconds: '600',
+      },
+      cosignerGate: {
+        type: 'cosigner',
+        cosigner: cosigner.address,
+        expiry: {
+          mode: 'unixTimestamp',
+          value: '9999999999',
+        },
+      },
+    });
+
+    const [accounts, instructionArgs] = buildSolanaInitializeLaunchInstructionArgs({
+      supportCpmmMigration: true,
+      launchHookConfig,
+      configAddress: config.address,
+      launchAddress: launch.address,
+      launchAuthorityAddress: launchAuthority.address,
+      launchFeeStateAddress: launchFeeState.address,
+      baseMint,
+      quoteMint: SOLANA_CONSTANTS.wsolMintAddress,
+      baseVault,
+      quoteVault,
+      metadataAddress: metadata.address,
+      payer,
+      namespace: payer.address,
+      launchSeed: new Uint8Array(32).fill(5),
+      totalSupply: 6_000_000_000n,
+      baseForDistribution: 200_000_000n,
+      baseForLiquidity: 300_000_000n,
+      curveConfig: {
+        curveVirtualBase: 999_000n,
+        curveVirtualQuote: 111_000n,
+      },
+      swapFeeBps: 100,
+      allowBuy: true,
+      allowSell: true,
+      migrationAccounts,
+      migratorInitPayload: new Uint8Array([1, 2, 3]),
+      migratorMigratePayload: new Uint8Array([4, 5, 6]),
+      tokenMetadata: {
+        name: 'Combined Hook',
+        symbol: 'COMBO',
+        tokenURI: 'ipfs://combined-hook',
+      },
+      feeBeneficiaries: [],
+    });
+
+    expect(accounts).toMatchObject({
+      hookProgram: SOLANA_CONSTANTS.cpmmHookProgramId,
+      migratorProgram: SOLANA_CONSTANTS.cpmmMigratorProgramId,
+      cpmmConfig: cpmmConfig.address,
+    });
+    expect(instructionArgs.hookFlags).toBe(
+      initializer.HF_BEFORE_CREATE |
+        initializer.HF_BEFORE_SWAP |
+        initializer.HF_FORWARD_READONLY_SIGNERS,
+    );
+    const expectedGatePayload = cpmmHook.encodeCosignerGateExpiryPayload({
+      mode: cpmmHook.GATE_EXPIRY_UNIX_TIMESTAMP,
+      value: 9_999_999_999n,
+      cosigner: cosigner.address,
+    });
+    expect(instructionArgs.hookPayload).toHaveLength(
+      cpmmHook.DYNAMIC_FEE_SCHEDULE_LEN + expectedGatePayload.length,
+    );
+    expect(instructionArgs.hookPayload.slice(cpmmHook.DYNAMIC_FEE_SCHEDULE_LEN)).toEqual(
+      expectedGatePayload,
+    );
+    expect(Array.from(instructionArgs.migratorInitPayload)).toEqual([1, 2, 3]);
+    expect(Array.from(instructionArgs.migratorMigratePayload)).toEqual([4, 5, 6]);
+    expect(Array.from(instructionArgs.migratorInitRemainingAccountsHash!)).toEqual(
+      Array.from(
+        initializer.computeRemainingAccountsHash([cpmmMigrationState.address, cpmmConfig.address]),
+      ),
+    );
+    expect(Array.from(instructionArgs.migratorRemainingAccountsHash!)).toEqual(
+      Array.from(migrationAccounts.hash),
     );
   });
 

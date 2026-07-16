@@ -42,6 +42,7 @@ type LiveScenarioGroup =
   | 'solana-no-migration'
   | 'solana-random'
   | 'solana-cosigner'
+  | 'solana-dynamic-fee'
   | 'solana-failing';
 
 const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
@@ -69,6 +70,7 @@ const shouldRunScenario = (groups: LiveScenarioGroup[]): boolean => {
   if (liveFilter === 'solana-no-migration') return groups.includes('solana-no-migration');
   if (liveFilter === 'solana-random') return groups.includes('solana-random');
   if (liveFilter === 'solana-cosigner') return groups.includes('solana-cosigner');
+  if (liveFilter === 'solana-dynamic-fee') return groups.includes('solana-dynamic-fee');
   if (liveFilter === 'solana-failing') return groups.includes('solana-failing');
   return true;
 };
@@ -99,7 +101,7 @@ const feeConfigByPreset: Record<
   'low' | 'medium' | 'high',
   { fee: number; expectedTickSpacing: number; feePercent: string }
 > = {
-  low: { fee: 30000, expectedTickSpacing: 100, feePercent: '3.00%' },
+  low: { fee: 30000, expectedTickSpacing: 200, feePercent: '3.00%' },
   medium: { fee: 20000, expectedTickSpacing: 100, feePercent: '2.00%' },
   high: { fee: 10000, expectedTickSpacing: 200, feePercent: '1.00%' },
 };

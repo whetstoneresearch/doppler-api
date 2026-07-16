@@ -854,9 +854,9 @@ components:
           type: boolean
           default: false
           description: >
-            When true, initialize the launch with the canonical CPMM hook and
-            migrator. When false or omitted, use the system program for hook and
-            migrator.
+            When true, register the launch with the CPMM migrator. All
+            API-created launches use the CPMM hook; migration
+            registration and hook features are independent.
         minimumQuoteRaise:
           type: string
           pattern: '^\d+$'
@@ -878,9 +878,10 @@ components:
           type: number
           exclusiveMinimum: 0
       required: [type, marketCapStartUsd, marketCapEndUsd]
-    SolanaCosigningHookExpiry:
+    SolanaCosignerGateExpiry:
       type: object
       additionalProperties: false
+      description: Omit expiry or use disabled for an indefinite cosigner gate.
       properties:
         mode:
           type: string
@@ -888,15 +889,14 @@ components:
         value:
           type: string
           pattern: '^\d+$'
-          description: Required for unixTimestamp and slot expiry modes; omitted for disabled.
+          description: Required for unixTimestamp and slot expiry modes; omitted for indefinite disabled mode.
       required: [mode]
-    SolanaCosigningHook:
+    SolanaCosignerGate:
       type: object
       additionalProperties: false
       description: >
-        Doppler cosigner hook configuration for non-CPMM Solana launches. Cannot
-        be combined with migration.supportCpmm=true because CPMM migration uses
-        the initializer hook slot.
+        Cosigner gating through the CPMM hook. It can be used with or
+        without CPMM migration and can be combined with auction.dynamicFee.
       properties:
         type:
           type: string
@@ -904,8 +904,35 @@ components:
         cosigner:
           $ref: '#/components/schemas/SolanaAddress'
         expiry:
-          $ref: '#/components/schemas/SolanaCosigningHookExpiry'
+          $ref: '#/components/schemas/SolanaCosignerGateExpiry'
       required: [type, cosigner]
+    SolanaDynamicFee:
+      type: object
+      additionalProperties: false
+      description: >
+        Dynamic fee schedule for Solana CPMM hook launches. Omit startingTime
+        or set it to "0" to normalize the schedule start to launch creation.
+        The effective swap fee is the greater of the schedule fee and
+        swapFeeBps.
+      properties:
+        startingTime:
+          type: string
+          pattern: '^\d+$'
+          description: Optional non-negative Unix timestamp string.
+        startFeeBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        endFeeBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: Must be less than or equal to startFeeBps.
+        durationSeconds:
+          type: string
+          pattern: '^\d+$'
+          description: Non-negative u32 string; must be non-zero for decaying schedules.
+      required: [startFeeBps, endFeeBps, durationSeconds]
     SolanaAuction:
       type: object
       additionalProperties: false
@@ -929,8 +956,10 @@ components:
           type: boolean
         allowSell:
           type: boolean
-        cosigningHook:
-          $ref: '#/components/schemas/SolanaCosigningHook'
+        cosignerGate:
+          $ref: '#/components/schemas/SolanaCosignerGate'
+        dynamicFee:
+          $ref: '#/components/schemas/SolanaDynamicFee'
       required: [type, curveConfig]
     DedicatedSolanaCreateLaunchRequest:
       type: object

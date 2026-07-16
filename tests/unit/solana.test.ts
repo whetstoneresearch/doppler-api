@@ -183,7 +183,7 @@ describe('Solana launch helpers', () => {
     ).toThrow(/minimumQuoteRaise is required/i);
   });
 
-  it('parses Solana cosigning hook config and rejects combining it with CPMM migration', async () => {
+  it('parses Solana CPMM hook cosigning and dynamic fee schedules', async () => {
     const cosigner = await generateKeyPairSigner();
     const parsed = genericSolanaCreateLaunchRequestSchema.parse({
       network: 'solanaDevnet',
@@ -194,7 +194,7 @@ describe('Solana launch helpers', () => {
       auction: {
         type: 'xyk',
         curveConfig: { type: 'range', marketCapStartUsd: 100, marketCapEndUsd: 1000 },
-        cosigningHook: {
+        cosignerGate: {
           type: 'cosigner',
           cosigner: cosigner.address,
           expiry: {
@@ -202,10 +202,16 @@ describe('Solana launch helpers', () => {
             value: '9999999999',
           },
         },
+        dynamicFee: {
+          startingTime: '0',
+          startFeeBps: 8000,
+          endFeeBps: 200,
+          durationSeconds: '600',
+        },
       },
     });
 
-    expect(parsed.auction.cosigningHook).toMatchObject({
+    expect(parsed.auction.cosignerGate).toMatchObject({
       type: 'cosigner',
       cosigner: cosigner.address,
       expiry: {
@@ -213,11 +219,39 @@ describe('Solana launch helpers', () => {
         value: '9999999999',
       },
     });
+    expect(parsed.auction.dynamicFee).toMatchObject({
+      startingTime: '0',
+      startFeeBps: 8000,
+      endFeeBps: 200,
+      durationSeconds: '600',
+    });
 
-    expect(() =>
+    const cpmmCosignerLaunch = genericSolanaCreateLaunchRequestSchema.parse({
+      network: 'solanaDevnet',
+      tokenMetadata: { name: 'CPMM Cosign', symbol: 'CCSGN', tokenURI: 'ipfs://cpmm-cosign' },
+      economics: {
+        totalSupply: '1000',
+        baseForDistribution: '100',
+      },
+      governance: false,
+      migration: { type: 'none', supportCpmm: true, minimumQuoteRaise: '1' },
+      auction: {
+        type: 'xyk',
+        curveConfig: { type: 'range', marketCapStartUsd: 100, marketCapEndUsd: 1000 },
+        cosignerGate: {
+          type: 'cosigner',
+          cosigner: cosigner.address,
+        },
+      },
+    });
+    expect(cpmmCosignerLaunch.migration?.supportCpmm).toBe(true);
+    expect(cpmmCosignerLaunch.auction.cosignerGate?.cosigner).toBe(cosigner.address);
+    expect(cpmmCosignerLaunch.auction.dynamicFee).toBeUndefined();
+
+    expect(
       genericSolanaCreateLaunchRequestSchema.parse({
         network: 'solanaDevnet',
-        tokenMetadata: { name: 'Bad Cosign', symbol: 'BCSGN', tokenURI: 'ipfs://bad-cosign' },
+        tokenMetadata: { name: 'CPMM Cosign', symbol: 'CCSGN', tokenURI: 'ipfs://cpmm-cosign' },
         economics: {
           totalSupply: '1000',
           baseForDistribution: '100',
@@ -227,13 +261,62 @@ describe('Solana launch helpers', () => {
         auction: {
           type: 'xyk',
           curveConfig: { type: 'range', marketCapStartUsd: 100, marketCapEndUsd: 1000 },
-          cosigningHook: {
+          dynamicFee: {
+            startFeeBps: 8000,
+            endFeeBps: 200,
+            durationSeconds: '600',
+          },
+          cosignerGate: {
             type: 'cosigner',
             cosigner: cosigner.address,
           },
         },
+      }).auction.dynamicFee,
+    ).toMatchObject({
+      startFeeBps: 8000,
+      endFeeBps: 200,
+      durationSeconds: '600',
+    });
+  });
+
+  it('rejects invalid Solana dynamic fee schedules', () => {
+    expect(() =>
+      genericSolanaCreateLaunchRequestSchema.parse({
+        network: 'solanaDevnet',
+        tokenMetadata: { name: 'Bad Fee', symbol: 'BFEE', tokenURI: 'ipfs://bad-fee' },
+        economics: { totalSupply: '1000' },
+        governance: false,
+        migration: { type: 'none' },
+        auction: {
+          type: 'xyk',
+          curveConfig: { type: 'range', marketCapStartUsd: 100, marketCapEndUsd: 1000 },
+          dynamicFee: {
+            startFeeBps: 200,
+            endFeeBps: 8000,
+            durationSeconds: '600',
+          },
+        },
       }),
-    ).toThrow();
+    ).toThrow(/endFeeBps/i);
+
+    expect(() =>
+      genericSolanaCreateLaunchRequestSchema.parse({
+        network: 'solanaDevnet',
+        tokenMetadata: { name: 'Bad Duration', symbol: 'BDUR', tokenURI: 'ipfs://bad-duration' },
+        economics: { totalSupply: '1000' },
+        governance: false,
+        migration: { type: 'none' },
+        auction: {
+          type: 'xyk',
+          curveConfig: { type: 'range', marketCapStartUsd: 100, marketCapEndUsd: 1000 },
+          dynamicFee: {
+            startFeeBps: 8000,
+            endFeeBps: 200,
+            durationSeconds: '0',
+          },
+        },
+      }),
+    ).toThrow(/durationSeconds/i);
   });
 
   it('rejects governance, migration, and auction shapes that are outside the Solana profile', () => {
