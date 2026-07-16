@@ -855,7 +855,7 @@ components:
           default: false
           description: >
             When true, register the launch with the CPMM migrator. All
-            API-created launches use the dynamic fee hook; migration
+            API-created launches use the CPMM hook; migration
             registration and hook features are independent.
         minimumQuoteRaise:
           type: string
@@ -895,7 +895,7 @@ components:
       type: object
       additionalProperties: false
       description: >
-        Cosigner gating through the dynamic fee hook. It can be used with or
+        Cosigner gating through the CPMM hook. It can be used with or
         without CPMM migration and can be combined with auction.dynamicFee.
       properties:
         type:
@@ -910,9 +910,10 @@ components:
       type: object
       additionalProperties: false
       description: >
-        Dynamic fee hook schedule for Solana launches. Omit startingTime or set
-        it to "0" to normalize the schedule start to launch creation. The
-        effective swap fee is the greater of the schedule fee and swapFeeBps.
+        Dynamic fee schedule for Solana CPMM hook launches. Omit startingTime
+        or set it to "0" to normalize the schedule start to launch creation.
+        The effective swap fee is the greater of the schedule fee and
+        swapFeeBps.
       properties:
         startingTime:
           type: string

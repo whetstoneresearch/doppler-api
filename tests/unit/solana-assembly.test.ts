@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSigner } from '@solana/kit';
-import { dynamicFeeHook, initializer } from '@whetstone-research/doppler-sdk/solana';
+import { cpmmHook, initializer } from '@whetstone-research/doppler-sdk/solana';
 
 import {
   SOLANA_CONSTANTS,
@@ -95,7 +95,7 @@ describe('Solana SDK assembly helpers', () => {
       launchFeeState: launchFeeState.address,
       payer,
       authority: payer,
-      hookProgram: SOLANA_CONSTANTS.dynamicFeeHookProgramId,
+      hookProgram: SOLANA_CONSTANTS.cpmmHookProgramId,
       migratorProgram: SOLANA_CONSTANTS.systemProgramAddress,
       rent: SOLANA_CONSTANTS.rentSysvarAddress,
       metadataAccount: metadata.address,
@@ -200,7 +200,7 @@ describe('Solana SDK assembly helpers', () => {
     });
 
     expect(accounts).toMatchObject({
-      hookProgram: SOLANA_CONSTANTS.dynamicFeeHookProgramId,
+      hookProgram: SOLANA_CONSTANTS.cpmmHookProgramId,
       migratorProgram: SOLANA_CONSTANTS.cpmmMigratorProgramId,
       cpmmConfig: cpmmConfig.address,
       launchFeeState: launchFeeState.address,
@@ -232,10 +232,10 @@ describe('Solana SDK assembly helpers', () => {
     );
   });
 
-  it('routes cosigner-only launches through the dynamic fee hook', async () => {
+  it('routes cosigner-only launches through the CPMM hook', async () => {
     const namespace = await generateKeyPairSigner();
     const cosigner = await generateKeyPairSigner();
-    const [configAddress] = await dynamicFeeHook.getDynamicFeeHookConfigAddress();
+    const [configAddress] = await cpmmHook.getCpmmHookConfigAddress();
     const hookConfig = await buildSolanaLaunchHookConfig({
       namespace: namespace.address,
       dynamicFee: undefined,
@@ -246,7 +246,7 @@ describe('Solana SDK assembly helpers', () => {
     });
 
     expect(hookConfig).not.toBeNull();
-    expect(hookConfig!.hookProgram).toBe(SOLANA_CONSTANTS.dynamicFeeHookProgramId);
+    expect(hookConfig!.hookProgram).toBe(SOLANA_CONSTANTS.cpmmHookProgramId);
     expect(hookConfig!.hookFlags).toBe(
       initializer.HF_BEFORE_SWAP | initializer.HF_FORWARD_READONLY_SIGNERS,
     );
@@ -267,7 +267,7 @@ describe('Solana SDK assembly helpers', () => {
     );
   });
 
-  it('assembles Solana dynamic fee hook config for initializer SDK inputs', async () => {
+  it('assembles Solana CPMM hook config for initializer SDK inputs', async () => {
     const namespace = await generateKeyPairSigner();
     const hookConfig = await buildSolanaLaunchHookConfig({
       namespace: namespace.address,
@@ -281,10 +281,10 @@ describe('Solana SDK assembly helpers', () => {
     });
 
     expect(hookConfig).not.toBeNull();
-    expect(hookConfig!.hookProgram).toBe(SOLANA_CONSTANTS.dynamicFeeHookProgramId);
+    expect(hookConfig!.hookProgram).toBe(SOLANA_CONSTANTS.cpmmHookProgramId);
     expect(hookConfig!.hookFlags).toBe(initializer.HF_BEFORE_CREATE | initializer.HF_BEFORE_SWAP);
-    expect(hookConfig!.hookPayload).toHaveLength(dynamicFeeHook.DYNAMIC_FEE_SCHEDULE_LEN);
-    expect(dynamicFeeHook.isDynamicFeeSchedulePayload(hookConfig!.hookPayload)).toBe(true);
+    expect(hookConfig!.hookPayload).toHaveLength(cpmmHook.DYNAMIC_FEE_SCHEDULE_LEN);
+    expect(cpmmHook.isDynamicFeeSchedulePayload(hookConfig!.hookPayload)).toBe(true);
     expect(hookConfig!.hookCreateRemainingAccountsLen).toBe(0);
     expect(Array.from(hookConfig!.hookCreateRemainingAccountsHash)).toEqual(
       Array.from(initializer.computeRemainingAccountsHash([])),
@@ -298,7 +298,7 @@ describe('Solana SDK assembly helpers', () => {
   it('encodes dynamic fees with an indefinite cosigner gate', async () => {
     const namespace = await generateKeyPairSigner();
     const cosigner = await generateKeyPairSigner();
-    const [configAddress] = await dynamicFeeHook.getDynamicFeeHookConfigAddress();
+    const [configAddress] = await cpmmHook.getCpmmHookConfigAddress();
     const hookConfig = await buildSolanaLaunchHookConfig({
       namespace: namespace.address,
       dynamicFee: {
@@ -319,7 +319,7 @@ describe('Solana SDK assembly helpers', () => {
         initializer.HF_BEFORE_SWAP |
         initializer.HF_FORWARD_READONLY_SIGNERS,
     );
-    expect(hookConfig!.hookPayload).toHaveLength(dynamicFeeHook.DYNAMIC_FEE_SCHEDULE_LEN);
+    expect(hookConfig!.hookPayload).toHaveLength(cpmmHook.DYNAMIC_FEE_SCHEDULE_LEN);
     expect(hookConfig!.hookRemainingAccounts).toEqual([
       namespace.address,
       configAddress,
@@ -336,7 +336,7 @@ describe('Solana SDK assembly helpers', () => {
     );
   });
 
-  it('preserves CPMM migration payloads when a dynamic fee hook is configured', async () => {
+  it('preserves CPMM migration payloads when the CPMM hook is configured', async () => {
     const payer = await generateKeyPairSigner();
     const config = await generateKeyPairSigner();
     const launch = await generateKeyPairSigner();
@@ -409,7 +409,7 @@ describe('Solana SDK assembly helpers', () => {
     });
 
     expect(accounts).toMatchObject({
-      hookProgram: SOLANA_CONSTANTS.dynamicFeeHookProgramId,
+      hookProgram: SOLANA_CONSTANTS.cpmmHookProgramId,
       migratorProgram: SOLANA_CONSTANTS.cpmmMigratorProgramId,
       cpmmConfig: cpmmConfig.address,
     });
@@ -418,15 +418,15 @@ describe('Solana SDK assembly helpers', () => {
         initializer.HF_BEFORE_SWAP |
         initializer.HF_FORWARD_READONLY_SIGNERS,
     );
-    const expectedGatePayload = dynamicFeeHook.encodeDynamicFeeCosignerGatePayload({
-      mode: 1,
+    const expectedGatePayload = cpmmHook.encodeCosignerGateExpiryPayload({
+      mode: cpmmHook.GATE_EXPIRY_UNIX_TIMESTAMP,
       value: 9_999_999_999n,
       cosigner: cosigner.address,
     });
     expect(instructionArgs.hookPayload).toHaveLength(
-      dynamicFeeHook.DYNAMIC_FEE_SCHEDULE_LEN + expectedGatePayload.length,
+      cpmmHook.DYNAMIC_FEE_SCHEDULE_LEN + expectedGatePayload.length,
     );
-    expect(instructionArgs.hookPayload.slice(dynamicFeeHook.DYNAMIC_FEE_SCHEDULE_LEN)).toEqual(
+    expect(instructionArgs.hookPayload.slice(cpmmHook.DYNAMIC_FEE_SCHEDULE_LEN)).toEqual(
       expectedGatePayload,
     );
     expect(Array.from(instructionArgs.migratorInitPayload)).toEqual([1, 2, 3]);

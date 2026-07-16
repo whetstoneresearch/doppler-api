@@ -20,12 +20,7 @@ import {
   signTransactionMessageWithSigners,
 } from '@solana/kit';
 import { TOKEN_PROGRAM_ADDRESS, findAssociatedTokenPda } from '@solana-program/token';
-import {
-  cpmm,
-  cpmmMigrator,
-  dynamicFeeHook,
-  initializer,
-} from '@whetstone-research/doppler-sdk/solana';
+import { cpmm, cpmmHook, cpmmMigrator, initializer } from '@whetstone-research/doppler-sdk/solana';
 
 import type { AppConfig } from '../../core/config';
 import { AppError } from '../../core/errors';
@@ -1046,7 +1041,7 @@ export const SOLANA_CONSTANTS = {
   wsolMintAddress: SOLANA_WSOL_MINT_ADDRESS,
   systemProgramAddress: SOLANA_SYSTEM_PROGRAM_ADDRESS,
   rentSysvarAddress: SOLANA_RENT_SYSVAR_ADDRESS,
-  dynamicFeeHookProgramId: dynamicFeeHook.DYNAMIC_FEE_HOOK_PROGRAM_ID,
+  cpmmHookProgramId: cpmmHook.CPMM_HOOK_PROGRAM_ID,
   cpmmMigratorProgramId: cpmmMigrator.CPMM_MIGRATOR_PROGRAM_ID,
   disabledHookRemainingAccountsHash: SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH,
   feeBpsDenominator: SOLANA_FEE_BPS_DENOMINATOR,

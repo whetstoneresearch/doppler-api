@@ -55,7 +55,7 @@ LIVE_TEST_VERBOSE=true npm run test:live
 - Live tests are concise by default and print a launch summary table.
 - Set `LIVE_TEST_VERBOSE=true` to print per-launch parameter + onchain verification tables.
 - Live launch creation tests run sequentially to avoid nonce conflicts for one signer.
-- `test:live` is the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet create matrix. Solana live parity covers the supported defaults, fee-beneficiary, reserve-split/CPMM, launches with no migration criteria, generic-route replay, randomized XYK paths, cosigner-gated dynamic hook launches, and scheduled dynamic fee hook launches; governance, vesting/vault locks, and static/dynamic EVM auction engines remain EVM-only.
+- `test:live` is the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet create matrix. Solana live parity covers the supported defaults, fee-beneficiary, reserve-split/CPMM, launches with no migration criteria, generic-route replay, randomized XYK paths, CPMM hook launches with cosigner gating, and CPMM hook launches with scheduled dynamic fees; governance, vesting/vault locks, and static/dynamic EVM auction engines remain EVM-only.
 - Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR`, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, `SOLANA_DEVNET_ALT_ADDRESS`, and enough SOL for launch account creation. The configured ALT avoids per-launch setup during live runs. Use `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` to tune the readiness gate.
 
 Lint, format, and typecheck:
@@ -523,13 +523,13 @@ Custom-curve rules agents should enforce before submit:
   - only WSOL is supported as numeraire
   - Solana price resolution precedence is request override, fixed env price, then CoinGecko
   - unsupported EVM-shaped fields are rejected instead of ignored
-- Solana `migration.type="none"` launches use the initializer curve. Set `migration.supportCpmm=true` and `migration.minimumQuoteRaise` to register the launch with the CPMM migrator. All API-created launches use the dynamic fee hook; migration registration and hook features are independent.
+- Solana `migration.type="none"` launches use the initializer curve. Set `migration.supportCpmm=true` and `migration.minimumQuoteRaise` to register the launch with the CPMM migrator. All API-created launches use the CPMM hook; migration registration and hook features are independent.
 - Omit `economics.baseForDistribution` and `economics.baseForLiquidity`, or set both to `0`, unless `migration.supportCpmm=true`.
 - Non-zero Solana reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled.
 - `effectiveConfig.tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`.
 - Prefer Solana `auction.swapFeeBps`; `auction.curveFeeBps` remains accepted as a backward-compatible alias.
-- Use Solana `auction.cosignerGate` to configure cosigner gating through the dynamic fee hook, with or without CPMM migration. `type` must be `"cosigner"`, `cosigner` must be a Solana address, and optional `expiry` supports `disabled`, `unixTimestamp`, and `slot`. Omitted or `disabled` expiry is indefinite; timestamp/slot expiry modes require `value`.
-- Use Solana `auction.dynamicFee` to configure the dynamic fee hook. `startFeeBps` and `endFeeBps` are basis points, `durationSeconds` is a non-negative integer string, and optional `startingTime` defaults to launch creation when omitted or `"0"`. The effective swap fee is the greater of the schedule fee and `auction.swapFeeBps`.
+- Use Solana `auction.cosignerGate` to configure cosigner gating through the CPMM hook, with or without CPMM migration. `type` must be `"cosigner"`, `cosigner` must be a Solana address, and optional `expiry` supports `disabled`, `unixTimestamp`, and `slot`. Omitted or `disabled` expiry is indefinite; timestamp/slot expiry modes require `value`.
+- Use Solana `auction.dynamicFee` to configure a fee schedule on the CPMM hook. `startFeeBps` and `endFeeBps` are basis points, `durationSeconds` is a non-negative integer string, and optional `startingTime` defaults to launch creation when omitted or `"0"`. The effective swap fee is the greater of the schedule fee and `auction.swapFeeBps`.
 - Combine `auction.dynamicFee` with `auction.cosignerGate` to enable both features on the same hook.
 - Solana `feeBeneficiaries` is optional, supports up to 8 unique addresses, uses `shareBps`, and custom shares must sum to `10000`. If the API payer is the initializer protocol beneficiary, provide a non-protocol beneficiary list.
 - Multicurve initializer defaults to `standard` (implemented as scheduled with `startTime=0`).

@@ -1,11 +1,6 @@
 import { address, type Address } from '@solana/kit';
 import type { generateKeyPairSigner } from '@solana/kit';
-import {
-  cpmm,
-  cpmmMigrator,
-  dynamicFeeHook,
-  initializer,
-} from '@whetstone-research/doppler-sdk/solana';
+import { cpmm, cpmmHook, cpmmMigrator, initializer } from '@whetstone-research/doppler-sdk/solana';
 
 import { AppError } from '../../core/errors';
 import type { CreateSolanaLaunchRequestInput } from './solana-schema';
@@ -14,8 +9,6 @@ export const SOLANA_TOKEN_DECIMALS = 6;
 export const SOLANA_SYSTEM_PROGRAM_ADDRESS = address('11111111111111111111111111111111');
 export const SOLANA_RENT_SYSVAR_ADDRESS = address('SysvarRent111111111111111111111111111111111');
 export const SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH = new Uint8Array(32);
-const DYNAMIC_FEE_GATE_EXPIRY_UNIX_TIMESTAMP = 1 as const;
-const DYNAMIC_FEE_GATE_EXPIRY_SLOT = 2 as const;
 
 type SolanaSigner = Awaited<ReturnType<typeof generateKeyPairSigner>>;
 type SolanaInitializeLaunchAccounts = Parameters<
@@ -30,9 +23,10 @@ type SolanaCpmmMigrationAccounts = {
   hash: Uint8Array;
 };
 type SolanaParsedProgramError = ReturnType<typeof cpmm.parseErrorFromLogs>;
-type DynamicFeeCosignerGate = Parameters<
-  typeof dynamicFeeHook.encodeDynamicFeeCosignerGatePayload
->[0];
+type CpmmHookCosignerGate = Exclude<
+  Parameters<typeof cpmmHook.encodeCosignerGateExpiryPayload>[0],
+  { mode: typeof cpmmHook.GATE_EXPIRY_DISABLED }
+>;
 type SolanaSignatureStatus = {
   err?: unknown;
   confirmationStatus?: string | null;
@@ -54,14 +48,14 @@ const toCosignerGateExpiryMode = (
     >['mode'],
     'disabled'
   >,
-): DynamicFeeCosignerGate['mode'] => {
-  if (mode === 'unixTimestamp') return DYNAMIC_FEE_GATE_EXPIRY_UNIX_TIMESTAMP;
-  return DYNAMIC_FEE_GATE_EXPIRY_SLOT;
+): CpmmHookCosignerGate['mode'] => {
+  if (mode === 'unixTimestamp') return cpmmHook.GATE_EXPIRY_UNIX_TIMESTAMP;
+  return cpmmHook.GATE_EXPIRY_SLOT;
 };
 
 const buildCosignerGateExpiry = (
   gate: CreateSolanaLaunchRequestInput['auction']['cosignerGate'],
-): DynamicFeeCosignerGate | null => {
+): CpmmHookCosignerGate | null => {
   if (!gate?.expiry || gate.expiry.mode === 'disabled') {
     return null;
   }
@@ -78,16 +72,14 @@ const buildCosignerGateExpiry = (
   };
 };
 
-const buildDynamicFeeLaunchHookConfig = async (args: {
+const buildCpmmLaunchHookConfig = async (args: {
   dynamicFee: CreateSolanaLaunchRequestInput['auction']['dynamicFee'];
   cosignerGate: CreateSolanaLaunchRequestInput['auction']['cosignerGate'];
   namespace: Address;
 }): Promise<SolanaLaunchHookConfig> => {
   const cosigner = args.cosignerGate ? address(args.cosignerGate.cosigner) : undefined;
-  const configAddress = cosigner
-    ? (await dynamicFeeHook.getDynamicFeeHookConfigAddress())[0]
-    : undefined;
-  const remainingAccounts = dynamicFeeHook.getDynamicFeeHookRemainingAccounts({
+  const configAddress = cosigner ? (await cpmmHook.getCpmmHookConfigAddress())[0] : undefined;
+  const remainingAccounts = cpmmHook.getCpmmHookRemainingAccounts({
     namespace: args.namespace,
     config: configAddress,
     cosigner,
@@ -96,12 +88,12 @@ const buildDynamicFeeLaunchHookConfig = async (args: {
   const gateExpiry = buildCosignerGateExpiry(args.cosignerGate);
 
   return {
-    hookProgram: dynamicFeeHook.DYNAMIC_FEE_HOOK_PROGRAM_ID,
+    hookProgram: cpmmHook.CPMM_HOOK_PROGRAM_ID,
     hookFlags:
       initializer.HF_BEFORE_SWAP |
       (hasSchedule ? initializer.HF_BEFORE_CREATE : 0) |
       (cosigner ? initializer.HF_FORWARD_READONLY_SIGNERS : 0),
-    hookPayload: dynamicFeeHook.encodeDynamicFeeHookPayload({
+    hookPayload: cpmmHook.encodeCpmmHookPayload({
       schedule: args.dynamicFee
         ? {
             startingTime: BigInt(args.dynamicFee.startingTime ?? '0'),
@@ -125,7 +117,7 @@ export const buildSolanaLaunchHookConfig = async (args: {
   dynamicFee: CreateSolanaLaunchRequestInput['auction']['dynamicFee'];
   cosignerGate: CreateSolanaLaunchRequestInput['auction']['cosignerGate'];
   namespace: Address;
-}): Promise<SolanaLaunchHookConfig> => buildDynamicFeeLaunchHookConfig(args);
+}): Promise<SolanaLaunchHookConfig> => buildCpmmLaunchHookConfig(args);
 
 export const buildSolanaInitializeLaunchInstructionArgs = (args: {
   supportCpmmMigration: boolean;

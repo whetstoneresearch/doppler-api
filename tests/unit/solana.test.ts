@@ -183,7 +183,7 @@ describe('Solana launch helpers', () => {
     ).toThrow(/minimumQuoteRaise is required/i);
   });
 
-  it('parses Solana cosigning hook config and dynamic fee schedules', async () => {
+  it('parses Solana CPMM hook cosigning and dynamic fee schedules', async () => {
     const cosigner = await generateKeyPairSigner();
     const parsed = genericSolanaCreateLaunchRequestSchema.parse({
       network: 'solanaDevnet',

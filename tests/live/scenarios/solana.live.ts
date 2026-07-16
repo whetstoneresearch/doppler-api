@@ -755,7 +755,7 @@ export const registerSolanaLiveScenarios = () => {
         expectedNumerairePriceUsd: 145,
         expectedBaseForDistribution: '0',
         expectedBaseForLiquidity: '0',
-        expectedHookProgram: String(SOLANA_CONSTANTS.dynamicFeeHookProgramId),
+        expectedHookProgram: String(SOLANA_CONSTANTS.cpmmHookProgramId),
         expectedHookFlags: initializer.HF_BEFORE_SWAP,
         expectedMigratorProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
       });
@@ -795,7 +795,7 @@ export const registerSolanaLiveScenarios = () => {
         expectedNumerairePriceUsd: 190,
         expectedBaseForDistribution: '0',
         expectedBaseForLiquidity: '0',
-        expectedHookProgram: String(SOLANA_CONSTANTS.dynamicFeeHookProgramId),
+        expectedHookProgram: String(SOLANA_CONSTANTS.cpmmHookProgramId),
         expectedHookFlags: initializer.HF_BEFORE_SWAP,
         expectedMigratorProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
       });
@@ -843,7 +843,7 @@ export const registerSolanaLiveScenarios = () => {
         expectedNumerairePriceUsd: numerairePriceUsd,
         expectedBaseForDistribution: '0',
         expectedBaseForLiquidity: '0',
-        expectedHookProgram: String(SOLANA_CONSTANTS.dynamicFeeHookProgramId),
+        expectedHookProgram: String(SOLANA_CONSTANTS.cpmmHookProgramId),
         expectedHookFlags: initializer.HF_BEFORE_SWAP,
         expectedMigratorProgram: String(SOLANA_CONSTANTS.systemProgramAddress),
       });
@@ -1039,12 +1039,12 @@ export const registerSolanaLiveScenarios = () => {
   );
 
   liveIt(
-    'SOLANA DEVNET Cosigning Hook Slot Expiry',
+    'SOLANA DEVNET CPMM Hook Cosigner Slot Expiry',
     ['solana', 'solana-devnet', 'solana-cosigner'],
     async () => {
       const cosigner = await generateKeyPairSigner();
       await verifySuccessfulSolanaLaunch({
-        configLabel: 'SOLANA DEVNET Cosigning Hook Slot Expiry',
+        configLabel: 'SOLANA DEVNET CPMM Hook Cosigner Slot Expiry',
         route: 'dedicated',
         payload: {
           network: 'devnet',
@@ -1080,7 +1080,7 @@ export const registerSolanaLiveScenarios = () => {
         },
         expectedCurveFeeBps: 125,
         expectedNumerairePriceUsd: 155,
-        expectedHookProgram: String(SOLANA_CONSTANTS.dynamicFeeHookProgramId),
+        expectedHookProgram: String(SOLANA_CONSTANTS.cpmmHookProgramId),
         expectedHookFlags: initializer.HF_BEFORE_SWAP | initializer.HF_FORWARD_READONLY_SIGNERS,
       });
     },
@@ -1088,12 +1088,12 @@ export const registerSolanaLiveScenarios = () => {
   );
 
   liveIt(
-    'SOLANA DEVNET Cosigning Hook Timestamp Expiry',
+    'SOLANA DEVNET CPMM Hook Cosigner Timestamp Expiry',
     ['solana', 'solana-devnet', 'solana-cosigner'],
     async () => {
       const cosigner = await generateKeyPairSigner();
       await verifySuccessfulSolanaLaunch({
-        configLabel: 'SOLANA DEVNET Cosigning Hook Timestamp Expiry',
+        configLabel: 'SOLANA DEVNET CPMM Hook Cosigner Timestamp Expiry',
         route: 'generic',
         payload: {
           network: 'solanaDevnet',
@@ -1129,7 +1129,7 @@ export const registerSolanaLiveScenarios = () => {
         },
         expectedCurveFeeBps: 150,
         expectedNumerairePriceUsd: 185,
-        expectedHookProgram: String(SOLANA_CONSTANTS.dynamicFeeHookProgramId),
+        expectedHookProgram: String(SOLANA_CONSTANTS.cpmmHookProgramId),
         expectedHookFlags: initializer.HF_BEFORE_SWAP | initializer.HF_FORWARD_READONLY_SIGNERS,
       });
     },
@@ -1137,12 +1137,12 @@ export const registerSolanaLiveScenarios = () => {
   );
 
   liveIt(
-    'SOLANA DEVNET Dynamic Fee Hook With CPMM Cosigner',
+    'SOLANA DEVNET CPMM Hook With Dynamic Fee And Cosigner',
     ['solana', 'solana-devnet', 'solana-dynamic-fee'],
     async () => {
       const cosigner = await generateKeyPairSigner();
       await verifySuccessfulSolanaLaunch({
-        configLabel: 'SOLANA DEVNET Dynamic Fee Hook With CPMM Cosigner',
+        configLabel: 'SOLANA DEVNET CPMM Hook With Dynamic Fee And Cosigner',
         route: 'dedicated',
         payload: {
           network: 'devnet',
@@ -1190,7 +1190,7 @@ export const registerSolanaLiveScenarios = () => {
         expectedNumerairePriceUsd: 175,
         expectedBaseForDistribution: '300000000',
         expectedBaseForLiquidity: '300000000',
-        expectedHookProgram: String(SOLANA_CONSTANTS.dynamicFeeHookProgramId),
+        expectedHookProgram: String(SOLANA_CONSTANTS.cpmmHookProgramId),
         expectedHookFlags:
           initializer.HF_BEFORE_CREATE |
           initializer.HF_BEFORE_SWAP |
