@@ -121,7 +121,7 @@ describe('live create verification', () => {
       signerBalance = await chain.publicClient.getBalance({ address: signerAddress });
     } catch (error) {
       throw new Error(
-        `[${LIVE_READINESS_ERROR_MARKER}] Could not fetch balance for signer ${signerAddress} on chain ${chain.chainId} (${chain.config.rpcUrl}). Ensure the chain rpcUrl in doppler.config.ts (or RPC_URL override) is reachable before running live tests.`,
+        `[${LIVE_READINESS_ERROR_MARKER}] Could not fetch balance for signer ${signerAddress} on chain ${chain.chainId}. Ensure the named RPC environment variable for this chain is reachable before running live tests.`,
         { cause: error as Error },
       );
     }

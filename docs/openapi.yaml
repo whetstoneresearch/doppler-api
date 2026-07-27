@@ -1,37 +1,23 @@
 openapi: 3.1.0
 info:
   title: Doppler Launch API
-  version: 0.1.0
+  version: 0.2.0
   description: |
-    REST API for creating Doppler launches across EVM and Solana create flows.
-    v1 deployment profile supports:
-    - EVM multicurve/static with noOp migration
-    - EVM dynamic with uniswapV2 or uniswapV4 migration
-    - Solana devnet XYK create-only launches on /v1/solana/launches or /v1/launches
-    - binary governance toggle for EVM only
-    Prefer multicurve on V4-capable EVM chains; static is a compatibility path.
+    REST API for creating Doppler launches on EVM and Solana.
+    EVM requests use static, multicurve, or dynamic auctions. Static and
+    multicurve requests omit migration, while dynamic requests require
+    uniswapV2 or uniswapV4 migration.
 servers:
   - url: http://localhost:3000
 security:
   - ApiKeyAuth: []
-tags:
-  - name: Launches
-  - name: Status
-  - name: Ops
-  - name: Capabilities
 paths:
   /v1/launches:
     post:
-      tags: [Launches]
-      summary: Create an EVM or Solana launch
+      summary: Create an EVM or generic Solana launch
       operationId: createLaunch
       parameters:
-        - name: Idempotency-Key
-          in: header
-          required: false
-          schema:
-            type: string
-          description: Reuse the same key for safe retries of identical create payloads (required in shared mode, recommended in standalone mode).
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -42,41 +28,85 @@ paths:
                 - $ref: '#/components/schemas/GenericSolanaCreateLaunchRequest'
       responses:
         '200':
-          description: Launch submitted
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  - $ref: '#/components/schemas/CreateLaunchResponse'
-                  - $ref: '#/components/schemas/SolanaCreateLaunchResponse'
+          $ref: '#/components/responses/CreateResponse'
         '401':
-          $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '422':
-          $ref: '#/components/responses/Error'
-        '501':
-          $ref: '#/components/responses/Error'
-        '503':
-          $ref: '#/components/responses/Error'
-        '502':
-          $ref: '#/components/responses/Error'
-        '500':
           $ref: '#/components/responses/Error'
         '409':
           $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '501':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /v1/launches/static:
+    post:
+      summary: Create a static EVM launch
+      operationId: createStaticLaunch
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvmStaticCreateLaunchRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/EvmCreateResponse'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /v1/launches/multicurve:
+    post:
+      summary: Create a multicurve EVM launch
+      operationId: createMulticurveLaunch
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvmMulticurveCreateLaunchRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/EvmCreateResponse'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /v1/launches/dynamic:
+    post:
+      summary: Create a dynamic EVM launch
+      operationId: createDynamicLaunch
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvmDynamicCreateLaunchRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/EvmCreateResponse'
+        '422':
+          description: INVALID_REQUEST covers unsupported EVM fields and poolFeeBeneficiaries with uniswapV2 migration.
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
   /v1/solana/launches:
     post:
-      tags: [Launches]
-      summary: Create a Solana launch
+      summary: Create a dedicated Solana launch
       operationId: createSolanaLaunch
       parameters:
-        - name: Idempotency-Key
-          in: header
-          required: false
-          schema:
-            type: string
-          description: Reuse the same key for safe retries of identical create payloads (required in shared mode, recommended in standalone mode).
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -85,174 +115,15 @@ paths:
               $ref: '#/components/schemas/DedicatedSolanaCreateLaunchRequest'
       responses:
         '200':
-          description: Solana launch submitted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SolanaCreateLaunchResponse'
-        '401':
-          $ref: '#/components/responses/Error'
-        '409':
-          $ref: '#/components/responses/Error'
-        '422':
-          $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '501':
-          $ref: '#/components/responses/Error'
-        '502':
-          $ref: '#/components/responses/Error'
-        '503':
-          $ref: '#/components/responses/Error'
-        '500':
-          $ref: '#/components/responses/Error'
-  /v1/solana/launches/{launchAddress}:
-    get:
-      tags: [Status]
-      summary: Fetch Solana launch state
-      operationId: getSolanaLaunch
-      parameters:
-        - name: launchAddress
-          in: path
-          required: true
-          schema:
-            $ref: '#/components/schemas/SolanaAddress'
-      responses:
-        '200':
-          description: Solana launch account state
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SolanaLaunchReadResponse'
-        '401':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/Error'
-        '422':
-          $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '501':
-          $ref: '#/components/responses/Error'
-        '502':
-          $ref: '#/components/responses/Error'
-        '500':
-          $ref: '#/components/responses/Error'
-  /v1/launches/multicurve:
-    post:
-      tags: [Launches]
-      summary: Create multicurve launch (alias)
-      operationId: createMulticurveLaunch
-      parameters:
-        - name: Idempotency-Key
-          in: header
-          required: false
-          schema:
-            type: string
-          description: Reuse the same key for safe retries of identical create payloads (required in shared mode, recommended in standalone mode).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateLaunchRequest'
-      responses:
-        '200':
-          description: Launch submitted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CreateLaunchResponse'
-        '401':
-          $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
+          $ref: '#/components/responses/SolanaCreateResponse'
         '422':
           $ref: '#/components/responses/Error'
         '501':
-          $ref: '#/components/responses/Error'
-        '500':
-          $ref: '#/components/responses/Error'
-        '409':
-          $ref: '#/components/responses/Error'
-  /v1/launches/static:
-    post:
-      tags: [Launches]
-      summary: Create static launch (alias)
-      operationId: createStaticLaunch
-      parameters:
-        - name: Idempotency-Key
-          in: header
-          required: false
-          schema:
-            type: string
-          description: Reuse the same key for safe retries of identical create payloads (required in shared mode, recommended in standalone mode).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateLaunchRequest'
-      responses:
-        '200':
-          description: Launch submitted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CreateLaunchResponse'
-        '401':
-          $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '422':
-          $ref: '#/components/responses/Error'
-        '501':
-          $ref: '#/components/responses/Error'
-        '500':
-          $ref: '#/components/responses/Error'
-        '409':
-          $ref: '#/components/responses/Error'
-  /v1/launches/dynamic:
-    post:
-      tags: [Launches]
-      summary: Create dynamic launch (alias)
-      operationId: createDynamicLaunch
-      parameters:
-        - name: Idempotency-Key
-          in: header
-          required: false
-          schema:
-            type: string
-          description: Reuse the same key for safe retries of identical create payloads (required in shared mode, recommended in standalone mode).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateLaunchRequest'
-      responses:
-        '200':
-          description: Launch submitted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CreateLaunchResponse'
-        '401':
-          $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '422':
-          $ref: '#/components/responses/Error'
-        '501':
-          $ref: '#/components/responses/Error'
-        '500':
-          $ref: '#/components/responses/Error'
-        '409':
+          description: SOLANA_NETWORK_UNSUPPORTED is returned for Mainnet Beta.
           $ref: '#/components/responses/Error'
   /v1/launches/{launchId}:
     get:
-      tags: [Status]
-      summary: Fetch launch status
+      summary: Read EVM launch status
       operationId: getLaunchStatus
       parameters:
         - name: launchId
@@ -263,29 +134,35 @@ paths:
             pattern: '^\d+:0x[a-fA-F0-9]{64}$'
       responses:
         '200':
-          description: Launch status
+          $ref: '#/components/responses/StatusResponse'
+        '422':
+          $ref: '#/components/responses/Error'
+  /v1/solana/launches/{launchAddress}:
+    get:
+      summary: Read Solana launch state
+      operationId: getSolanaLaunch
+      parameters:
+        - name: launchAddress
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Solana launch state
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LaunchStatusResponse'
-        '401':
-          $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
+                $ref: '#/components/schemas/SolanaLaunchReadResponse'
         '422':
-          $ref: '#/components/responses/Error'
-        '502':
-          $ref: '#/components/responses/Error'
-        '500':
           $ref: '#/components/responses/Error'
   /v1/capabilities:
     get:
-      tags: [Capabilities]
-      summary: Get deployment capabilities
+      summary: List configured launch capabilities
       operationId: getCapabilities
       responses:
         '200':
-          description: Capabilities matrix
+          description: Configured chains only; RPC values are never returned.
           content:
             application/json:
               schema:
@@ -293,41 +170,40 @@ paths:
         '401':
           $ref: '#/components/responses/Error'
         '429':
-          $ref: '#/components/responses/TooManyRequests'
+          $ref: '#/components/responses/Error'
   /health:
     get:
-      tags: [Ops]
-      summary: Liveness check
-      operationId: getHealth
+      summary: Process health
+      operationId: health
       security: []
       responses:
         '200':
-          description: Healthy
+          description: Healthy process
           content:
             application/json:
               schema:
                 type: object
+                additionalProperties: false
                 properties:
                   status:
                     type: string
-                    example: ok
+                    const: ok
                 required: [status]
         '429':
-          $ref: '#/components/responses/TooManyRequests'
+          $ref: '#/components/responses/Error'
   /ready:
     get:
-      tags: [Ops]
-      summary: Readiness check
-      operationId: getReady
+      summary: Dependency readiness
+      operationId: ready
       responses:
         '200':
-          description: Ready
+          description: Dependencies are ready
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReadyResponse'
         '503':
-          description: Degraded readiness
+          description: A dependency is unavailable
           content:
             application/json:
               schema:
@@ -335,12 +211,11 @@ paths:
         '401':
           $ref: '#/components/responses/Error'
         '429':
-          $ref: '#/components/responses/TooManyRequests'
+          $ref: '#/components/responses/Error'
   /metrics:
     get:
-      tags: [Ops]
-      summary: Metrics snapshot
-      operationId: getMetrics
+      summary: Service metrics
+      operationId: metrics
       responses:
         '200':
           description: Metrics snapshot
@@ -351,49 +226,91 @@ paths:
         '401':
           $ref: '#/components/responses/Error'
         '429':
-          $ref: '#/components/responses/TooManyRequests'
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     ApiKeyAuth:
       type: apiKey
       in: header
       name: x-api-key
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Required in shared deployments; reuse only with an identical create body.
+      schema:
+        type: string
   responses:
     Error:
-      description: Error response
+      description: Error envelope
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
-    TooManyRequests:
-      description: Rate limit exceeded
+    CreateResponse:
+      description: Launch submitted
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorEnvelope'
+            oneOf:
+              - $ref: '#/components/schemas/CreateLaunchResponse'
+              - $ref: '#/components/schemas/SolanaCreateLaunchResponse'
+    EvmCreateResponse:
+      description: EVM launch submitted
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CreateLaunchResponse'
+    SolanaCreateResponse:
+      description: Solana launch submitted
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SolanaCreateLaunchResponse'
+    StatusResponse:
+      description: EVM launch status
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/LaunchStatusResponse'
   schemas:
     HexAddress:
       type: string
       pattern: '^0x[a-fA-F0-9]{40}$'
+    NonZeroHexAddress:
+      allOf:
+        - $ref: '#/components/schemas/HexAddress'
+        - not:
+            const: '0x0000000000000000000000000000000000000000'
     HexHash:
       type: string
       pattern: '^0x[a-fA-F0-9]{64}$'
+    IntegerString:
+      type: string
+      pattern: '^\d+$'
+    PositiveIntegerString:
+      type: string
+      pattern: '^[1-9]\d*$'
     ErrorEnvelope:
       type: object
+      additionalProperties: false
       properties:
         error:
           type: object
+          additionalProperties: false
           properties:
             code:
               type: string
             message:
               type: string
-              description: For 5xx responses this is always "Internal server error".
             details: {}
           required: [code, message]
       required: [error]
     TokenMetadata:
       type: object
+      additionalProperties: false
+      description: Token metadata and optional balance-limit controls.
       properties:
         name:
           type: string
@@ -404,270 +321,263 @@ components:
         tokenURI:
           type: string
           minLength: 1
+        maxBalanceLimit:
+          $ref: '#/components/schemas/IntegerString'
+        balanceLimitEnd:
+          type: integer
+          minimum: 0
+        controller:
+          $ref: '#/components/schemas/NonZeroHexAddress'
+        excludedFromBalanceLimit:
+          type: array
+          items:
+            $ref: '#/components/schemas/HexAddress'
       required: [name, symbol, tokenURI]
+    VestingAllocation:
+      type: object
+      additionalProperties: false
+      properties:
+        recipientAddress:
+          $ref: '#/components/schemas/NonZeroHexAddress'
+        amount:
+          $ref: '#/components/schemas/IntegerString'
+        durationSeconds:
+          type: integer
+          minimum: 86400
+        cliffDurationSeconds:
+          type: integer
+          minimum: 0
+      required: [recipientAddress, amount, durationSeconds]
     Economics:
       type: object
+      additionalProperties: false
       properties:
         totalSupply:
-          type: string
-          pattern: '^\d+$'
+          $ref: '#/components/schemas/IntegerString'
         tokensForSale:
-          type: string
-          pattern: '^\d+$'
-          description: >
-            Optional amount allocated to the launch market.
-            Defaults to totalSupply when omitted.
-            If tokensForSale is less than totalSupply, it must be at least 20% of totalSupply.
+          $ref: '#/components/schemas/IntegerString'
         allocations:
-          type: object
-          description: >
-            Optional non-market allocation controls for the non-sale remainder.
-            Use recipients[] to split remainder across up to 10 unique addresses.
-            Allocation amounts must sum to totalSupply - tokensForSale.
-          properties:
-            recipientAddress:
-              $ref: '#/components/schemas/HexAddress'
-            recipients:
-              type: array
-              maxItems: 10
-              items:
-                type: object
-                properties:
-                  address:
-                    $ref: '#/components/schemas/HexAddress'
-                  amount:
-                    type: string
-                    pattern: '^\d+$'
-                required: [address, amount]
-            mode:
-              type: string
-              enum: [vest, unlock, vault]
-            durationSeconds:
-              type: integer
-              minimum: 0
-            cliffDurationSeconds:
-              type: integer
-              minimum: 0
+          type: array
+          minItems: 1
+          maxItems: 10
+          description: Independent vesting schedules. A recipient may appear more than once.
+          items:
+            $ref: '#/components/schemas/VestingAllocation'
       required: [totalSupply]
-    FeeBeneficiary:
+    PoolFeeBeneficiary:
       type: object
-      description: >
-        Fee beneficiary share entry in WAD precision.
-        Up to 10 unique addresses are supported.
+      additionalProperties: false
       properties:
         address:
-          $ref: '#/components/schemas/HexAddress'
+          $ref: '#/components/schemas/NonZeroHexAddress'
         sharesWad:
-          type: string
-          pattern: '^\d+$'
+          $ref: '#/components/schemas/IntegerString'
       required: [address, sharesWad]
-    GovernanceObject:
+    RehypeFeeBeneficiary:
       type: object
+      additionalProperties: false
+      description: >-
+        Receives a share of Rehype beneficiary-routed fees. This list is separate from
+        poolFeeBeneficiaries and does not require the Airlock owner.
       properties:
-        enabled:
-          type: boolean
-        mode:
-          type: string
-          enum: [noOp, default]
-      required: [enabled]
-    GovernanceInput:
+        address:
+          $ref: '#/components/schemas/NonZeroHexAddress'
+        sharesWad:
+          $ref: '#/components/schemas/PositiveIntegerString'
+      required: [address, sharesWad]
+    Governance:
+      description: false or omitted maps to noOp; true maps to default; an EVM address maps to launchpad multisig.
       oneOf:
         - type: boolean
-        - $ref: '#/components/schemas/GovernanceObject'
-    MigrationConfig:
-      description: >
-        Dynamic launches require `uniswapV2` or `uniswapV4`.
-        Multicurve and static launches use `noOp` in this API profile.
-        For `uniswapV4`, streamable fee beneficiaries are derived from `feeBeneficiaries`
-        (or the default 95/5 split).
-        `uniswapV3` is reserved and currently returns MIGRATION_NOT_IMPLEMENTED.
-      oneOf:
-        - type: object
-          properties:
-            type:
-              type: string
-              enum: [noOp, uniswapV2, uniswapV3]
-          required: [type]
-        - type: object
-          properties:
-            type:
-              type: string
-              const: uniswapV4
-            fee:
-              type: integer
-              minimum: 0
-            tickSpacing:
-              type: integer
-              minimum: 1
-          required: [type, fee, tickSpacing]
-    PairingConfig:
+        - $ref: '#/components/schemas/NonZeroHexAddress'
+    Pairing:
       type: object
+      additionalProperties: false
       properties:
         numeraireAddress:
           $ref: '#/components/schemas/HexAddress'
-    PricingConfig:
+    Pricing:
       type: object
+      additionalProperties: false
       properties:
         numerairePriceUsd:
           type: number
           exclusiveMinimum: 0
-    PresetCurveConfig:
-      type: object
-      properties:
-        type:
-          type: string
-          const: preset
-        presets:
-          type: array
-          items:
-            type: string
-            enum: [low, medium, high]
-        fee:
-          type: integer
-          minimum: 1
-        tickSpacing:
-          type: integer
-          minimum: 1
-      required: [type]
-    RangesCurve:
-      type: object
-      properties:
-        marketCapStartUsd:
-          type: number
-          exclusiveMinimum: 0
-        marketCapEndUsd:
-          oneOf:
-            - type: number
+    StaticCurveConfig:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          properties:
+            type:
+              const: preset
+            preset:
+              type: string
+              enum: [low, medium, high]
+            fee:
+              type: integer
+              enum: [100, 500, 3000, 10000]
+            numPositions:
+              type: integer
+              minimum: 1
+            maxShareToBeSoldWad:
+              $ref: '#/components/schemas/IntegerString'
+          required: [type, preset]
+        - type: object
+          additionalProperties: false
+          properties:
+            type:
+              const: range
+            marketCapStartUsd:
+              type: number
               exclusiveMinimum: 0
-            - type: string
-              const: max
-        numPositions:
-          type: integer
-          minimum: 1
-        sharesWad:
-          type: string
-          pattern: '^\d+$'
-      required: [marketCapStartUsd, marketCapEndUsd, numPositions, sharesWad]
-    RangesCurveConfig:
+            marketCapEndUsd:
+              type: number
+              exclusiveMinimum: 0
+            fee:
+              type: integer
+              enum: [100, 500, 3000, 10000]
+            numPositions:
+              type: integer
+              minimum: 1
+            maxShareToBeSoldWad:
+              $ref: '#/components/schemas/IntegerString'
+          required: [type, marketCapStartUsd, marketCapEndUsd]
+    StaticAuction:
       type: object
+      additionalProperties: false
       properties:
         type:
-          type: string
-          const: ranges
-        fee:
-          type: integer
-          minimum: 1
-        tickSpacing:
-          type: integer
-          minimum: 1
-        curves:
-          type: array
-          minItems: 1
-          items:
-            $ref: '#/components/schemas/RangesCurve'
-      required: [type, curves]
-    StaticPresetCurveConfig:
+          const: static
+        curveConfig:
+          $ref: '#/components/schemas/StaticCurveConfig'
+      required: [type, curveConfig]
+    MulticurveCurveConfig:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          properties:
+            type:
+              const: preset
+            presets:
+              type: array
+              items:
+                type: string
+                enum: [low, medium, high]
+            fee:
+              type: integer
+              minimum: 0
+              maximum: 100000
+            tickSpacing:
+              type: integer
+              minimum: 1
+          required: [type]
+        - type: object
+          additionalProperties: false
+          properties:
+            type:
+              const: ranges
+            fee:
+              type: integer
+              minimum: 0
+              maximum: 100000
+            tickSpacing:
+              type: integer
+              minimum: 1
+            curves:
+              type: array
+              minItems: 1
+              items:
+                type: object
+                additionalProperties: false
+                properties:
+                  marketCapStartUsd:
+                    type: number
+                    exclusiveMinimum: 0
+                  marketCapEndUsd:
+                    oneOf:
+                      - type: number
+                        exclusiveMinimum: 0
+                      - const: max
+                  numPositions:
+                    type: integer
+                    minimum: 1
+                  sharesWad:
+                    $ref: '#/components/schemas/IntegerString'
+                required: [marketCapStartUsd, marketCapEndUsd, numPositions, sharesWad]
+          required: [type, curves]
+    RehypeFeeDistributionInfo:
       type: object
+      additionalProperties: false
+      description: Asset-side fields and numeraire-side fields must each sum to 1e18.
+      properties:
+        assetFeesToAssetBuybackWad:
+          $ref: '#/components/schemas/IntegerString'
+        assetFeesToNumeraireBuybackWad:
+          $ref: '#/components/schemas/IntegerString'
+        assetFeesToBeneficiaryWad:
+          $ref: '#/components/schemas/IntegerString'
+        assetFeesToLpWad:
+          $ref: '#/components/schemas/IntegerString'
+        numeraireFeesToAssetBuybackWad:
+          $ref: '#/components/schemas/IntegerString'
+        numeraireFeesToNumeraireBuybackWad:
+          $ref: '#/components/schemas/IntegerString'
+        numeraireFeesToBeneficiaryWad:
+          $ref: '#/components/schemas/IntegerString'
+        numeraireFeesToLpWad:
+          $ref: '#/components/schemas/IntegerString'
+      required:
+        [
+          assetFeesToAssetBuybackWad,
+          assetFeesToNumeraireBuybackWad,
+          assetFeesToBeneficiaryWad,
+          assetFeesToLpWad,
+          numeraireFeesToAssetBuybackWad,
+          numeraireFeesToNumeraireBuybackWad,
+          numeraireFeesToBeneficiaryWad,
+          numeraireFeesToLpWad,
+        ]
+    RehypeInitializer:
+      type: object
+      additionalProperties: false
       properties:
         type:
-          type: string
-          const: preset
-        preset:
-          type: string
-          enum: [low, medium, high]
-        fee:
-          type: integer
-          minimum: 1
-        numPositions:
-          type: integer
-          minimum: 1
-        maxShareToBeSoldWad:
-          type: string
-          pattern: '^\d+$'
-      required: [type, preset]
-    StaticRangeCurveConfig:
-      type: object
-      properties:
-        type:
-          type: string
-          const: range
-        marketCapStartUsd:
-          type: number
-          exclusiveMinimum: 0
-        marketCapEndUsd:
-          type: number
-          exclusiveMinimum: 0
-        fee:
-          type: integer
-          minimum: 1
-        numPositions:
-          type: integer
-          minimum: 1
-        maxShareToBeSoldWad:
-          type: string
-          pattern: '^\d+$'
-      required: [type, marketCapStartUsd, marketCapEndUsd]
-    MulticurveInitializerStandard:
-      type: object
-      properties:
-        type:
-          type: string
-          const: standard
-      required: [type]
-    MulticurveInitializerScheduled:
-      type: object
-      properties:
-        type:
-          type: string
-          const: scheduled
-        startTime:
-          type: integer
-          minimum: 1
-      required: [type, startTime]
-    MulticurveInitializerDecay:
-      type: object
-      properties:
-        type:
-          type: string
-          const: decay
-        startFee:
-          type: integer
-          minimum: 0
-        durationSeconds:
-          type: integer
-          minimum: 1
-        startTime:
-          type: integer
-          minimum: 0
-      required: [type, startFee, durationSeconds]
-    MulticurveInitializerRehype:
-      type: object
-      properties:
-        type:
-          type: string
           const: rehype
         config:
           type: object
+          additionalProperties: false
+          description: Rehype economic configuration.
           properties:
-            hookAddress:
-              $ref: '#/components/schemas/HexAddress'
             buybackDestination:
-              $ref: '#/components/schemas/HexAddress'
-            customFee:
+              $ref: '#/components/schemas/NonZeroHexAddress'
+            rehypeFeeBeneficiaries:
+              type: array
+              minItems: 1
+              maxItems: 10
+              description: >-
+                Unique Rehype fee beneficiaries whose shares sum to 1e18. This field
+                and buybackDestination are mutually exclusive. Shares apply only to
+                beneficiary-routed fees and exclude the protocol owner's reserved fee.
+              items:
+                $ref: '#/components/schemas/RehypeFeeBeneficiary'
+            startFee:
               type: integer
               minimum: 0
-            assetBuybackPercentWad:
-              type: string
-              pattern: '^\d+$'
-            numeraireBuybackPercentWad:
-              type: string
-              pattern: '^\d+$'
-            beneficiaryPercentWad:
-              type: string
-              pattern: '^\d+$'
-            lpPercentWad:
-              type: string
-              pattern: '^\d+$'
+              maximum: 800000
+            endFee:
+              type: integer
+              minimum: 0
+              maximum: 800000
+            durationSeconds:
+              type: integer
+              minimum: 0
+              maximum: 4294967295
+            startingTime:
+              type: integer
+              minimum: 0
+              maximum: 4294967295
+            feeDistributionInfo:
+              $ref: '#/components/schemas/RehypeFeeDistributionInfo'
             graduationCalldata:
               type: string
               pattern: '^0x[0-9a-fA-F]*$'
@@ -679,52 +589,47 @@ components:
               exclusiveMinimum: 0
             farTick:
               type: integer
-          required:
-            [
-              hookAddress,
-              buybackDestination,
-              customFee,
-              assetBuybackPercentWad,
-              numeraireBuybackPercentWad,
-              beneficiaryPercentWad,
-              lpPercentWad,
-            ]
+              minimum: -8388608
+              maximum: 8388607
+              description: Optional int24 graduation tick; mutually exclusive with graduationMarketCap.
+          allOf:
+            - oneOf:
+                - required: [buybackDestination]
+                  not:
+                    required: [rehypeFeeBeneficiaries]
+                - required: [rehypeFeeBeneficiaries]
+                  not:
+                    required: [buybackDestination]
+            - not:
+                properties:
+                  graduationMarketCap: {}
+                  farTick: {}
+                required: [graduationMarketCap, farTick]
+          required: [startFee, feeDistributionInfo]
       required: [type, config]
     MulticurveAuction:
       type: object
+      additionalProperties: false
       properties:
         type:
-          type: string
           const: multicurve
         curveConfig:
-          oneOf:
-            - $ref: '#/components/schemas/PresetCurveConfig'
-            - $ref: '#/components/schemas/RangesCurveConfig'
+          $ref: '#/components/schemas/MulticurveCurveConfig'
         initializer:
           oneOf:
-            - $ref: '#/components/schemas/MulticurveInitializerStandard'
-            - $ref: '#/components/schemas/MulticurveInitializerScheduled'
-            - $ref: '#/components/schemas/MulticurveInitializerDecay'
-            - $ref: '#/components/schemas/MulticurveInitializerRehype'
+            - type: object
+              additionalProperties: false
+              properties:
+                type:
+                  const: standard
+              required: [type]
+            - $ref: '#/components/schemas/RehypeInitializer'
       required: [type, curveConfig]
-    StaticAuction:
+    DynamicCurveConfig:
       type: object
-      description: >
-        Static Uniswap V3 launch configuration. Prefer multicurve on V4-capable chains.
+      additionalProperties: false
       properties:
         type:
-          type: string
-          const: static
-        curveConfig:
-          oneOf:
-            - $ref: '#/components/schemas/StaticPresetCurveConfig'
-            - $ref: '#/components/schemas/StaticRangeCurveConfig'
-      required: [type, curveConfig]
-    DynamicRangeCurveConfig:
-      type: object
-      properties:
-        type:
-          type: string
           const: range
         marketCapStartUsd:
           type: number
@@ -735,55 +640,487 @@ components:
         minProceeds:
           type: string
           pattern: '^\d+(\.\d+)?$'
-          description: Decimal string in numeraire units (for example "0.01")
         maxProceeds:
           type: string
           pattern: '^\d+(\.\d+)?$'
-          description: Decimal string in numeraire units (for example "0.1")
         durationSeconds:
           type: integer
           minimum: 1
+          description: Must be evenly divisible by epochLengthSeconds after defaults are applied.
         epochLengthSeconds:
           type: integer
           minimum: 1
+          description: Must divide durationSeconds evenly after defaults are applied.
         fee:
           type: integer
-          minimum: 1
+          minimum: 0
+          maximum: 100000
         tickSpacing:
           type: integer
           minimum: 1
+          maximum: 30
+          description: Required when fee is not one of 100, 500, 3000, or 10000.
         gamma:
           type: integer
           minimum: 1
+          description: Must be divisible by the effective tickSpacing.
         numPdSlugs:
           type: integer
           minimum: 1
       required: [type, marketCapStartUsd, marketCapMinUsd, minProceeds, maxProceeds]
     DynamicAuction:
       type: object
-      description: >
-        Dynamic auction for high value assets needing maximally capital-efficient price discovery.
-        Requires migration.type="uniswapV2" or migration.type="uniswapV4" in this API profile.
+      additionalProperties: false
       properties:
         type:
-          type: string
           const: dynamic
         curveConfig:
-          $ref: '#/components/schemas/DynamicRangeCurveConfig'
+          $ref: '#/components/schemas/DynamicCurveConfig'
       required: [type, curveConfig]
-    AuctionConfig:
+    UniswapV2Migration:
+      type: object
+      description: |
+        An optional fee beneficiary receives the selected integer percentage of
+        numeraire proceeds. The migration sends 95% of LP positions to the
+        migration recipient and 5% to a one-year locker whose exit fees accrue
+        to the Airlock owner.
+      additionalProperties: false
+      properties:
+        type:
+          const: uniswapV2
+        feeBeneficiary:
+          type: object
+          additionalProperties: false
+          properties:
+            address:
+              $ref: '#/components/schemas/NonZeroHexAddress'
+            percentage:
+              type: integer
+              minimum: 1
+              maximum: 50
+          required: [address, percentage]
+      required: [type]
+    UniswapV4Migration:
+      type: object
+      additionalProperties: false
+      description: >-
+        Creates a fixed-fee Uniswap V4 pool through DopplerHookMigrator. Add
+        rehype to use RehypeDopplerHookMigrator and its separate static hook fee.
+      properties:
+        type:
+          const: uniswapV4
+        fee:
+          type: integer
+          minimum: 0
+          maximum: 150000
+        tickSpacing:
+          type: integer
+          minimum: 1
+        lockDurationSeconds:
+          type: integer
+          minimum: 0
+          maximum: 4294967295
+        rehype:
+          type: object
+          additionalProperties: false
+          properties:
+            buybackDestination:
+              $ref: '#/components/schemas/NonZeroHexAddress'
+            customFee:
+              type: integer
+              minimum: 0
+              maximum: 1000000
+              description: Static Rehype hook fee, separate from the Uniswap V4 LP fee.
+            feeRoutingMode:
+              type: string
+              enum: [directBuyback, routeToBeneficiaryFees]
+              default: directBuyback
+            feeDistributionInfo:
+              $ref: '#/components/schemas/RehypeFeeDistributionInfo'
+          required: [buybackDestination, customFee, feeDistributionInfo]
+      required: [type, fee, tickSpacing, lockDurationSeconds]
+    EvmStaticCreateLaunchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        chainId:
+          type: integer
+          enum: [1, 143, 4663, 8453, 84532]
+          description: Required when DEFAULT_CHAIN_ID is not configured. The requested chain must have its named RPC enabled.
+        userAddress:
+          $ref: '#/components/schemas/NonZeroHexAddress'
+        integrationAddress:
+          $ref: '#/components/schemas/NonZeroHexAddress'
+        tokenMetadata:
+          $ref: '#/components/schemas/TokenMetadata'
+        economics:
+          $ref: '#/components/schemas/Economics'
+        pairing:
+          $ref: '#/components/schemas/Pairing'
+        pricing:
+          $ref: '#/components/schemas/Pricing'
+        poolFeeBeneficiaries:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/PoolFeeBeneficiary'
+        governance:
+          $ref: '#/components/schemas/Governance'
+        auction:
+          $ref: '#/components/schemas/StaticAuction'
+      required: [userAddress, tokenMetadata, economics, auction]
+    EvmMulticurveCreateLaunchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        chainId:
+          type: integer
+          enum: [1, 143, 4663, 8453, 84532]
+          description: Required when DEFAULT_CHAIN_ID is not configured. The requested chain must have its named RPC enabled.
+        userAddress:
+          $ref: '#/components/schemas/NonZeroHexAddress'
+        integrationAddress:
+          $ref: '#/components/schemas/NonZeroHexAddress'
+        tokenMetadata:
+          $ref: '#/components/schemas/TokenMetadata'
+        economics:
+          $ref: '#/components/schemas/Economics'
+        pairing:
+          $ref: '#/components/schemas/Pairing'
+        pricing:
+          $ref: '#/components/schemas/Pricing'
+        poolFeeBeneficiaries:
+          type: array
+          maxItems: 10
+          description: >-
+            These beneficiaries lock the multicurve source pool and receive its fees.
+          items:
+            $ref: '#/components/schemas/PoolFeeBeneficiary'
+        governance:
+          $ref: '#/components/schemas/Governance'
+        auction:
+          $ref: '#/components/schemas/MulticurveAuction'
+      required: [userAddress, tokenMetadata, economics, auction]
+    EvmDynamicUniswapV2CreateLaunchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        chainId:
+          type: integer
+          enum: [1, 143, 4663, 8453, 84532]
+          description: Required when DEFAULT_CHAIN_ID is not configured. The requested chain must have its named RPC enabled.
+        userAddress:
+          $ref: '#/components/schemas/NonZeroHexAddress'
+        integrationAddress:
+          $ref: '#/components/schemas/NonZeroHexAddress'
+        tokenMetadata:
+          $ref: '#/components/schemas/TokenMetadata'
+        economics:
+          $ref: '#/components/schemas/Economics'
+        pairing:
+          $ref: '#/components/schemas/Pairing'
+        pricing:
+          $ref: '#/components/schemas/Pricing'
+        governance:
+          $ref: '#/components/schemas/Governance'
+        migration:
+          $ref: '#/components/schemas/UniswapV2Migration'
+        auction:
+          $ref: '#/components/schemas/DynamicAuction'
+      required: [userAddress, tokenMetadata, economics, migration, auction]
+    EvmDynamicUniswapV4CreateLaunchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        chainId:
+          type: integer
+          enum: [1, 143, 4663, 8453, 84532]
+          description: Required when DEFAULT_CHAIN_ID is not configured. The requested chain must have its named RPC enabled.
+        userAddress:
+          $ref: '#/components/schemas/NonZeroHexAddress'
+        integrationAddress:
+          $ref: '#/components/schemas/NonZeroHexAddress'
+        tokenMetadata:
+          $ref: '#/components/schemas/TokenMetadata'
+        economics:
+          $ref: '#/components/schemas/Economics'
+        pairing:
+          $ref: '#/components/schemas/Pairing'
+        pricing:
+          $ref: '#/components/schemas/Pricing'
+        poolFeeBeneficiaries:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/PoolFeeBeneficiary'
+        governance:
+          $ref: '#/components/schemas/Governance'
+        migration:
+          $ref: '#/components/schemas/UniswapV4Migration'
+        auction:
+          $ref: '#/components/schemas/DynamicAuction'
+      required: [userAddress, tokenMetadata, economics, migration, auction]
+    EvmDynamicCreateLaunchRequest:
       oneOf:
-        - $ref: '#/components/schemas/MulticurveAuction'
-        - $ref: '#/components/schemas/StaticAuction'
-        - $ref: '#/components/schemas/DynamicAuction'
+        - $ref: '#/components/schemas/EvmDynamicUniswapV2CreateLaunchRequest'
+        - $ref: '#/components/schemas/EvmDynamicUniswapV4CreateLaunchRequest'
+    CreateLaunchRequest:
+      oneOf:
+        - $ref: '#/components/schemas/EvmStaticCreateLaunchRequest'
+        - $ref: '#/components/schemas/EvmMulticurveCreateLaunchRequest'
+        - $ref: '#/components/schemas/EvmDynamicCreateLaunchRequest'
+    CanonicalStaticCreateLaunchRequest:
+      $ref: '#/components/schemas/EvmStaticCreateLaunchRequest'
+      example:
+        {
+          'chainId': 84532,
+          'userAddress': '0x1111111111111111111111111111111111111111',
+          'tokenMetadata':
+            { 'name': 'Static Token', 'symbol': 'STATIC', 'tokenURI': 'ipfs://static' },
+          'economics': { 'totalSupply': '1000000000000000000000000' },
+          'governance': false,
+          'poolFeeBeneficiaries':
+            [
+              {
+                'address': '0x1111111111111111111111111111111111111111',
+                'sharesWad': '950000000000000000',
+              },
+            ],
+          'auction': { 'type': 'static', 'curveConfig': { 'type': 'preset', 'preset': 'medium' } },
+        }
+    CanonicalMulticurveCreateLaunchRequest:
+      $ref: '#/components/schemas/EvmMulticurveCreateLaunchRequest'
+      example:
+        {
+          'chainId': 84532,
+          'userAddress': '0x1111111111111111111111111111111111111111',
+          'tokenMetadata':
+            { 'name': 'Multicurve Token', 'symbol': 'MULTI', 'tokenURI': 'ipfs://multicurve' },
+          'economics':
+            {
+              'totalSupply': '1000000000000000000000000',
+              'tokensForSale': '800000000000000000000000',
+              'allocations':
+                [
+                  {
+                    'recipientAddress': '0x2222222222222222222222222222222222222222',
+                    'amount': '100000000000000000000000',
+                    'durationSeconds': 7776000,
+                  },
+                  {
+                    'recipientAddress': '0x2222222222222222222222222222222222222222',
+                    'amount': '100000000000000000000000',
+                    'durationSeconds': 15552000,
+                    'cliffDurationSeconds': 86400,
+                  },
+                ],
+            },
+          'governance': true,
+          'auction':
+            {
+              'type': 'multicurve',
+              'curveConfig':
+                {
+                  'type': 'ranges',
+                  'curves':
+                    [
+                      {
+                        'marketCapStartUsd': 10000,
+                        'marketCapEndUsd': 'max',
+                        'numPositions': 10,
+                        'sharesWad': '1000000000000000000',
+                      },
+                    ],
+                },
+              'initializer': { 'type': 'standard' },
+            },
+        }
+    CanonicalRehypeCreateLaunchRequest:
+      $ref: '#/components/schemas/EvmMulticurveCreateLaunchRequest'
+      example:
+        {
+          'chainId': 84532,
+          'userAddress': '0x1111111111111111111111111111111111111111',
+          'tokenMetadata':
+            { 'name': 'Rehype Token', 'symbol': 'REHYPE', 'tokenURI': 'ipfs://rehype' },
+          'economics': { 'totalSupply': '1000000000000000000000000' },
+          'governance': '0x2222222222222222222222222222222222222222',
+          'auction':
+            {
+              'type': 'multicurve',
+              'curveConfig': { 'type': 'preset', 'presets': ['medium'] },
+              'initializer':
+                {
+                  'type': 'rehype',
+                  'config':
+                    {
+                      'rehypeFeeBeneficiaries':
+                        [
+                          {
+                            'address': '0x3333333333333333333333333333333333333333',
+                            'sharesWad': '200000000000000000',
+                          },
+                          {
+                            'address': '0x4444444444444444444444444444444444444444',
+                            'sharesWad': '300000000000000000',
+                          },
+                          {
+                            'address': '0x5555555555555555555555555555555555555555',
+                            'sharesWad': '500000000000000000',
+                          },
+                        ],
+                      'startFee': 100,
+                      'endFee': 10,
+                      'durationSeconds': 86400,
+                      'feeDistributionInfo':
+                        {
+                          'assetFeesToAssetBuybackWad': '0',
+                          'assetFeesToNumeraireBuybackWad': '0',
+                          'assetFeesToBeneficiaryWad': '1000000000000000000',
+                          'assetFeesToLpWad': '0',
+                          'numeraireFeesToAssetBuybackWad': '0',
+                          'numeraireFeesToNumeraireBuybackWad': '0',
+                          'numeraireFeesToBeneficiaryWad': '1000000000000000000',
+                          'numeraireFeesToLpWad': '0',
+                        },
+                    },
+                },
+            },
+        }
+    CanonicalUniswapV2DynamicCreateLaunchRequest:
+      $ref: '#/components/schemas/EvmDynamicUniswapV2CreateLaunchRequest'
+      example:
+        {
+          'chainId': 84532,
+          'userAddress': '0x1111111111111111111111111111111111111111',
+          'tokenMetadata': { 'name': 'V2 Token', 'symbol': 'V2', 'tokenURI': 'ipfs://v2' },
+          'economics': { 'totalSupply': '1000000000000000000000000' },
+          'migration':
+            {
+              'type': 'uniswapV2',
+              'feeBeneficiary':
+                { 'address': '0x2222222222222222222222222222222222222222', 'percentage': 25 },
+            },
+          'auction':
+            {
+              'type': 'dynamic',
+              'curveConfig':
+                {
+                  'type': 'range',
+                  'marketCapStartUsd': 500000,
+                  'marketCapMinUsd': 50000,
+                  'minProceeds': '1',
+                  'maxProceeds': '2',
+                },
+            },
+        }
+    CanonicalUniswapV4DynamicCreateLaunchRequest:
+      $ref: '#/components/schemas/EvmDynamicUniswapV4CreateLaunchRequest'
+      example:
+        {
+          'chainId': 84532,
+          'userAddress': '0x1111111111111111111111111111111111111111',
+          'tokenMetadata':
+            {
+              'name': 'Hook Token',
+              'symbol': 'HOOK',
+              'tokenURI': 'ipfs://hook',
+              'maxBalanceLimit': '1000000000000000000',
+              'balanceLimitEnd': 4000000000,
+              'controller': '0x2222222222222222222222222222222222222222',
+              'excludedFromBalanceLimit': ['0x3333333333333333333333333333333333333333'],
+            },
+          'economics': { 'totalSupply': '1000000000000000000000000' },
+          'poolFeeBeneficiaries':
+            [
+              {
+                'address': '0x1111111111111111111111111111111111111111',
+                'sharesWad': '950000000000000000',
+              },
+            ],
+          'migration':
+            { 'type': 'uniswapV4', 'fee': 3000, 'tickSpacing': 60, 'lockDurationSeconds': 604800 },
+          'auction':
+            {
+              'type': 'dynamic',
+              'curveConfig':
+                {
+                  'type': 'range',
+                  'marketCapStartUsd': 500000,
+                  'marketCapMinUsd': 50000,
+                  'minProceeds': '1',
+                  'maxProceeds': '2',
+                },
+            },
+        }
+    CanonicalRehypeUniswapV4DynamicCreateLaunchRequest:
+      $ref: '#/components/schemas/EvmDynamicUniswapV4CreateLaunchRequest'
+      example:
+        {
+          'chainId': 84532,
+          'userAddress': '0x1111111111111111111111111111111111111111',
+          'tokenMetadata':
+            {
+              'name': 'Rehype Migration Token',
+              'symbol': 'RHM',
+              'tokenURI': 'ipfs://rehype-migration',
+            },
+          'economics': { 'totalSupply': '1000000000000000000000000' },
+          'poolFeeBeneficiaries':
+            [
+              {
+                'address': '0x1111111111111111111111111111111111111111',
+                'sharesWad': '950000000000000000',
+              },
+            ],
+          'migration':
+            {
+              'type': 'uniswapV4',
+              'fee': 3000,
+              'tickSpacing': 60,
+              'lockDurationSeconds': 604800,
+              'rehype':
+                {
+                  'buybackDestination': '0x2222222222222222222222222222222222222222',
+                  'customFee': 10000,
+                  'feeRoutingMode': 'routeToBeneficiaryFees',
+                  'feeDistributionInfo':
+                    {
+                      'assetFeesToAssetBuybackWad': '500000000000000000',
+                      'assetFeesToNumeraireBuybackWad': '500000000000000000',
+                      'assetFeesToBeneficiaryWad': '0',
+                      'assetFeesToLpWad': '0',
+                      'numeraireFeesToAssetBuybackWad': '0',
+                      'numeraireFeesToNumeraireBuybackWad': '250000000000000000',
+                      'numeraireFeesToBeneficiaryWad': '250000000000000000',
+                      'numeraireFeesToLpWad': '500000000000000000',
+                    },
+                },
+            },
+          'auction':
+            {
+              'type': 'dynamic',
+              'curveConfig':
+                {
+                  'type': 'range',
+                  'marketCapStartUsd': 500000,
+                  'marketCapMinUsd': 50000,
+                  'minProceeds': '1',
+                  'maxProceeds': '2',
+                },
+            },
+        }
     SolanaNetwork:
       type: string
       enum: [solanaDevnet, solanaMainnetBeta]
+      description: solanaMainnetBeta is recognized but not supported for execution.
     DedicatedSolanaNetwork:
       type: string
       enum: [devnet, mainnet-beta]
+      description: mainnet-beta is recognized but not supported for execution.
     SolanaAddress:
       type: string
+      description: Valid base58 Solana address.
     SolanaTokenMetadata:
       type: object
       additionalProperties: false
@@ -804,20 +1141,19 @@ components:
     SolanaEconomics:
       type: object
       additionalProperties: false
-      description: >
-        Solana launches use the initializer curve. baseForDistribution and
-        baseForLiquidity must be omitted or set to 0 unless
-        migration.supportCpmm is true.
       properties:
         totalSupply:
           type: string
           pattern: '^\d+$'
+          description: Positive u64 integer string.
         baseForDistribution:
           type: string
           pattern: '^\d+$'
+          description: Optional non-negative u64 integer string.
         baseForLiquidity:
           type: string
           pattern: '^\d+$'
+          description: Optional non-negative u64 integer string.
       required: [totalSupply]
     SolanaPairing:
       type: object
@@ -860,9 +1196,7 @@ components:
         minimumQuoteRaise:
           type: string
           pattern: '^\d+$'
-          description: >
-            Quote token atoms required before CPMM migration can occur. Required
-            when supportCpmm is true.
+          description: Positive u64 integer string, required when supportCpmm is true.
       required: [type]
     SolanaCurveConfig:
       type: object
@@ -917,7 +1251,7 @@ components:
         startingTime:
           type: string
           pattern: '^\d+$'
-          description: Optional non-negative Unix timestamp string.
+          description: Optional non-negative i64 integer string.
         startFeeBps:
           type: integer
           minimum: 0
@@ -926,11 +1260,10 @@ components:
           type: integer
           minimum: 0
           maximum: 10000
-          description: Must be less than or equal to startFeeBps.
         durationSeconds:
           type: string
           pattern: '^\d+$'
-          description: Non-negative u32 string; must be non-zero for decaying schedules.
+          description: Non-negative u32 integer string; non-zero when the fee decays.
       required: [startFeeBps, endFeeBps, durationSeconds]
     SolanaAuction:
       type: object
@@ -945,12 +1278,12 @@ components:
           type: integer
           minimum: 0
           maximum: 10000
-          description: Backward-compatible alias for swapFeeBps.
+          description: Must equal swapFeeBps when both are supplied.
         swapFeeBps:
           type: integer
           minimum: 0
           maximum: 10000
-          description: Preferred Solana swap fee input; constrained by on-chain initializer min/max.
+          description: Must equal curveFeeBps when both are supplied.
         allowBuy:
           type: boolean
         allowSell:
@@ -977,7 +1310,7 @@ components:
         feeBeneficiaries:
           type: array
           maxItems: 8
-          description: Optional post-protocol-fee split. Custom shareBps values must sum to 10000.
+          description: Non-empty custom shares must sum to 10000 and use unique addresses.
           items:
             $ref: '#/components/schemas/SolanaFeeBeneficiary'
         governance:
@@ -1005,7 +1338,7 @@ components:
         feeBeneficiaries:
           type: array
           maxItems: 8
-          description: Optional post-protocol-fee split. Custom shareBps values must sum to 10000.
+          description: Non-empty custom shares must sum to 10000 and use unique addresses.
           items:
             $ref: '#/components/schemas/SolanaFeeBeneficiary'
         governance:
@@ -1016,48 +1349,57 @@ components:
         auction:
           $ref: '#/components/schemas/SolanaAuction'
       required: [network, tokenMetadata, economics, auction]
-    CreateLaunchRequest:
+      example:
+        {
+          'network': 'solanaDevnet',
+          'tokenMetadata': { 'name': 'Solana Token', 'symbol': 'SOL', 'tokenURI': 'ipfs://solana' },
+          'economics': { 'totalSupply': '1000000000' },
+          'feeBeneficiaries':
+            [{ 'address': '11111111111111111111111111111111', 'shareBps': 10000 }],
+          'governance': false,
+          'migration': { 'type': 'none' },
+          'auction':
+            {
+              'type': 'xyk',
+              'curveConfig': { 'type': 'range', 'marketCapStartUsd': 100, 'marketCapEndUsd': 1000 },
+            },
+        }
+    EffectiveLaunchConfig:
       type: object
-      additionalProperties: false
       properties:
-        chainId:
-          type: integer
-          minimum: 1
-        userAddress:
-          $ref: '#/components/schemas/HexAddress'
-        integrationAddress:
-          $ref: '#/components/schemas/HexAddress'
-        tokenMetadata:
-          $ref: '#/components/schemas/TokenMetadata'
-        economics:
-          $ref: '#/components/schemas/Economics'
-        pairing:
-          $ref: '#/components/schemas/PairingConfig'
-        pricing:
-          $ref: '#/components/schemas/PricingConfig'
-        feeBeneficiaries:
+        tokensForSale:
+          $ref: '#/components/schemas/IntegerString'
+        allocationAmount:
+          $ref: '#/components/schemas/IntegerString'
+        vestingAllocations:
           type: array
-          maxItems: 10
-          description: >
-            Optional fee beneficiaries. If omitted, API defaults to 95% user / 5% protocol owner.
-            If protocol owner is omitted in a custom list, shares must sum to 95% and API appends
-            protocol owner at 5%. If protocol owner is included, shares must sum to 100% and the
-            protocol owner share must be at least 5%.
           items:
-            $ref: '#/components/schemas/FeeBeneficiary'
-        governance:
-          $ref: '#/components/schemas/GovernanceInput'
-          description: >
-            Binary governance toggle. false/omitted uses no governance;
-            true (or { enabled: true }) uses default token-holder governance
-            using OpenZeppelin Governor via the governance factory.
-        migration:
-          $ref: '#/components/schemas/MigrationConfig'
-        auction:
-          $ref: '#/components/schemas/AuctionConfig'
-      required: [userAddress, tokenMetadata, economics, migration, auction]
+            $ref: '#/components/schemas/VestingAllocation'
+        numeraireAddress:
+          $ref: '#/components/schemas/HexAddress'
+        numerairePriceUsd:
+          type: number
+        poolFeeBeneficiariesSource:
+          type: string
+          enum: [default, request, none]
+        initializer:
+          type: object
+          properties:
+            type:
+              type: string
+          required: [type]
+      required:
+        [
+          tokensForSale,
+          allocationAmount,
+          vestingAllocations,
+          numeraireAddress,
+          numerairePriceUsd,
+          poolFeeBeneficiariesSource,
+        ]
     CreateLaunchResponse:
       type: object
+      additionalProperties: false
       properties:
         launchId:
           type: string
@@ -1069,102 +1411,21 @@ components:
           type: string
         predicted:
           type: object
+          additionalProperties: false
           properties:
             tokenAddress:
               $ref: '#/components/schemas/HexAddress'
             poolId:
               $ref: '#/components/schemas/HexHash'
             gasEstimate:
-              type: string
+              $ref: '#/components/schemas/IntegerString'
           required: [tokenAddress, poolId]
         effectiveConfig:
-          type: object
-          properties:
-            tokensForSale:
-              type: string
-            allocationAmount:
-              type: string
-            allocationRecipient:
-              $ref: '#/components/schemas/HexAddress'
-            allocationRecipients:
-              type: array
-              items:
-                type: object
-                properties:
-                  address:
-                    $ref: '#/components/schemas/HexAddress'
-                  amount:
-                    type: string
-                    pattern: '^\d+$'
-                required: [address, amount]
-            allocationLockMode:
-              type: string
-              enum: [none, vest, unlock, vault]
-            allocationLockDurationSeconds:
-              type: integer
-              minimum: 0
-            numeraireAddress:
-              $ref: '#/components/schemas/HexAddress'
-            numerairePriceUsd:
-              type: number
-            feeBeneficiariesSource:
-              type: string
-              enum: [default, request]
-            initializer:
-              oneOf:
-                - type: object
-                  properties:
-                    type:
-                      type: string
-                      const: standard
-                  required: [type]
-                - type: object
-                  properties:
-                    type:
-                      type: string
-                      const: scheduled
-                    startTime:
-                      type: integer
-                      minimum: 0
-                  required: [type, startTime]
-                - type: object
-                  properties:
-                    type:
-                      type: string
-                      const: decay
-                    startTime:
-                      type: integer
-                      minimum: 0
-                    startFee:
-                      type: integer
-                      minimum: 0
-                    endFee:
-                      type: integer
-                      minimum: 0
-                    durationSeconds:
-                      type: integer
-                      minimum: 0
-                  required: [type, startTime, startFee, endFee, durationSeconds]
-                - type: object
-                  properties:
-                    type:
-                      type: string
-                      const: rehype
-                  required: [type]
-          required:
-            [
-              tokensForSale,
-              allocationAmount,
-              allocationRecipient,
-              allocationLockMode,
-              allocationLockDurationSeconds,
-              numeraireAddress,
-              numerairePriceUsd,
-              feeBeneficiariesSource,
-            ]
+          $ref: '#/components/schemas/EffectiveLaunchConfig'
       required: [launchId, chainId, txHash, statusUrl, predicted, effectiveConfig]
     SolanaCreateLaunchResponse:
       type: object
+      additionalProperties: false
       properties:
         launchId:
           type: string
@@ -1179,6 +1440,7 @@ components:
           type: string
         predicted:
           type: object
+          additionalProperties: false
           properties:
             tokenAddress:
               $ref: '#/components/schemas/SolanaAddress'
@@ -1200,26 +1462,27 @@ components:
             ]
         effectiveConfig:
           type: object
+          additionalProperties: false
           properties:
             tokensForSale:
-              type: string
+              $ref: '#/components/schemas/IntegerString'
             allocationAmount:
-              type: string
+              $ref: '#/components/schemas/IntegerString'
             baseForDistribution:
-              type: string
+              $ref: '#/components/schemas/IntegerString'
             baseForLiquidity:
-              type: string
+              $ref: '#/components/schemas/IntegerString'
             allocationLockMode:
               type: string
-              enum: [none]
+              const: none
             numeraireAddress:
               $ref: '#/components/schemas/SolanaAddress'
             numerairePriceUsd:
               type: number
             curveVirtualBase:
-              type: string
+              $ref: '#/components/schemas/IntegerString'
             curveVirtualQuote:
-              type: string
+              $ref: '#/components/schemas/IntegerString'
             curveFeeBps:
               type: integer
             swapFeeBps:
@@ -1237,7 +1500,6 @@ components:
               type: boolean
             tokenDecimals:
               type: integer
-              description: Fixed Solana base token decimals. Currently 6.
           required:
             [
               tokensForSale,
@@ -1260,14 +1522,15 @@ components:
       required: [launchId, network, signature, explorerUrl, statusUrl, predicted, effectiveConfig]
     SolanaLaunchReadResponse:
       type: object
+      additionalProperties: false
       properties:
         network:
-          type: string
-          const: solanaDevnet
+          $ref: '#/components/schemas/SolanaNetwork'
         launchAddress:
           $ref: '#/components/schemas/SolanaAddress'
         phase:
           type: object
+          additionalProperties: false
           properties:
             code:
               type: integer
@@ -1287,17 +1550,17 @@ components:
         quoteVault:
           $ref: '#/components/schemas/SolanaAddress'
         baseTotalSupply:
-          type: string
+          $ref: '#/components/schemas/IntegerString'
         baseForDistribution:
-          type: string
+          $ref: '#/components/schemas/IntegerString'
         baseForLiquidity:
-          type: string
+          $ref: '#/components/schemas/IntegerString'
         baseForCurve:
-          type: string
+          $ref: '#/components/schemas/IntegerString'
         curveVirtualBase:
-          type: string
+          $ref: '#/components/schemas/IntegerString'
         curveVirtualQuote:
-          type: string
+          $ref: '#/components/schemas/IntegerString'
         curveFeeBps:
           type: integer
         swapFeeBps:
@@ -1313,10 +1576,9 @@ components:
         migratorProgram:
           $ref: '#/components/schemas/SolanaAddress'
         quoteDeposited:
-          type: string
+          $ref: '#/components/schemas/IntegerString'
         tokenDecimals:
           type: integer
-          description: Fixed Solana base token decimals. Currently 6.
       required:
         [
           network,
@@ -1346,6 +1608,7 @@ components:
         ]
     LaunchStatusResult:
       type: object
+      additionalProperties: false
       properties:
         tokenAddress:
           $ref: '#/components/schemas/HexAddress'
@@ -1354,15 +1617,17 @@ components:
         poolId:
           $ref: '#/components/schemas/HexHash'
         blockNumber:
-          type: string
+          $ref: '#/components/schemas/IntegerString'
       required: [tokenAddress, poolOrHookAddress, poolId, blockNumber]
     LaunchStatusResponse:
       type: object
+      additionalProperties: false
       properties:
         launchId:
           type: string
         chainId:
           type: integer
+          enum: [1, 143, 4663, 8453, 84532]
         txHash:
           $ref: '#/components/schemas/HexHash'
         status:
@@ -1370,10 +1635,12 @@ components:
           enum: [pending, confirmed, reverted, not_found]
         confirmations:
           type: integer
+          minimum: 0
         result:
           $ref: '#/components/schemas/LaunchStatusResult'
         error:
           type: object
+          additionalProperties: false
           properties:
             code:
               type: string
@@ -1381,11 +1648,97 @@ components:
               type: string
           required: [code, message]
       required: [launchId, chainId, txHash, status, confirmations]
+    ReadyCheck:
+      type: object
+      additionalProperties: false
+      properties:
+        chainId:
+          type: integer
+          enum: [1, 143, 4663, 8453, 84532]
+        ok:
+          type: boolean
+        latestBlock:
+          $ref: '#/components/schemas/IntegerString'
+        error:
+          type: string
+      required: [chainId, ok]
+    SolanaReadyCheck:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          enum: [rpcReachable, latestBlockhash, initializerConfig, addressLookupTable]
+        ok:
+          type: boolean
+        error:
+          type: string
+      required: [name, ok]
+    ReadyResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ready, degraded]
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReadyCheck'
+        solana:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled:
+              type: boolean
+            ok:
+              type: boolean
+            network:
+              type: string
+              enum: [solanaDevnet]
+            checks:
+              type: array
+              items:
+                $ref: '#/components/schemas/SolanaReadyCheck'
+          required: [enabled, ok, checks]
+      required: [status, checks, solana]
+    MetricsResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        startedAt:
+          type: string
+          format: date-time
+        uptimeSec:
+          type: integer
+          minimum: 0
+        http:
+          type: object
+          additionalProperties: false
+          properties:
+            totalRequests:
+              type: integer
+              minimum: 0
+            byStatusClass:
+              type: object
+              additionalProperties:
+                type: integer
+                minimum: 0
+            avgDurationMs:
+              type: number
+              minimum: 0
+          required: [totalRequests, byStatusClass, avgDurationMs]
+      required: [startedAt, uptimeSec, http]
     CapabilitiesResponse:
       type: object
+      additionalProperties: false
       properties:
         defaultChainId:
-          type: integer
+          description: The configured request default, or null when every EVM launch request must include chainId.
+          oneOf:
+            - type: integer
+              enum: [1, 143, 4663, 8453, 84532]
+            - type: 'null'
         pricing:
           type: object
           properties:
@@ -1401,36 +1754,39 @@ components:
             properties:
               chainId:
                 type: integer
+                enum: [1, 143, 4663, 8453, 84532]
               auctionTypes:
                 type: array
                 items:
                   type: string
+                  enum: [static, multicurve, dynamic]
               multicurveInitializers:
                 type: array
                 items:
                   type: string
-                  enum: [standard, scheduled, decay, rehype]
+                  enum: [standard, rehype]
               migrationModes:
                 type: array
                 items:
                   type: string
+                  enum: [uniswapV2, uniswapV4]
               governanceModes:
                 type: array
                 items:
                   type: string
+                  enum: [noOp, default, launchpad]
               governanceEnabled:
                 type: boolean
             required:
-              [
-                chainId,
-                auctionTypes,
-                multicurveInitializers,
-                migrationModes,
-                governanceModes,
-                governanceEnabled,
-              ]
+              - chainId
+              - auctionTypes
+              - multicurveInitializers
+              - migrationModes
+              - governanceModes
+              - governanceEnabled
         solana:
           type: object
+          additionalProperties: false
           properties:
             enabled:
               type: boolean
@@ -1448,6 +1804,7 @@ components:
                 $ref: '#/components/schemas/DedicatedSolanaNetwork'
             creationOnly:
               type: boolean
+              const: true
             numeraireAddress:
               $ref: '#/components/schemas/SolanaAddress'
             priceResolutionModes:
@@ -1466,72 +1823,3 @@ components:
               priceResolutionModes,
             ]
       required: [defaultChainId, pricing, chains, solana]
-    ReadyCheck:
-      type: object
-      properties:
-        chainId:
-          type: integer
-        ok:
-          type: boolean
-        latestBlock:
-          type: string
-        error:
-          type: string
-      required: [chainId, ok]
-    SolanaReadyCheck:
-      type: object
-      properties:
-        name:
-          type: string
-          enum: [rpcReachable, latestBlockhash, initializerConfig, addressLookupTable]
-        ok:
-          type: boolean
-        error:
-          type: string
-      required: [name, ok]
-    ReadyResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          enum: [ready, degraded]
-        checks:
-          type: array
-          items:
-            $ref: '#/components/schemas/ReadyCheck'
-        solana:
-          type: object
-          properties:
-            enabled:
-              type: boolean
-            ok:
-              type: boolean
-            network:
-              type: string
-              enum: [solanaDevnet]
-            checks:
-              type: array
-              items:
-                $ref: '#/components/schemas/SolanaReadyCheck'
-          required: [enabled, ok, checks]
-      required: [status, checks, solana]
-    MetricsResponse:
-      type: object
-      properties:
-        startedAt:
-          type: string
-        uptimeSec:
-          type: integer
-        http:
-          type: object
-          properties:
-            totalRequests:
-              type: integer
-            byStatusClass:
-              type: object
-              additionalProperties:
-                type: integer
-            avgDurationMs:
-              type: number
-          required: [totalRequests, byStatusClass, avgDurationMs]
-      required: [startedAt, uptimeSec, http]

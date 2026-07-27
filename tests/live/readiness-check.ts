@@ -1,5 +1,6 @@
 import { parseEther } from 'viem';
 import { z } from 'zod';
+import { countEvmLiveScenarios } from './scenario-metadata';
 
 export const LIVE_READINESS_ERROR_MARKER = 'LIVE_TEST_READINESS_CHECK_FAILED';
 export const DEFAULT_LIVE_ESTIMATED_TX_COST_ETH = '0.000133333333333333';
@@ -15,16 +16,6 @@ const solanaCreateErrorResponseSchema = z.object({
 });
 
 const estimatedLaunchesByFilter: Record<string, { evm: number; solana: number }> = {
-  all: { evm: 19, solana: 0 },
-  static: { evm: 3, solana: 0 },
-  dynamic: { evm: 4, solana: 0 },
-  'migration-v2': { evm: 1, solana: 0 },
-  'migration-v4': { evm: 1, solana: 0 },
-  multicurve: { evm: 12, solana: 0 },
-  'multicurve-defaults': { evm: 3, solana: 0 },
-  fees: { evm: 3, solana: 0 },
-  governance: { evm: 3, solana: 0 },
-  negative: { evm: 0, solana: 0 },
   solana: { evm: 0, solana: 18 },
   'solana-devnet': { evm: 0, solana: 18 },
   'solana-defaults': { evm: 0, solana: 3 },
@@ -110,7 +101,10 @@ export const formatSolAmount = (lamports: bigint): string => {
 
 export const estimateLiveLaunchCount = (liveFilter: string): number => {
   const normalizedFilter = normalizeFilter(liveFilter);
-  return (estimatedLaunchesByFilter[normalizedFilter] ?? estimatedLaunchesByFilter.all).evm;
+  if (isSolanaLiveFilter(normalizedFilter)) {
+    return 0;
+  }
+  return countEvmLiveScenarios(normalizedFilter);
 };
 
 export interface LiveBalanceRequirement {

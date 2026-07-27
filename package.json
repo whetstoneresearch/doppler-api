@@ -1,7 +1,8 @@
 {
   "name": "doppler-api",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
+  "packageManager": "npm@10.9.8",
   "type": "module",
   "engines": {
     "node": "22.x"
@@ -9,8 +10,8 @@
   "scripts": {
     "prepare": "lefthook install || true",
     "dev": "tsx watch src/app/server.ts",
-    "start": "node dist/src/app/server.js",
-    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json --noEmit && esbuild src/app/server.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "oxlint --deny-warnings",
     "lint:fix": "oxlint --fix",
@@ -26,8 +27,8 @@
     "test:live": "node scripts/test-runner.mjs --live-only",
     "test:live:static": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=static vitest run tests/live/create-and-verify.test.ts",
     "test:live:dynamic": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=dynamic vitest run tests/live/create-and-verify.test.ts",
-    "test:live:v2migration": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=migration-v2 vitest run tests/live/create-and-verify.test.ts",
-    "test:live:v4migration": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=migration-v4 vitest run tests/live/create-and-verify.test.ts",
+    "test:live:uniswap-v2": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=uniswap-v2 vitest run tests/live/create-and-verify.test.ts",
+    "test:live:uniswap-v4": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=uniswap-v4 vitest run tests/live/create-and-verify.test.ts",
     "test:live:multicurve": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=multicurve vitest run tests/live/create-and-verify.test.ts",
     "test:live:multicurve:defaults": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=multicurve-defaults vitest run tests/live/create-and-verify.test.ts",
     "test:live:fees": "LIVE_TEST_ENABLE=true LIVE_TEST_FILTER=fees vitest run tests/live/create-and-verify.test.ts",
@@ -49,6 +50,7 @@
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/sensible": "^6.0.4",
     "@solana/kit": "^6.3.1",
+
     "@whetstone-research/doppler-sdk": "^1.0.33",
     "dotenv": "^16.4.5",
     "fastify": "^5.8.1",
@@ -60,6 +62,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
+    "esbuild": "^0.27.3",
     "lefthook": "^2.1.6",
     "oxfmt": "^0.46.0",
     "oxlint": "^1.61.0",

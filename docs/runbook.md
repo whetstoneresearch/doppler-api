@@ -1,84 +1,114 @@
-# Operations Runbook (Minimal P0)
+# Operations Runbook
 
-## Scope
+Use this runbook for self-hosted deployments. Preserve the idempotency store
+and pause create traffic before changing Redis, signer, or transaction state.
 
-This runbook covers public-launch incidents for:
+## Routine checks
 
-- create request failures
-- nonce/transaction submission issues
-- RPC/provider outages
+```bash
+curl --fail-with-body --silent --show-error \
+  "${API_BASE_URL}/health"
 
-## Quick checks
+curl --fail-with-body --silent --show-error \
+  -H "x-api-key: ${API_KEY}" \
+  "${API_BASE_URL}/ready"
 
-1. Confirm process health:
-   - `GET /health`
-   - `GET /ready` (include `x-api-key`)
-2. Confirm service pressure:
-   - `GET /metrics` (include `x-api-key`)
-3. Confirm shared-mode Redis config:
-   - `DEPLOYMENT_MODE=shared`
-   - `REDIS_URL` is set and reachable
-   - all replicas share the same `REDIS_KEY_PREFIX`
-4. Find request in logs by `x-request-id`.
+curl --fail-with-body --silent --show-error \
+  -H "x-api-key: ${API_KEY}" \
+  "${API_BASE_URL}/metrics"
+```
 
-## Incident: create request failed before tx broadcast
+- `GET /health` reports process liveness and does not require authentication.
+- `GET /ready` checks configured EVM RPCs and enabled Solana dependencies.
+- `GET /metrics` exposes service metrics.
+- Readiness does not check Redis after startup. Monitor Redis separately in
+  shared deployments.
 
-Symptoms:
+Correlate request failures with `x-request-id`. Do not include `API_KEY`,
+`PRIVATE_KEY`, RPC credentials, or `REDIS_URL` in diagnostic output.
 
-- `422`, `409`, `501`, or pricing errors from `POST /v1/launches`.
+## Create request rejected
 
-Actions:
+For `422` responses, validate the request against
+[`openapi.yaml`](openapi.yaml) and inspect the returned error code.
 
-1. Validate payload shape against `docs/openapi.yaml`.
-2. If using idempotency:
-   - reuse the same `Idempotency-Key` for safe retry with identical payload
-   - do not reuse the key with changed payload
-   - in shared mode, create requests must include `Idempotency-Key`
-3. If pricing error:
-   - provide explicit `pricing.numerairePriceUsd` or fix pricing provider config.
+When retrying:
 
-## Incident: tx broadcast/nonce issues
+- Reuse an `Idempotency-Key` only with the identical request.
+- Use a new key for a genuinely new request.
+- Shared deployments require an idempotency key for every create request.
+- Correct pricing configuration or provide `pricing.numerairePriceUsd` when a
+  pricing error prevents submission.
 
-Symptoms:
+## Redis unavailable
 
-- intermittent send failures, nonce-related errors, pending tx buildup.
-- `409 IDEMPOTENCY_KEY_IN_DOUBT` on create retries after crash/restart.
+Shared deployments use Redis for rate limiting, idempotency, and nonce locks.
+All replicas must use the same Redis instance and `REDIS_KEY_PREFIX`.
 
-Actions:
+1. Pause create traffic for every replica using the affected signer or Redis
+   namespace.
+2. Verify Redis connectivity, authentication, TLS, latency, memory, and
+   persistence from the service network.
+3. Confirm `DEPLOYMENT_MODE=shared`, `IDEMPOTENCY_ENABLED=true`, and
+   `IDEMPOTENCY_BACKEND=redis`.
+4. Do not flush Redis or delete idempotency and lock keys during recovery.
+5. Restore Redis, restart replicas if connection settings changed, and
+   reconcile in-doubt requests before resuming traffic.
 
-1. Check wallet account has funds for gas.
-2. Verify chain RPC is healthy (`/ready` with `x-api-key`).
-3. Retry request with same `Idempotency-Key`.
-4. If persistent:
-   - restart service once to clear transient RPC client state
-   - verify no parallel systems outside this deployment are using the same `PRIVATE_KEY`
-   - confirm Redis connectivity and consistent `REDIS_KEY_PREFIX` across replicas so the nonce lock is shared.
-5. If `IDEMPOTENCY_KEY_IN_DOUBT` is returned:
-   - do not create with a new idempotency key until prior launch status is resolved
-   - check logs for the original `x-request-id` and tx hash emission
-   - if tx hash is known, poll `GET /v1/launches/:launchId` until confirmed/reverted
+## Idempotency store corruption
 
-## Incident: RPC degraded
+The file backend fails startup when its store cannot be parsed. The Redis
+backend returns `IDEMPOTENCY_STORE_CORRUPT` when it reads an invalid record.
 
-Symptoms:
+1. Pause create traffic and preserve the affected file or Redis record.
+2. Restore a known-good backup only if it includes the affected request state.
+3. Without a trustworthy backup, reconcile affected requests against chain
+   history before changing a record.
+4. Do not delete an uncertain record or wait for expiry to permit a retry;
+   either action can allow a duplicate transaction.
+5. Verify storage health, `/health`, and `/ready` before resuming traffic.
 
-- `/ready` returns `503`, chain checks with `ok=false`.
-- readiness `checks[].error` is intentionally generic (`dependency unavailable`).
+## Transaction status is uncertain
 
-Actions:
+`IDEMPOTENCY_KEY_IN_DOUBT` means the API cannot prove that the original
+transaction was rejected.
 
-1. Switch chain `rpcUrl` entries in `doppler.config.ts` (or override `RPC_URL` for `DEFAULT_CHAIN_ID`) to healthy endpoints.
-2. Restart service.
-3. Inspect server logs for the root-cause RPC error details.
-4. Re-run `/ready` (with `x-api-key`) and a small create test with idempotency key.
+1. Stop retries and do not submit the request with a new idempotency key.
+2. Use the error details and logs to reconcile the transaction:
+   - EVM errors include `chainId`, `accountAddress`, and `nonce`.
+   - Solana errors include `launchId`, `signature`, and `explorerUrl`.
+3. Search a trusted RPC and explorer for pending, confirmed, replaced, reverted,
+   or dropped transactions.
+4. Resume only after establishing the transaction's outcome. Restarting,
+   rolling back, or allowing locks and records to expire does not resolve an
+   ambiguous submission.
+
+`NONCE_LOCK_LOST` occurs before broadcast. Verify Redis health and replica
+prefix consistency, then retry the identical request with the same
+idempotency key.
+
+## RPC degraded
+
+`GET /ready` identifies an unhealthy configured chain but returns a sanitized
+dependency error. Use service logs and read-only RPC calls to diagnose it.
+
+1. Confirm the endpoint returns the expected chain ID and advancing block
+   height.
+2. Check authentication, rate limits, latency, TLS, and provider status.
+3. Replace only the affected named RPC URL with an endpoint for the same chain.
+4. Restart affected replicas and confirm `/ready` returns `200`.
+5. Reconcile requests affected by the outage before resuming create traffic.
+
+Do not use a create request as a health check because it can broadcast a
+transaction.
 
 ## Rollback
 
-1. Redeploy previous known-good image/commit.
-2. Keep idempotency backend storage stable so duplicate create requests are still protected:
-   - file backend: keep `IDEMPOTENCY_STORE_PATH` stable
-   - redis backend: keep `REDIS_KEY_PREFIX` stable
-3. Verify:
-   - `/health` = 200
-   - `/ready` (with `x-api-key`) = 200
-   - `POST /v1/launches` succeeds with an idempotency key.
+1. Pause create traffic and record in-flight or in-doubt requests.
+2. Confirm the target version can read the current idempotency data.
+3. Preserve the signer, chain configuration, file store path or Redis
+   namespace, and idempotency retention settings.
+4. Do not clear or replace idempotency storage to force a healthy start.
+5. Verify `/health`, `/ready`, `/v1/capabilities`, and `/metrics` with
+   read-only requests.
+6. Reconcile in-flight requests before gradually resuming traffic.

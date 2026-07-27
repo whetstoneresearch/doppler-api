@@ -1,3 +1,4 @@
+// allow: SIZE_OK — allocation and pool-beneficiary policy share the canonical sale input boundary.
 import { WAD, type BeneficiaryData } from '@whetstone-research/doppler-sdk/evm';
 
 import { AppError } from '../../../core/errors';
@@ -6,18 +7,18 @@ import type { HexAddress } from '../../../core/types';
 
 export const DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS = 90 * 24 * 60 * 60;
 export const MIN_MARKET_SALE_PERCENT = 20n;
-export const MAX_ALLOCATION_RECIPIENTS = 10;
+export const MAX_VESTING_ALLOCATIONS = 10;
 export const MAX_FEE_BENEFICIARIES = 10;
 const PROTOCOL_MIN_SHARE = WAD / 20n;
 
 export interface AllocationPlan {
   allocationAmount: bigint;
-  recipientAddress: HexAddress;
-  recipients: HexAddress[];
-  amounts: bigint[];
-  lockMode: 'none' | 'vest' | 'unlock' | 'vault';
-  lockDurationSeconds: number;
-  cliffDurationSeconds: number;
+  allocations: Array<{
+    recipient: HexAddress;
+    amount: bigint;
+    durationSeconds: number;
+    cliffDurationSeconds: number;
+  }>;
 }
 
 export const parsePositiveBigInt = (value: string, field: string): bigint => {
@@ -64,6 +65,19 @@ export const resolveSaleNumbers = (
     );
   }
 
+  const maxBalanceLimit = input.tokenMetadata.maxBalanceLimit;
+  if (
+    maxBalanceLimit !== undefined &&
+    /^\d+$/.test(maxBalanceLimit) &&
+    BigInt(maxBalanceLimit) >= totalSupply
+  ) {
+    throw new AppError(
+      422,
+      'INVALID_TOKEN_CONFIG',
+      'tokenMetadata.maxBalanceLimit must be less than economics.totalSupply',
+    );
+  }
+
   if (tokensForSale < totalSupply) {
     const marketPercentWad = tokensForSale * 100n;
     const minMarketPercentWad = totalSupply * MIN_MARKET_SALE_PERCENT;
@@ -91,45 +105,45 @@ export const resolveSaleNumbers = (
 };
 
 interface ExplicitAllocationEntry {
-  address: HexAddress;
+  recipient: HexAddress;
   amount: bigint;
+  durationSeconds: number;
+  cliffDurationSeconds: number;
 }
 
 interface ParsedExplicitAllocations {
   entries: ExplicitAllocationEntry[];
-  fieldPath: 'economics.allocations.recipients';
+  fieldPath: 'economics.allocations';
 }
 
 const parseExplicitAllocations = (input: CreateLaunchRequestInput): ParsedExplicitAllocations => {
-  const config = input.economics.allocations;
-  const recipients = config?.recipients ?? [];
-  const fieldPath = 'economics.allocations.recipients';
-  const requested = recipients;
+  const requested = input.economics.allocations ?? [];
+  const fieldPath = 'economics.allocations';
   if (requested.length === 0) return { entries: [], fieldPath };
 
-  if (requested.length > MAX_ALLOCATION_RECIPIENTS) {
+  if (requested.length > MAX_VESTING_ALLOCATIONS) {
     throw new AppError(
       422,
       'INVALID_ECONOMICS',
-      `${fieldPath} supports up to ${MAX_ALLOCATION_RECIPIENTS} unique addresses`,
+      `${fieldPath} supports up to ${MAX_VESTING_ALLOCATIONS} vesting schedules`,
     );
   }
 
-  const seen = new Set<string>();
-  const entries = requested.map((entry, index) => {
-    const normalized = entry.address.toLowerCase();
-    if (seen.has(normalized)) {
+  const entries = requested.map((entry, index: number) => {
+    const cliffDurationSeconds = entry.cliffDurationSeconds ?? 0;
+    if (cliffDurationSeconds > entry.durationSeconds) {
       throw new AppError(
         422,
         'INVALID_ECONOMICS',
-        `${fieldPath} has duplicate address at index ${index}`,
+        `${fieldPath}[${index}].cliffDurationSeconds cannot exceed durationSeconds`,
       );
     }
-    seen.add(normalized);
 
     return {
-      address: entry.address as HexAddress,
+      recipient: entry.recipientAddress,
       amount: parsePositiveBigInt(entry.amount, `${fieldPath}[${index}].amount`),
+      durationSeconds: entry.durationSeconds,
+      cliffDurationSeconds,
     };
   });
 
@@ -147,7 +161,7 @@ export const resolveAllocationPlan = (args: {
   const { entries: explicitAllocations } = parseExplicitAllocations(input);
 
   if (allocationAmount === 0n) {
-    if (config) {
+    if (config !== undefined) {
       throw new AppError(
         422,
         'INVALID_ECONOMICS',
@@ -157,67 +171,22 @@ export const resolveAllocationPlan = (args: {
 
     return {
       allocationAmount,
-      recipientAddress: input.userAddress as HexAddress,
-      recipients: [],
-      amounts: [],
-      lockMode: 'none',
-      lockDurationSeconds: 0,
-      cliffDurationSeconds: 0,
+      allocations: [],
     };
   }
 
-  if (explicitAllocations.length > 0 && config?.recipientAddress) {
-    throw new AppError(
-      422,
-      'INVALID_ECONOMICS',
-      'economics.allocations.recipientAddress cannot be used with explicit recipient splits',
-    );
-  }
-
-  const recipientAddress =
-    explicitAllocations[0]?.address ??
-    ((config?.recipientAddress ?? input.userAddress) as HexAddress);
-  const requestedMode = config?.mode ?? 'vest';
-  const cliffDurationSeconds = config?.cliffDurationSeconds ?? 0;
-
-  let lockDurationSeconds: number;
-  if (requestedMode === 'unlock') {
-    if (config?.durationSeconds !== undefined && config.durationSeconds !== 0) {
-      throw new AppError(
-        422,
-        'INVALID_ECONOMICS',
-        'economics.allocations.durationSeconds must be 0 when mode is "unlock"',
-      );
-    }
-    lockDurationSeconds = 0;
-  } else {
-    lockDurationSeconds = config?.durationSeconds ?? DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS;
-    if (lockDurationSeconds <= 0) {
-      throw new AppError(
-        422,
-        'INVALID_ECONOMICS',
-        'economics.allocations.durationSeconds must be > 0 for vest/vault modes',
-      );
-    }
-  }
-
-  if (cliffDurationSeconds > lockDurationSeconds) {
-    throw new AppError(
-      422,
-      'INVALID_ECONOMICS',
-      'economics.allocations.cliffDurationSeconds cannot exceed durationSeconds',
-    );
-  }
-
-  const recipients =
+  const allocations =
     explicitAllocations.length > 0
-      ? explicitAllocations.map((entry) => entry.address)
-      : [recipientAddress];
-  const amounts =
-    explicitAllocations.length > 0
-      ? explicitAllocations.map((entry) => entry.amount)
-      : [allocationAmount];
-  const totalExplicit = amounts.reduce((sum, amount) => sum + amount, 0n);
+      ? explicitAllocations
+      : [
+          {
+            recipient: input.userAddress,
+            amount: allocationAmount,
+            durationSeconds: DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS,
+            cliffDurationSeconds: 0,
+          },
+        ];
+  const totalExplicit = allocations.reduce((sum, allocation) => sum + allocation.amount, 0n);
   if (totalExplicit !== allocationAmount) {
     throw new AppError(
       422,
@@ -228,12 +197,7 @@ export const resolveAllocationPlan = (args: {
 
   return {
     allocationAmount,
-    recipientAddress,
-    recipients,
-    amounts,
-    lockMode: requestedMode,
-    lockDurationSeconds,
-    cliffDurationSeconds,
+    allocations,
   };
 };
 
@@ -246,7 +210,7 @@ export const normalizeFeeBeneficiaries = async (args: {
 }): Promise<{ beneficiaries: BeneficiaryData[]; source: 'default' | 'request' }> => {
   const { input, protocolOwner } = args;
 
-  if (!input.feeBeneficiaries || input.feeBeneficiaries.length === 0) {
+  if (!input.poolFeeBeneficiaries || input.poolFeeBeneficiaries.length === 0) {
     const userAddress = input.userAddress as HexAddress;
     if (input.userAddress.toLowerCase() === protocolOwner.toLowerCase()) {
       return {
@@ -264,31 +228,36 @@ export const normalizeFeeBeneficiaries = async (args: {
     };
   }
 
-  if (input.feeBeneficiaries.length > MAX_FEE_BENEFICIARIES) {
+  if (input.poolFeeBeneficiaries.length > MAX_FEE_BENEFICIARIES) {
     throw new AppError(
       422,
       'INVALID_FEE_BENEFICIARIES',
-      `feeBeneficiaries supports up to ${MAX_FEE_BENEFICIARIES} unique addresses`,
+      `poolFeeBeneficiaries supports up to ${MAX_FEE_BENEFICIARIES} unique addresses`,
     );
   }
 
   const seen = new Set<string>();
-  const beneficiaries: BeneficiaryData[] = input.feeBeneficiaries.map((entry, index) => {
-    const normalized = entry.address.toLowerCase();
-    if (seen.has(normalized)) {
-      throw new AppError(
-        422,
-        'INVALID_FEE_BENEFICIARIES',
-        `feeBeneficiaries has duplicate address at index ${index}`,
-      );
-    }
-    seen.add(normalized);
+  const beneficiaries: BeneficiaryData[] = input.poolFeeBeneficiaries.map(
+    (entry: { address: string; sharesWad: string }, index: number) => {
+      const normalized = entry.address.toLowerCase();
+      if (seen.has(normalized)) {
+        throw new AppError(
+          422,
+          'INVALID_FEE_BENEFICIARIES',
+          `poolFeeBeneficiaries has duplicate address at index ${index}`,
+        );
+      }
+      seen.add(normalized);
 
-    return {
-      beneficiary: entry.address as HexAddress,
-      shares: parsePositiveBigInt(entry.sharesWad, `feeBeneficiaries[${entry.address}].sharesWad`),
-    };
-  });
+      return {
+        beneficiary: entry.address as HexAddress,
+        shares: parsePositiveBigInt(
+          entry.sharesWad,
+          `poolFeeBeneficiaries[${entry.address}].sharesWad`,
+        ),
+      };
+    },
+  );
 
   const totalShares = sumShares(beneficiaries);
 
@@ -302,14 +271,14 @@ export const normalizeFeeBeneficiaries = async (args: {
       throw new AppError(
         422,
         'INVALID_FEE_BENEFICIARIES',
-        `feeBeneficiaries shares must sum to ${expectedWithoutProtocol.toString()} when protocol owner is omitted (API appends 5%)`,
+        `poolFeeBeneficiaries shares must sum to ${expectedWithoutProtocol.toString()} when protocol owner is omitted (API appends 5%)`,
       );
     }
     if (beneficiaries.length + 1 > MAX_FEE_BENEFICIARIES) {
       throw new AppError(
         422,
         'INVALID_FEE_BENEFICIARIES',
-        `feeBeneficiaries supports up to ${MAX_FEE_BENEFICIARIES} unique addresses including protocol owner`,
+        `poolFeeBeneficiaries supports up to ${MAX_FEE_BENEFICIARIES} unique addresses including protocol owner`,
       );
     }
 
@@ -329,7 +298,7 @@ export const normalizeFeeBeneficiaries = async (args: {
     throw new AppError(
       422,
       'INVALID_FEE_BENEFICIARIES',
-      `feeBeneficiaries shares must sum to ${WAD.toString()}`,
+      `poolFeeBeneficiaries shares must sum to ${WAD.toString()}`,
     );
   }
 

@@ -1,30 +1,31 @@
+// allow: SIZE_OK — shared public and persisted API contracts remain colocated for compatibility.
 export type HexAddress = `0x${string}`;
 export type HexHash = `0x${string}`;
 export type SolanaNetwork = 'solanaDevnet' | 'solanaMainnetBeta';
 
-export type GovernanceMode = 'noOp' | 'default' | 'custom';
-export type MigrationType = 'noOp' | 'uniswapV2' | 'uniswapV3' | 'uniswapV4';
+export type GovernanceMode = 'noOp' | 'default' | 'launchpad';
+export type MigrationType = 'noOp' | 'uniswapV2' | 'uniswapV4';
 export type AuctionType = 'multicurve' | 'static' | 'dynamic';
 
 export interface TokenMetadata {
   name: string;
   symbol: string;
   tokenURI: string;
+  maxBalanceLimit?: string;
+  balanceLimitEnd?: number;
+  controller?: HexAddress;
+  excludedFromBalanceLimit?: HexAddress[];
 }
 
 export interface Economics {
   totalSupply: string;
   tokensForSale?: string;
-  allocations?: {
-    recipientAddress?: HexAddress;
-    recipients?: Array<{
-      address: HexAddress;
-      amount: string;
-    }>;
-    mode?: 'vest' | 'unlock' | 'vault';
-    durationSeconds?: number;
+  allocations?: Array<{
+    recipientAddress: HexAddress;
+    amount: string;
+    durationSeconds: number;
     cliffDurationSeconds?: number;
-  };
+  }>;
 }
 
 export interface PairingConfig {
@@ -35,24 +36,46 @@ export interface PricingConfig {
   numerairePriceUsd?: number;
 }
 
-export interface FeeBeneficiaryInput {
+export interface PoolFeeBeneficiaryInput {
   address: HexAddress;
   sharesWad: string;
 }
 
-export interface GovernanceConfig {
-  enabled: boolean;
-  mode?: GovernanceMode;
+export interface RehypeFeeBeneficiaryInput {
+  address: HexAddress;
+  sharesWad: string;
+}
+
+export interface RehypeFeeDistributionInfoInput {
+  assetFeesToAssetBuybackWad: string;
+  assetFeesToNumeraireBuybackWad: string;
+  assetFeesToBeneficiaryWad: string;
+  assetFeesToLpWad: string;
+  numeraireFeesToAssetBuybackWad: string;
+  numeraireFeesToNumeraireBuybackWad: string;
+  numeraireFeesToBeneficiaryWad: string;
+  numeraireFeesToLpWad: string;
 }
 
 export type MigrationConfigInput =
   | {
-      type: 'noOp' | 'uniswapV2' | 'uniswapV3';
+      type: 'uniswapV2';
+      feeBeneficiary?: {
+        address: HexAddress;
+        percentage: number;
+      };
     }
   | {
       type: 'uniswapV4';
       fee: number;
       tickSpacing: number;
+      lockDurationSeconds: number;
+      rehype?: {
+        buybackDestination: HexAddress;
+        customFee: number;
+        feeRoutingMode?: 'directBuyback' | 'routeToBeneficiaryFees';
+        feeDistributionInfo: RehypeFeeDistributionInfoInput;
+      };
     };
 
 export interface PresetCurveConfig {
@@ -104,30 +127,27 @@ export type MulticurveInitializerConfig =
       type: 'standard';
     }
   | {
-      type: 'scheduled';
-      startTime: number;
-    }
-  | {
-      type: 'decay';
-      startFee: number;
-      durationSeconds: number;
-      startTime?: number;
-    }
-  | {
       type: 'rehype';
       config: {
-        hookAddress: HexAddress;
-        buybackDestination: HexAddress;
-        customFee: number;
-        assetBuybackPercentWad: string;
-        numeraireBuybackPercentWad: string;
-        beneficiaryPercentWad: string;
-        lpPercentWad: string;
+        startFee: number;
+        endFee?: number;
+        durationSeconds?: number;
+        startingTime?: number;
+        feeDistributionInfo: RehypeFeeDistributionInfoInput;
         graduationCalldata?: `0x${string}`;
         graduationMarketCap?: number;
         numerairePrice?: number;
         farTick?: number;
-      };
+      } & (
+        | {
+            buybackDestination: HexAddress;
+            rehypeFeeBeneficiaries?: never;
+          }
+        | {
+            buybackDestination?: never;
+            rehypeFeeBeneficiaries: [RehypeFeeBeneficiaryInput, ...RehypeFeeBeneficiaryInput[]];
+          }
+      );
     };
 
 export interface MulticurveAuctionConfig {
@@ -164,7 +184,7 @@ export interface DynamicRangeCurveConfig {
 
 export type DynamicCurveConfig = DynamicRangeCurveConfig;
 
-export interface CreateLaunchRequest {
+interface CreateLaunchRequestBase {
   chainId?: number;
   userAddress: HexAddress;
   integrationAddress?: HexAddress;
@@ -172,11 +192,23 @@ export interface CreateLaunchRequest {
   economics: Economics;
   pairing?: PairingConfig;
   pricing?: PricingConfig;
-  feeBeneficiaries?: FeeBeneficiaryInput[];
-  governance?: GovernanceConfig | boolean;
-  migration: MigrationConfigInput;
-  auction: AuctionConfig;
+  poolFeeBeneficiaries?: PoolFeeBeneficiaryInput[];
+  governance?: boolean | HexAddress;
 }
+
+export type CreateLaunchRequest =
+  | (CreateLaunchRequestBase & {
+      migration?: never;
+      auction: StaticAuctionConfig;
+    })
+  | (CreateLaunchRequestBase & {
+      migration?: never;
+      auction: MulticurveAuctionConfig;
+    })
+  | (CreateLaunchRequestBase & {
+      migration: MigrationConfigInput;
+      auction: DynamicAuctionConfig;
+    });
 
 export interface CreateLaunchPredicted {
   tokenAddress: HexAddress;
@@ -187,16 +219,15 @@ export interface CreateLaunchPredicted {
 export interface EffectiveLaunchConfig {
   tokensForSale: string;
   allocationAmount: string;
-  allocationRecipient: HexAddress;
-  allocationRecipients?: Array<{
-    address: HexAddress;
+  vestingAllocations: Array<{
+    recipientAddress: HexAddress;
     amount: string;
+    durationSeconds: number;
+    cliffDurationSeconds: number;
   }>;
-  allocationLockMode: 'none' | 'vest' | 'unlock' | 'vault';
-  allocationLockDurationSeconds: number;
   numeraireAddress: HexAddress;
   numerairePriceUsd: number;
-  feeBeneficiariesSource: 'default' | 'request';
+  poolFeeBeneficiariesSource: 'default' | 'request' | 'none';
   initializer?:
     | { type: 'standard' }
     | { type: 'scheduled'; startTime: number }
@@ -320,14 +351,14 @@ export interface SolanaLaunchReadResponse {
 export interface ChainCapability {
   chainId: number;
   auctionTypes: AuctionType[];
-  multicurveInitializers?: Array<'standard' | 'scheduled' | 'decay' | 'rehype'>;
+  multicurveInitializers?: Array<'standard' | 'rehype'>;
   migrationModes: MigrationType[];
   governanceModes: GovernanceMode[];
   governanceEnabled: boolean;
 }
 
 export interface CapabilitiesResponse {
-  defaultChainId: number;
+  defaultChainId: number | null;
   pricing: {
     enabled: boolean;
     provider: string;

@@ -7,240 +7,148 @@ import {
 } from '../../src/modules/auctions/multicurve/mapper';
 import type { CreateLaunchRequestInput } from '../../src/modules/launches/schema';
 
+const USER = '0x1111111111111111111111111111111111111111';
+const RECIPIENT = '0x2222222222222222222222222222222222222222';
 const baseInput: CreateLaunchRequestInput = {
-  userAddress: '0x1111111111111111111111111111111111111111',
+  userAddress: USER,
   tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://meta' },
   economics: { totalSupply: '1000' },
-  governance: { enabled: false, mode: 'noOp' },
-  migration: { type: 'noOp' },
   auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
 };
 
-describe('sale number mapping', () => {
-  it('defaults tokensForSale to totalSupply', () => {
+describe('sale number and vesting allocation mapping', () => {
+  it('defaults the whole supply to the market when no allocation is configured', () => {
     const sale = resolveSaleNumbers(baseInput);
-    expect(sale.totalSupply).toBe(1000n);
-    expect(sale.tokensForSale).toBe(1000n);
+    const plan = resolveAllocationPlan({ input: baseInput, ...sale });
+
+    expect(sale).toEqual({ totalSupply: 1000n, tokensForSale: 1000n });
+    expect(plan).toEqual({ allocationAmount: 0n, allocations: [] });
   });
 
-  it('uses override when provided', () => {
-    const sale = resolveSaleNumbers({
-      ...baseInput,
-      economics: { totalSupply: '1000', tokensForSale: '700' },
-    });
-    expect(sale.tokensForSale).toBe(700n);
-  });
-
-  it('derives tokensForSale from recipients when tokensForSale is omitted', () => {
-    const sale = resolveSaleNumbers({
-      ...baseInput,
-      economics: {
-        totalSupply: '1000',
-        allocations: {
-          recipients: [
-            { address: '0x2222222222222222222222222222222222222222', amount: '300' },
-            { address: '0x3333333333333333333333333333333333333333', amount: '200' },
-          ],
-        },
-      },
-    });
-
-    expect(sale.tokensForSale).toBe(500n);
-  });
-
-  it('defaults allocation lock to 90-day vest when remainder exists', () => {
+  it('defaults an unconfigured remainder to one 90-day schedule for the launch user', () => {
     const input: CreateLaunchRequestInput = {
       ...baseInput,
       economics: { totalSupply: '1000', tokensForSale: '200' },
     };
     const sale = resolveSaleNumbers(input);
-    const allocation = resolveAllocationPlan({
-      input,
-      totalSupply: sale.totalSupply,
-      tokensForSale: sale.tokensForSale,
-    });
 
-    expect(allocation.allocationAmount).toBe(800n);
-    expect(allocation.recipientAddress).toBe(baseInput.userAddress);
-    expect(allocation.lockMode).toBe('vest');
-    expect(allocation.lockDurationSeconds).toBe(DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS);
+    expect(resolveAllocationPlan({ input, ...sale })).toEqual({
+      allocationAmount: 800n,
+      allocations: [
+        {
+          recipient: USER,
+          amount: 800n,
+          durationSeconds: DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS,
+          cliffDurationSeconds: 0,
+        },
+      ],
+    });
   });
 
-  it('supports unlock mode for allocation', () => {
+  it('supports multiple independent schedules, including repeated recipients', () => {
     const input: CreateLaunchRequestInput = {
       ...baseInput,
       economics: {
         totalSupply: '1000',
-        tokensForSale: '300',
-        allocations: { mode: 'unlock', durationSeconds: 0 },
+        allocations: [
+          {
+            recipientAddress: RECIPIENT,
+            amount: '250',
+            durationSeconds: 30 * 24 * 60 * 60,
+            cliffDurationSeconds: 7 * 24 * 60 * 60,
+          },
+          {
+            recipientAddress: RECIPIENT,
+            amount: '150',
+            durationSeconds: 180 * 24 * 60 * 60,
+          },
+        ],
       },
     };
     const sale = resolveSaleNumbers(input);
-    const allocation = resolveAllocationPlan({
-      input,
-      totalSupply: sale.totalSupply,
-      tokensForSale: sale.tokensForSale,
-    });
 
-    expect(allocation.allocationAmount).toBe(700n);
-    expect(allocation.lockMode).toBe('unlock');
-    expect(allocation.lockDurationSeconds).toBe(0);
-  });
-
-  it('supports vault mode with custom recipient/duration/cliff', () => {
-    const input: CreateLaunchRequestInput = {
-      ...baseInput,
-      economics: {
-        totalSupply: '1000',
-        tokensForSale: '250',
-        allocations: {
-          recipientAddress: '0x2222222222222222222222222222222222222222',
-          mode: 'vault',
+    expect(sale.tokensForSale).toBe(600n);
+    expect(resolveAllocationPlan({ input, ...sale })).toEqual({
+      allocationAmount: 400n,
+      allocations: [
+        {
+          recipient: RECIPIENT,
+          amount: 250n,
           durationSeconds: 30 * 24 * 60 * 60,
           cliffDurationSeconds: 7 * 24 * 60 * 60,
         },
-      },
-    };
-    const sale = resolveSaleNumbers(input);
-    const allocation = resolveAllocationPlan({
-      input,
-      totalSupply: sale.totalSupply,
-      tokensForSale: sale.tokensForSale,
-    });
-
-    expect(allocation.allocationAmount).toBe(750n);
-    expect(allocation.recipientAddress).toBe('0x2222222222222222222222222222222222222222');
-    expect(allocation.lockMode).toBe('vault');
-    expect(allocation.lockDurationSeconds).toBe(30 * 24 * 60 * 60);
-    expect(allocation.cliffDurationSeconds).toBe(7 * 24 * 60 * 60);
-  });
-
-  it('supports explicit multi-address allocations', () => {
-    const input: CreateLaunchRequestInput = {
-      ...baseInput,
-      economics: {
-        totalSupply: '1000',
-        tokensForSale: '400',
-        allocations: {
-          mode: 'vest',
-          recipients: [
-            { address: '0x2222222222222222222222222222222222222222', amount: '300' },
-            { address: '0x3333333333333333333333333333333333333333', amount: '300' },
-          ],
+        {
+          recipient: RECIPIENT,
+          amount: 150n,
+          durationSeconds: 180 * 24 * 60 * 60,
+          cliffDurationSeconds: 0,
         },
-      },
-    };
-    const sale = resolveSaleNumbers(input);
-    const allocation = resolveAllocationPlan({
-      input,
-      totalSupply: sale.totalSupply,
-      tokensForSale: sale.tokensForSale,
+      ],
     });
-
-    expect(allocation.allocationAmount).toBe(600n);
-    expect(allocation.recipients).toEqual([
-      '0x2222222222222222222222222222222222222222',
-      '0x3333333333333333333333333333333333333333',
-    ]);
-    expect(allocation.amounts).toEqual([300n, 300n]);
-    expect(allocation.recipientAddress).toBe('0x2222222222222222222222222222222222222222');
   });
 
-  it('rejects allocation config when nothing is allocated', () => {
-    const input: CreateLaunchRequestInput = {
-      ...baseInput,
-      economics: {
-        totalSupply: '1000',
-        tokensForSale: '1000',
-        allocations: { mode: 'vest' },
-      },
-    };
-    const sale = resolveSaleNumbers(input);
-    expect(() =>
-      resolveAllocationPlan({
-        input,
-        totalSupply: sale.totalSupply,
-        tokensForSale: sale.tokensForSale,
-      }),
-    ).toThrow(/economics\.allocations requires tokensForSale to be less than totalSupply/i);
-  });
-
-  it('rejects unlock mode with non-zero duration', () => {
-    const input: CreateLaunchRequestInput = {
-      ...baseInput,
-      economics: {
-        totalSupply: '1000',
-        tokensForSale: '200',
-        allocations: { mode: 'unlock', durationSeconds: 60 },
-      },
-    };
-    const sale = resolveSaleNumbers(input);
-    expect(() =>
-      resolveAllocationPlan({
-        input,
-        totalSupply: sale.totalSupply,
-        tokensForSale: sale.tokensForSale,
-      }),
-    ).toThrow(/durationSeconds must be 0 when mode is "unlock"/i);
-  });
-
-  it('rejects allocation sum mismatch against tokensForSale remainder', () => {
-    expect(() =>
-      resolveSaleNumbers({
-        ...baseInput,
-        economics: {
-          totalSupply: '1000',
-          tokensForSale: '400',
-          allocations: {
-            recipients: [{ address: '0x2222222222222222222222222222222222222222', amount: '500' }],
-          },
-        },
-      }),
-    ).toThrow(/must sum exactly to totalSupply - tokensForSale/i);
-  });
-
-  it('rejects duplicate allocation addresses', () => {
+  it('requires explicit schedules to exactly equal the non-market supply', () => {
     const input: CreateLaunchRequestInput = {
       ...baseInput,
       economics: {
         totalSupply: '1000',
         tokensForSale: '600',
-        allocations: {
-          recipients: [
-            { address: '0x2222222222222222222222222222222222222222', amount: '200' },
-            { address: '0x2222222222222222222222222222222222222222', amount: '200' },
-          ],
-        },
+        allocations: [
+          {
+            recipientAddress: RECIPIENT,
+            amount: '399',
+            durationSeconds: 86_400,
+          },
+        ],
       },
     };
-    expect(() =>
-      resolveAllocationPlan({
-        input,
-        totalSupply: 1000n,
-        tokensForSale: 600n,
-      }),
-    ).toThrow(/duplicate address/i);
+
+    expect(() => resolveSaleNumbers(input)).toThrow(/sum exactly to totalSupply - tokensForSale/i);
   });
 
-  it('rejects market sale below 20% of supply when allocations are split', () => {
-    expect(() =>
-      resolveSaleNumbers({
-        ...baseInput,
-        economics: {
-          totalSupply: '1000',
-          tokensForSale: '199',
-          allocations: {
-            recipients: [{ address: '0x2222222222222222222222222222222222222222', amount: '801' }],
+  it('rejects allocation schedules when the whole supply is sold', () => {
+    const input: CreateLaunchRequestInput = {
+      ...baseInput,
+      economics: {
+        totalSupply: '1000',
+        tokensForSale: '1000',
+        allocations: [
+          {
+            recipientAddress: RECIPIENT,
+            amount: '1',
+            durationSeconds: 86_400,
           },
-        },
-      }),
-    ).toThrow(/at least 20% of totalSupply/i);
+        ],
+      },
+    };
+
+    expect(() => resolveSaleNumbers(input)).toThrow(/sum exactly to totalSupply - tokensForSale/i);
   });
 
-  it('rejects allocation lists above 10 addresses', () => {
-    const allocations = Array.from({ length: 11 }, (_, i) => ({
-      address: `0x${(i + 1).toString(16).padStart(40, '0')}` as `0x${string}`,
+  it('rejects cliffs longer than their individual schedules', () => {
+    const input: CreateLaunchRequestInput = {
+      ...baseInput,
+      economics: {
+        totalSupply: '1000',
+        allocations: [
+          {
+            recipientAddress: RECIPIENT,
+            amount: '200',
+            durationSeconds: 86_400,
+            cliffDurationSeconds: 86_401,
+          },
+        ],
+      },
+    };
+
+    expect(() => resolveSaleNumbers(input)).toThrow(/cliffDurationSeconds cannot exceed/i);
+  });
+
+  it('enforces the 20% market minimum and ten-schedule limit', () => {
+    const schedules = Array.from({ length: 11 }, (_, index) => ({
+      recipientAddress: RECIPIENT as `0x${string}`,
       amount: '10',
+      durationSeconds: 86_400 + index,
     }));
 
     expect(() =>
@@ -248,9 +156,23 @@ describe('sale number mapping', () => {
         ...baseInput,
         economics: {
           totalSupply: '1000',
-          allocations: { recipients: allocations },
+          tokensForSale: '199',
+          allocations: [
+            {
+              recipientAddress: RECIPIENT,
+              amount: '801',
+              durationSeconds: 86_400,
+            },
+          ],
         },
       }),
-    ).toThrow(/supports up to 10 unique addresses/i);
+    ).toThrow(/at least 20% of totalSupply/i);
+
+    expect(() =>
+      resolveSaleNumbers({
+        ...baseInput,
+        economics: { totalSupply: '1000', allocations: schedules },
+      }),
+    ).toThrow(/up to 10 vesting schedules/i);
   });
 });

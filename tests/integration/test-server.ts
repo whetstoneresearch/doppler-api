@@ -2,9 +2,15 @@ import { buildServer, type AppServices } from '../../src/app/server';
 import type { AppConfig } from '../../src/core/config';
 import { AppError } from '../../src/core/errors';
 import { MetricsRegistry } from '../../src/core/metrics';
+import { ChainRegistry } from '../../src/infra/chain/registry';
 
 interface BuildTestServerOptions {
+  defaultChainId?: number | null;
   readyCheckFails?: boolean;
+  launchStatusResponse?: {
+    status: 'pending' | 'not_found' | 'reverted' | 'confirmed';
+    confirmations: number;
+  };
   solanaEnabled?: boolean;
   solanaReadyCheckFails?: boolean;
   solanaCreateError?: {
@@ -38,7 +44,7 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
     deploymentMode: 'standalone',
     apiKey: 'test-key',
     apiKeys: ['test-key'],
-    defaultChainId: 84532,
+    defaultChainId: options.defaultChainId === undefined ? 84532 : options.defaultChainId,
     privateKey: '0x59c6995e998f97a5a0044966f0945386f3f6f3d1063f4042afe30de8f34a4c9e',
     logLevel: 'silent',
     readyRpcTimeoutMs: 1000,
@@ -111,22 +117,28 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
     },
     walletClient: {},
   } as any;
+  const resolutionRegistry = new ChainRegistry(config);
 
   const buildLaunchResponse = (payload?: {
     userAddress?: string;
     economics?: {
       totalSupply?: string;
       tokensForSale?: string;
-      allocations?: {
-        recipientAddress?: string;
-        recipients?: Array<{ address: string; amount: string }>;
-        mode?: 'vest' | 'unlock' | 'vault';
-        durationSeconds?: number;
+      allocations?: Array<{
+        recipientAddress: string;
+        amount: string;
+        durationSeconds: number;
+        cliffDurationSeconds?: number;
+      }>;
+    };
+    auction?: {
+      initializer?: {
+        type: 'standard' | 'rehype';
       };
     };
   }) => {
     const totalSupply = BigInt(payload?.economics?.totalSupply ?? '1000');
-    const explicitAllocations = payload?.economics?.allocations?.recipients ?? [];
+    const explicitAllocations = payload?.economics?.allocations ?? [];
     const explicitAllocationTotal = explicitAllocations.reduce(
       (sum, entry) => sum + BigInt(entry.amount),
       0n,
@@ -138,25 +150,20 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
           : totalSupply.toString()),
     );
     const allocationAmount = totalSupply - tokensForSale;
-    const allocationMode =
-      allocationAmount > 0n ? (payload?.economics?.allocations?.mode ?? 'vest') : 'none';
-    const allocationDuration =
-      allocationMode === 'none'
-        ? 0
-        : allocationMode === 'unlock'
-          ? 0
-          : (payload?.economics?.allocations?.durationSeconds ?? 90 * 24 * 60 * 60);
-    const allocationRecipients =
+    const vestingAllocations =
       explicitAllocations.length > 0
-        ? explicitAllocations
+        ? explicitAllocations.map((allocation) => ({
+            ...allocation,
+            cliffDurationSeconds: allocation.cliffDurationSeconds ?? 0,
+          }))
         : allocationAmount > 0n
           ? [
               {
-                address:
-                  payload?.economics?.allocations?.recipientAddress ??
-                  payload?.userAddress ??
-                  '0x1111111111111111111111111111111111111111',
+                recipientAddress:
+                  payload?.userAddress ?? '0x1111111111111111111111111111111111111111',
                 amount: allocationAmount.toString(),
+                durationSeconds: 90 * 24 * 60 * 60,
+                cliffDurationSeconds: 0,
               },
             ]
           : [];
@@ -174,14 +181,13 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
       effectiveConfig: {
         tokensForSale: tokensForSale.toString(),
         allocationAmount: allocationAmount.toString(),
-        allocationRecipient:
-          allocationRecipients[0]?.address ?? '0x1111111111111111111111111111111111111111',
-        allocationRecipients,
-        allocationLockMode: allocationMode as 'none' | 'vest' | 'unlock' | 'vault',
-        allocationLockDurationSeconds: allocationDuration,
+        vestingAllocations,
         numeraireAddress: '0x4200000000000000000000000000000000000006',
         numerairePriceUsd: 100,
-        feeBeneficiariesSource: 'default' as const,
+        poolFeeBeneficiariesSource: 'default' as const,
+        ...(payload?.auction?.initializer === undefined
+          ? {}
+          : { initializer: { type: payload.auction.initializer.type } }),
       },
     };
   };
@@ -318,6 +324,8 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
       return buildSolanaLaunchResponse(solanaInput);
     }
 
+    const evmInput = input as { chainId?: number };
+    resolutionRegistry.get(evmInput.chainId);
     return buildLaunchResponse(input as Parameters<typeof buildLaunchResponse>[0]);
   };
 
@@ -325,8 +333,11 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
     config,
     metrics: new MetricsRegistry(),
     chainRegistry: {
-      defaultChainId: 84532,
-      get: () => fakeChain,
+      defaultChainId: resolutionRegistry.defaultChainId,
+      get: (chainId?: number | null) => {
+        resolutionRegistry.get(chainId);
+        return fakeChain;
+      },
       list: () => [fakeChain],
     } as any,
     sdkRegistry: {} as any,
@@ -453,8 +464,8 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
         launchId: '84532:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         chainId: 84532,
         txHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-        status: 'pending',
-        confirmations: 0,
+        status: options.launchStatusResponse?.status ?? 'pending',
+        confirmations: options.launchStatusResponse?.confirmations ?? 0,
       }),
     } as any,
   };

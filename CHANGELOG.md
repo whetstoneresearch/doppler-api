@@ -4,12 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-27
+
+### Added
+
+- EVM launches support DopplerERC20V1 balance controls, per-recipient vesting schedules, default and launchpad governance, and Rehype multicurve initialization.
+- Dynamic EVM launches support Uniswap V2 split, fixed-fee Doppler Hook V4
+  migrations, and Rehype Doppler Hook migrations with static hook-fee routing.
+
 ### Changed
 
-- Bumped `@whetstone-research/doppler-sdk` from `1.0.7` to `1.0.8`.
-- Solana create requests now accept `economics.baseForDistribution` and `economics.baseForLiquidity`, always use the deployed devnet ALT, and return reserve split details in `effectiveConfig`.
-- Solana ambiguous confirmation failures now return `409 IDEMPOTENCY_KEY_IN_DOUBT` with launch reconciliation details.
-- Local `npm run lint`, `npm run typecheck`, and `npm test` are green; live Solana create remains blocked until the published SDK/IDL and deployed devnet program are back in sync.
+- Updated `@whetstone-research/doppler-sdk` from `1.0.29` to `1.0.33` and aligned EVM launch assembly with the canonical SDK contracts.
+- EVM create requests use strict auction-family contracts. Static and multicurve launches no longer accept a public migration field, and EVM pool fee routing uses `poolFeeBeneficiaries`.
+- EVM chain availability is derived from named RPC configuration for Ethereum, Monad, Robinhood, Base, and Base Sepolia. `DEFAULT_CHAIN_ID` is optional, and requests no longer fall back to another configured chain.
+- EVM transaction retry handling distinguishes pre-broadcast failures from ambiguous submissions and preserves reconciliation details for transactions that may have been accepted.
 
 ## [0.1.0] - 2026-02-23
 
@@ -33,7 +41,7 @@ All notable changes to this project will be documented in this file.
 - Added `SECURITY.md` reporting policy.
 - Added Node version metadata (`.nvmrc`, `package.json` `engines`).
 
-### Current MVP Limitations
+### Limitations
 
 - Governance beyond no-op is not implemented (`governance: true` returns `501 GOVERNANCE_NOT_IMPLEMENTED`).
 - Migrations beyond `noOp` are not implemented.

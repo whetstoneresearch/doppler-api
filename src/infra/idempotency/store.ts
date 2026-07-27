@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import { z } from 'zod';
@@ -26,7 +26,16 @@ interface InDoubtIdempotencyRecord {
   createdAtMs: number;
 }
 
-type IdempotencyRecord = CompletedIdempotencyRecord | InDoubtIdempotencyRecord;
+interface InProgressIdempotencyRecord {
+  state: 'in_progress';
+  payloadHash: string;
+  createdAtMs: number;
+}
+
+type IdempotencyRecord =
+  | InProgressIdempotencyRecord
+  | CompletedIdempotencyRecord
+  | InDoubtIdempotencyRecord;
 
 interface RedisInProgressRecord {
   state: 'in_progress';
@@ -90,6 +99,17 @@ const inProgressRecordSchema = persistedRecordBaseSchema.extend({
 const persistedStoreSchema = z.object({
   records: z.record(z.unknown()).default({}),
 });
+
+const legacyEvmResponseSchema = z
+  .object({
+    chainId: z.number(),
+    effectiveConfig: z
+      .object({
+        feeBeneficiariesSource: z.enum(['default', 'request', 'none']),
+      })
+      .passthrough(),
+  })
+  .passthrough();
 
 export interface IdempotencyStore {
   execute(
@@ -158,7 +178,7 @@ const throwInDoubtError = (): never => {
   throw new AppError(
     409,
     'IDEMPOTENCY_KEY_IN_DOUBT',
-    'Idempotency key is in progress from a previous attempt; verify launch status before retrying',
+    'Idempotency key is in progress from a previous attempt; reconcile the original transaction before retrying',
   );
 };
 
@@ -167,11 +187,35 @@ const isPersistableInDoubtError = (error: unknown): error is AppError =>
   error.code === 'IDEMPOTENCY_KEY_IN_DOUBT' &&
   typeof error.details === 'object' &&
   error.details !== null &&
-  typeof (error.details as { launchId?: unknown }).launchId === 'string' &&
-  typeof (error.details as { signature?: unknown }).signature === 'string' &&
-  typeof (error.details as { explorerUrl?: unknown }).explorerUrl === 'string';
+  ((typeof (error.details as { launchId?: unknown }).launchId === 'string' &&
+    typeof (error.details as { signature?: unknown }).signature === 'string' &&
+    typeof (error.details as { explorerUrl?: unknown }).explorerUrl === 'string') ||
+    (typeof (error.details as { chainId?: unknown }).chainId === 'number' &&
+      typeof (error.details as { accountAddress?: unknown }).accountAddress === 'string' &&
+      typeof (error.details as { nonce?: unknown }).nonce === 'number'));
+
+const parseCompletedResponse = (response: unknown): CreateAnyLaunchResponse => {
+  const legacyResponse = legacyEvmResponseSchema.safeParse(response);
+  if (!legacyResponse.success) {
+    return response as CreateAnyLaunchResponse;
+  }
+
+  const { feeBeneficiariesSource, ...effectiveConfig } = legacyResponse.data.effectiveConfig;
+  return {
+    ...legacyResponse.data,
+    effectiveConfig: {
+      ...effectiveConfig,
+      poolFeeBeneficiariesSource: feeBeneficiariesSource,
+    },
+  } as CreateAnyLaunchResponse;
+};
 
 const parseFileRecord = (record: unknown): IdempotencyRecord | null => {
+  const inProgressRecord = inProgressRecordSchema.safeParse(record);
+  if (inProgressRecord.success) {
+    return inProgressRecord.data;
+  }
+
   const inDoubtRecord = inDoubtRecordSchema.safeParse(record);
   if (inDoubtRecord.success) {
     return inDoubtRecord.data;
@@ -182,7 +226,7 @@ const parseFileRecord = (record: unknown): IdempotencyRecord | null => {
     return {
       state: 'completed',
       payloadHash: completedRecord.data.payloadHash,
-      response: completedRecord.data.response as CreateAnyLaunchResponse,
+      response: parseCompletedResponse(completedRecord.data.response),
       createdAtMs: completedRecord.data.createdAtMs,
     };
   }
@@ -192,7 +236,7 @@ const parseFileRecord = (record: unknown): IdempotencyRecord | null => {
     return {
       state: 'completed',
       payloadHash: legacyCompletedRecord.data.payloadHash,
-      response: legacyCompletedRecord.data.response as CreateAnyLaunchResponse,
+      response: parseCompletedResponse(legacyCompletedRecord.data.response),
       createdAtMs: legacyCompletedRecord.data.createdAtMs,
     };
   }
@@ -229,18 +273,28 @@ export class FileIdempotencyStore implements IdempotencyStore {
   }
 
   private load(): void {
+    if (!existsSync(this.path)) {
+      return;
+    }
+
     try {
       const raw = readFileSync(this.path, 'utf8');
       const parsed = persistedStoreSchema.parse(JSON.parse(raw));
       for (const [key, record] of Object.entries(parsed.records)) {
         const parsedRecord = parseFileRecord(record);
-        if (parsedRecord) {
-          this.records.set(key, parsedRecord);
+        if (!parsedRecord) {
+          throw new Error(`Invalid idempotency record for key ${key}`);
         }
+        this.records.set(key, parsedRecord);
       }
       this.pruneExpired();
-    } catch {
-      // Ignore missing/corrupt store and start clean.
+    } catch (error) {
+      throw new AppError(
+        500,
+        'IDEMPOTENCY_STORE_CORRUPT',
+        `Idempotency store ${this.path} exists but cannot be read safely`,
+        error,
+      );
     }
   }
 
@@ -250,7 +304,9 @@ export class FileIdempotencyStore implements IdempotencyStore {
     const payload: PersistedStore = {
       records: Object.fromEntries(this.records.entries()),
     };
-    writeFileSync(this.path, JSON.stringify(payload), 'utf8');
+    const pendingPath = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
+    writeFileSync(pendingPath, JSON.stringify(payload), 'utf8');
+    renameSync(pendingPath, this.path);
   }
 
   private pruneExpired(): void {
@@ -276,23 +332,6 @@ export class FileIdempotencyStore implements IdempotencyStore {
 
     this.pruneExpired();
     const payloadHash = hashPayload(payload);
-    const existing = this.records.get(key);
-
-    if (existing) {
-      if (existing.payloadHash !== payloadHash) {
-        throwKeyReuseMismatch('Idempotency key was already used with a different request payload');
-      }
-      if (existing.state === 'in_doubt') {
-        throw new AppError(
-          409,
-          existing.error.code,
-          existing.error.message,
-          existing.error.details,
-        );
-      }
-      return { response: existing.response, replayed: true };
-    }
-
     const inFlight = this.inFlight.get(key);
     if (inFlight) {
       if (inFlight.payloadHash !== payloadHash) {
@@ -304,10 +343,38 @@ export class FileIdempotencyStore implements IdempotencyStore {
       return { response, replayed: true };
     }
 
+    const existing = this.records.get(key);
+
+    if (existing) {
+      if (existing.payloadHash !== payloadHash) {
+        throwKeyReuseMismatch('Idempotency key was already used with a different request payload');
+      }
+      if (existing.state === 'completed') {
+        return { response: existing.response, replayed: true };
+      }
+      if (existing.state === 'in_doubt') {
+        throw new AppError(
+          409,
+          existing.error.code,
+          existing.error.message,
+          existing.error.details,
+        );
+      }
+      throwInDoubtError();
+    }
+
+    this.records.set(key, {
+      state: 'in_progress',
+      payloadHash,
+      createdAtMs: Date.now(),
+    });
+    this.persist();
     const promise = Promise.resolve().then(action);
     this.inFlight.set(key, { payloadHash, promise });
+    let actionCompleted = false;
     try {
       const response = await promise;
+      actionCompleted = true;
       this.records.set(key, {
         state: 'completed',
         payloadHash,
@@ -331,6 +398,19 @@ export class FileIdempotencyStore implements IdempotencyStore {
         this.persist();
         throw error;
       }
+      if (actionCompleted) {
+        this.records.set(key, {
+          state: 'in_progress',
+          payloadHash,
+          createdAtMs: Date.now(),
+        });
+        try {
+          this.persist();
+        } catch {}
+        throwInDoubtError();
+      }
+      this.records.delete(key);
+      this.persist();
       throw error;
     } finally {
       this.inFlight.delete(key);
@@ -394,9 +474,18 @@ export class RedisIdempotencyStore implements IdempotencyStore {
     }
 
     try {
-      return parseRedisRecord(JSON.parse(raw));
-    } catch {
-      return null;
+      const record = parseRedisRecord(JSON.parse(raw));
+      if (!record) {
+        throw new Error('Invalid idempotency record shape');
+      }
+      return record;
+    } catch (error) {
+      throw new AppError(
+        500,
+        'IDEMPOTENCY_STORE_CORRUPT',
+        `Idempotency record for key ${key} cannot be read safely`,
+        error,
+      );
     }
   }
 

@@ -1,15 +1,14 @@
-import { airlockAbi, type MigrationConfig } from '@whetstone-research/doppler-sdk/evm';
+import { airlockAbi } from '@whetstone-research/doppler-sdk/evm';
 import { parseUnits } from 'viem';
 
 import { AppError } from '../../../core/errors';
-import type { CreateLaunchResponse, HexAddress, HexHash } from '../../../core/types';
+import type { CreateLaunchResponse, HexHash } from '../../../core/types';
 import type { ChainContext } from '../../../infra/chain/registry';
 import type { DopplerSdkRegistry } from '../../../infra/doppler/sdk-client';
-import type { TxSubmitter } from '../../../infra/tx/submitter';
 import type { CreateDynamicLaunchRequestInput } from '../../launches/schema';
 import { buildLaunchId } from '../../launches/mapper';
 import { resolveGovernance } from '../../governance/policy';
-import { resolveDynamicMigration } from '../../migration/policy';
+import { resolveRequestedMigration } from '../../migration/policy';
 import type { PricingService } from '../../pricing/service';
 import {
   normalizeFeeBeneficiaries,
@@ -17,15 +16,26 @@ import {
   resolveSaleNumbers,
 } from '../multicurve/mapper';
 
-interface CreateDynamicArgs {
-  input: CreateDynamicLaunchRequestInput;
-  chain: ChainContext;
-  sdkRegistry: DopplerSdkRegistry;
-  pricingService: PricingService;
-  txSubmitter: TxSubmitter;
+type DynamicChainContext = Pick<ChainContext, 'chainId' | 'config' | 'addresses'> & {
+  publicClient: Pick<ChainContext['publicClient'], 'simulateContract'>;
+  walletClient: Pick<ChainContext['walletClient'], 'account'>;
+};
+
+interface DynamicTxSubmitter {
+  submitCreateTx(args: {
+    chain: DynamicChainContext;
+    request: Record<string, unknown>;
+    gasEstimate?: bigint;
+  }): Promise<HexHash>;
 }
 
-const DEFAULT_V4_STREAMABLE_FEES_LOCK_DURATION_SECONDS = 90 * 24 * 60 * 60;
+interface CreateDynamicArgs {
+  input: CreateDynamicLaunchRequestInput;
+  chain: DynamicChainContext;
+  sdkRegistry: Pick<DopplerSdkRegistry, 'get'>;
+  pricingService: Pick<PricingService, 'resolveNumerairePriceUsd'>;
+  txSubmitter: DynamicTxSubmitter;
+}
 
 const parseProceedsUnits = (value: string, field: string): bigint => {
   try {
@@ -47,6 +57,14 @@ export const createDynamicLaunch = async ({
   pricingService,
   txSubmitter,
 }: CreateDynamicArgs): Promise<CreateLaunchResponse> => {
+  if (input.migration.type === 'uniswapV2' && input.poolFeeBeneficiaries !== undefined) {
+    throw new AppError(
+      422,
+      'INVALID_REQUEST',
+      'poolFeeBeneficiaries is not supported with migration.type="uniswapV2"',
+    );
+  }
+
   const sdk = sdkRegistry.get(chain.chainId);
 
   const { totalSupply, tokensForSale } = resolveSaleNumbers(input);
@@ -57,13 +75,9 @@ export const createDynamicLaunch = async ({
   });
 
   const governance = resolveGovernance(input.governance, chain.config);
-  const migration = resolveDynamicMigration(input.migration, chain.config);
-  const protocolOwner = (await sdk.getAirlockOwner()) as HexAddress;
 
   const numeraireAddress =
-    (input.pairing?.numeraireAddress as HexAddress | undefined) ??
-    chain.config.defaultNumeraireAddress ??
-    (chain.addresses.weth as HexAddress | undefined);
+    input.pairing?.numeraireAddress ?? chain.config.defaultNumeraireAddress ?? chain.addresses.weth;
 
   if (!numeraireAddress) {
     throw new AppError(
@@ -76,14 +90,21 @@ export const createDynamicLaunch = async ({
   const numerairePriceUsd = await pricingService.resolveNumerairePriceUsd({
     chainId: chain.chainId,
     numeraireAddress,
-    defaultNumeraireAddress:
-      chain.config.defaultNumeraireAddress ?? (chain.addresses.weth as HexAddress | undefined),
+    defaultNumeraireAddress: chain.config.defaultNumeraireAddress ?? chain.addresses.weth,
     overrideUsd: input.pricing?.numerairePriceUsd,
   });
 
-  const { beneficiaries, source } = await normalizeFeeBeneficiaries({
-    input,
-    protocolOwner,
+  const { beneficiaries, source } =
+    input.migration.type === 'uniswapV2'
+      ? { beneficiaries: [], source: 'none' as const }
+      : await normalizeFeeBeneficiaries({
+          input,
+          protocolOwner: await sdk.getAirlockOwner(),
+        });
+  const migration = resolveRequestedMigration({
+    migration: input.migration,
+    chainConfig: chain.config,
+    beneficiaries,
   });
 
   const dynamicCurve = input.auction.curveConfig;
@@ -112,9 +133,22 @@ export const createDynamicLaunch = async ({
   const builder = sdk
     .buildDynamicAuction()
     .tokenConfig({
+      type: 'dopplerERC20V1',
       name: input.tokenMetadata.name,
       symbol: input.tokenMetadata.symbol,
       tokenURI: input.tokenMetadata.tokenURI,
+      ...(input.tokenMetadata.maxBalanceLimit !== undefined
+        ? { maxBalanceLimit: BigInt(input.tokenMetadata.maxBalanceLimit) }
+        : {}),
+      ...(input.tokenMetadata.balanceLimitEnd !== undefined
+        ? { balanceLimitEnd: input.tokenMetadata.balanceLimitEnd }
+        : {}),
+      ...(input.tokenMetadata.controller !== undefined
+        ? { controller: input.tokenMetadata.controller }
+        : {}),
+      ...(input.tokenMetadata.excludedFromBalanceLimit !== undefined
+        ? { excludedFromBalanceLimit: input.tokenMetadata.excludedFromBalanceLimit }
+        : {}),
     })
     .saleConfig({
       initialSupply: totalSupply,
@@ -139,39 +173,66 @@ export const createDynamicLaunch = async ({
         : {}),
       ...(dynamicCurve.gamma !== undefined ? { gamma: dynamicCurve.gamma } : {}),
       ...(dynamicCurve.numPdSlugs !== undefined ? { numPdSlugs: dynamicCurve.numPdSlugs } : {}),
-    });
+    })
+    .withV4Initializer(chain.addresses.v4Initializer);
 
   if (input.integrationAddress) {
-    builder.withIntegrator(input.integrationAddress as HexAddress);
+    builder.withIntegrator(input.integrationAddress);
   }
 
   if (allocationPlan.allocationAmount > 0n) {
     builder.withVesting({
-      duration: BigInt(allocationPlan.lockDurationSeconds),
-      cliffDuration: allocationPlan.cliffDurationSeconds,
-      recipients: allocationPlan.recipients,
-      amounts: allocationPlan.amounts,
+      allocations: allocationPlan.allocations.map((allocation) => ({
+        recipient: allocation.recipient,
+        amount: allocation.amount,
+        schedule: {
+          duration: BigInt(allocation.durationSeconds),
+          cliffDuration: allocation.cliffDurationSeconds,
+        },
+      })),
     });
   }
 
-  const migrationConfig: MigrationConfig =
-    migration.type === 'uniswapV4'
-      ? {
-          ...migration,
-          streamableFees: {
-            lockDuration: DEFAULT_V4_STREAMABLE_FEES_LOCK_DURATION_SECONDS,
-            beneficiaries,
-          },
-        }
-      : migration;
+  if (migration.type === 'uniswapV2Split') {
+    const v2MigratorSplit = chain.addresses.v2MigratorSplit;
+    if (!v2MigratorSplit) {
+      throw new AppError(
+        500,
+        'UNSUPPORTED_CHAIN',
+        `Doppler SDK is missing v2MigratorSplit for chain ${chain.chainId}`,
+      );
+    }
+    builder.withV2MigratorSplit(v2MigratorSplit);
+  } else if (migration.type === 'dopplerHook') {
+    const dopplerHookMigrator = chain.addresses.dopplerHookMigrator;
+    if (!dopplerHookMigrator) {
+      throw new AppError(
+        500,
+        'UNSUPPORTED_CHAIN',
+        `Doppler SDK is missing dopplerHookMigrator for chain ${chain.chainId}`,
+      );
+    }
+    builder.withDopplerHookMigrator(dopplerHookMigrator);
+    if (migration.rehype) {
+      const rehypeDopplerHookMigrator = chain.addresses.rehypeDopplerHookMigrator;
+      if (!rehypeDopplerHookMigrator) {
+        throw new AppError(
+          500,
+          'UNSUPPORTED_CHAIN',
+          `Doppler SDK is missing rehypeDopplerHookMigrator for chain ${chain.chainId}`,
+        );
+      }
+      builder.withRehypeDopplerHookMigrator(rehypeDopplerHookMigrator);
+    }
+  }
 
   const params = builder
     .withGovernance(governance)
-    .withMigration(migrationConfig)
-    .withUserAddress(input.userAddress as HexAddress)
+    .withMigration(migration)
+    .withUserAddress(input.userAddress)
     .build();
 
-  const simulation = await sdk.factory.simulateCreateDynamicAuction(params as any);
+  const simulation = await sdk.factory.simulateCreateDynamicAuction(params);
 
   const { request } = await chain.publicClient.simulateContract({
     address: chain.addresses.airlock,
@@ -181,12 +242,11 @@ export const createDynamicLaunch = async ({
     account: chain.walletClient.account,
   });
 
-  const txHash = (await txSubmitter.submitCreateTx({
+  const txHash = await txSubmitter.submitCreateTx({
     chain,
-    request: request as Record<string, unknown>,
+    request,
     gasEstimate: simulation.gasEstimate,
-  })) as HexHash;
-
+  });
   const launchId = buildLaunchId(chain.chainId, txHash);
 
   return {
@@ -195,23 +255,22 @@ export const createDynamicLaunch = async ({
     txHash,
     statusUrl: `/v1/launches/${launchId}`,
     predicted: {
-      tokenAddress: simulation.tokenAddress as HexAddress,
+      tokenAddress: simulation.tokenAddress,
       poolId: simulation.poolId as HexHash,
       ...(simulation.gasEstimate ? { gasEstimate: simulation.gasEstimate.toString() } : {}),
     },
     effectiveConfig: {
       tokensForSale: tokensForSale.toString(),
       allocationAmount: allocationPlan.allocationAmount.toString(),
-      allocationRecipient: allocationPlan.recipientAddress,
-      allocationRecipients: allocationPlan.recipients.map((address, index) => ({
-        address,
-        amount: allocationPlan.amounts[index]!.toString(),
+      vestingAllocations: allocationPlan.allocations.map((allocation) => ({
+        recipientAddress: allocation.recipient,
+        amount: allocation.amount.toString(),
+        durationSeconds: allocation.durationSeconds,
+        cliffDurationSeconds: allocation.cliffDurationSeconds,
       })),
-      allocationLockMode: allocationPlan.lockMode,
-      allocationLockDurationSeconds: allocationPlan.lockDurationSeconds,
       numeraireAddress,
       numerairePriceUsd,
-      feeBeneficiariesSource: source,
+      poolFeeBeneficiariesSource: source,
     },
   };
 };

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { loadConfig } from '../../src/core/config';
+import { ChainRegistry } from '../../src/infra/chain/registry';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -20,6 +21,11 @@ const resetEnv = (overrides: Record<string, string | undefined> = {}): void => {
     'RPC_URL',
     'DEFAULT_CHAIN_ID',
     'DEFAULT_NUMERAIRE_ADDRESS',
+    'ETHEREUM_RPC_URL',
+    'MONAD_RPC_URL',
+    'ROBINHOOD_RPC_URL',
+    'BASE_RPC_URL',
+    'BASE_SEPOLIA_RPC_URL',
     'DEPLOYMENT_MODE',
     'REDIS_URL',
     'REDIS_KEY_PREFIX',
@@ -64,35 +70,146 @@ afterEach(() => {
 });
 
 describe('shared-environment config guardrails', () => {
-  it('loads defaults from typed config without requiring RPC_URL', () => {
-    resetEnv();
+  it.each([
+    [1, 'ETHEREUM_RPC_URL'],
+    [143, 'MONAD_RPC_URL'],
+    [4663, 'ROBINHOOD_RPC_URL'],
+    [8453, 'BASE_RPC_URL'],
+    [84532, 'BASE_SEPOLIA_RPC_URL'],
+  ])(
+    'enables only chain %d without inferring a default when %s is configured',
+    (chainId, rpcEnvVar) => {
+      resetEnv({ [rpcEnvVar]: `https://rpc-${chainId}.example` });
+
+      const config = loadConfig();
+
+      expect(config.defaultChainId).toBeNull();
+      expect(Object.keys(config.chains).map(Number)).toEqual([chainId]);
+      expect(config.chains[chainId]?.rpcUrl).toBe(`https://rpc-${chainId}.example`);
+    },
+  );
+
+  it('resolves configured chains in the canonical mapping order', () => {
+    resetEnv({
+      BASE_RPC_URL: 'https://rpc-base.example',
+      MONAD_RPC_URL: 'https://rpc-monad.example',
+    });
 
     const config = loadConfig();
 
-    expect(config.defaultChainId).toBe(84532);
-    expect(config.chains[84532]?.rpcUrl).toBe('https://base-sepolia-rpc.publicnode.com');
-    expect(config.deploymentMode).toBe('standalone');
-    expect(config.idempotency.backend).toBe('file');
-    expect(config.idempotency.requireKey).toBe(false);
-    expect(config.redis.url).toBeUndefined();
+    expect(Object.keys(config.chains).map(Number)).toEqual([143, 8453]);
+    expect(config.defaultChainId).toBeNull();
   });
 
-  it('applies env overrides to default chain runtime values', () => {
+  it('constructs canonical SDK address bundles for every configured chain', () => {
     resetEnv({
+      ETHEREUM_RPC_URL: 'https://rpc-ethereum.example',
+      MONAD_RPC_URL: 'https://rpc-monad.example',
+      ROBINHOOD_RPC_URL: 'https://rpc-robinhood.example',
+      BASE_RPC_URL: 'https://rpc-base.example',
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
+    });
+
+    const registry = new ChainRegistry(loadConfig());
+
+    expect(registry.list().map((chain) => chain.chainId)).toEqual([1, 143, 4663, 8453, 84532]);
+  });
+
+  it('does not infer Base Sepolia as the default when it is enabled', () => {
+    resetEnv({
+      BASE_RPC_URL: 'https://rpc-base.example',
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
+    });
+
+    const config = loadConfig();
+
+    expect(config.defaultChainId).toBeNull();
+  });
+
+  it('uses an explicitly configured default', () => {
+    resetEnv({
+      BASE_RPC_URL: 'https://rpc-base.example',
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
+      DEFAULT_CHAIN_ID: '8453',
+    });
+
+    const config = loadConfig();
+
+    expect(config.defaultChainId).toBe(8453);
+  });
+
+  it('uses only named chain RPC URLs when RPC_URL is present', () => {
+    resetEnv({
+      BASE_RPC_URL: 'https://rpc-base.example',
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
+      DEFAULT_CHAIN_ID: '8453',
       RPC_URL: 'http://localhost:8545',
+    });
+
+    const config = loadConfig();
+
+    expect(config.chains[8453]?.rpcUrl).toBe('https://rpc-base.example');
+    expect(config.chains[84532]?.rpcUrl).toBe('https://rpc-base-sepolia.example');
+  });
+
+  it('applies DEFAULT_NUMERAIRE_ADDRESS only to the resolved default chain', () => {
+    resetEnv({
+      BASE_RPC_URL: 'https://rpc-base.example',
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
+      DEFAULT_CHAIN_ID: '8453',
       DEFAULT_NUMERAIRE_ADDRESS: '0x1111111111111111111111111111111111111111',
     });
 
     const config = loadConfig();
 
-    expect(config.chains[config.defaultChainId]?.rpcUrl).toBe('http://localhost:8545');
-    expect(config.chains[config.defaultChainId]?.defaultNumeraireAddress).toBe(
+    expect(config.chains[8453]?.defaultNumeraireAddress).toBe(
       '0x1111111111111111111111111111111111111111',
+    );
+    expect(config.chains[84532]?.defaultNumeraireAddress).toBe(
+      '0x4200000000000000000000000000000000000006',
+    );
+  });
+
+  it('rejects DEFAULT_NUMERAIRE_ADDRESS without an explicit default chain', () => {
+    resetEnv({
+      BASE_RPC_URL: 'https://rpc-base.example',
+      DEFAULT_NUMERAIRE_ADDRESS: '0x1111111111111111111111111111111111111111',
+    });
+
+    expect(() => loadConfig()).toThrow('DEFAULT_NUMERAIRE_ADDRESS requires DEFAULT_CHAIN_ID');
+  });
+
+  it('fails when no chain-specific RPC URL is configured', () => {
+    resetEnv();
+
+    expect(() => loadConfig()).toThrow('No chain-specific RPC URL is configured');
+  });
+
+  it('fails when an explicit default is outside the configured subset', () => {
+    resetEnv({
+      BASE_RPC_URL: 'https://rpc-base.example',
+      DEFAULT_CHAIN_ID: '84532',
+    });
+
+    expect(() => loadConfig()).toThrow(
+      'DEFAULT_CHAIN_ID 84532 does not have a configured named RPC URL',
+    );
+  });
+
+  it('fails when an explicit default chain ID is unsupported', () => {
+    resetEnv({
+      BASE_RPC_URL: 'https://rpc-base.example',
+      DEFAULT_CHAIN_ID: '999999',
+    });
+
+    expect(() => loadConfig()).toThrow(
+      'DEFAULT_CHAIN_ID 999999 does not have a configured named RPC URL',
     );
   });
 
   it('applies env override for coingecko asset id', () => {
     resetEnv({
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
       PRICE_COINGECKO_ASSET_ID: 'usd-coin',
     });
 
@@ -102,7 +219,7 @@ describe('shared-environment config guardrails', () => {
   });
 
   it('loads canonical Solana defaults and Solana CoinGecko asset id', () => {
-    resetEnv();
+    resetEnv({ BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example' });
 
     const config = loadConfig();
 
@@ -112,16 +229,20 @@ describe('shared-environment config guardrails', () => {
     expect(config.solana.coingeckoAssetId).toBe('solana');
   });
 
-  it('fails fast when DEFAULT_CHAIN_ID is not in typed config', () => {
+  it('fails fast when DEFAULT_CHAIN_ID does not have a named RPC URL', () => {
     resetEnv({
+      BASE_RPC_URL: 'https://rpc-base.example',
       DEFAULT_CHAIN_ID: '1',
     });
 
-    expect(() => loadConfig()).toThrow('DEFAULT_CHAIN_ID 1 is not configured in doppler.config.ts');
+    expect(() => loadConfig()).toThrow(
+      'DEFAULT_CHAIN_ID 1 does not have a configured named RPC URL',
+    );
   });
 
   it('forces idempotency keys in shared mode', () => {
     resetEnv({
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
       DEPLOYMENT_MODE: 'shared',
       REDIS_URL: 'redis://127.0.0.1:6379',
       IDEMPOTENCY_BACKEND: 'redis',
@@ -135,8 +256,32 @@ describe('shared-environment config guardrails', () => {
     expect(config.idempotency.requireKey).toBe(true);
   });
 
+  it('allows standalone deployments to disable idempotency', () => {
+    resetEnv({
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
+      IDEMPOTENCY_ENABLED: 'false',
+    });
+
+    expect(loadConfig().idempotency.enabled).toBe(false);
+  });
+
+  it('rejects disabling idempotency in shared mode', () => {
+    resetEnv({
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
+      DEPLOYMENT_MODE: 'shared',
+      REDIS_URL: 'redis://127.0.0.1:6379',
+      IDEMPOTENCY_BACKEND: 'redis',
+      IDEMPOTENCY_ENABLED: 'false',
+    });
+
+    expect(() => loadConfig()).toThrow(
+      'IDEMPOTENCY_ENABLED must be true when DEPLOYMENT_MODE=shared',
+    );
+  });
+
   it('fails fast when shared mode is missing REDIS_URL', () => {
     resetEnv({
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
       DEPLOYMENT_MODE: 'shared',
       IDEMPOTENCY_BACKEND: 'redis',
     });
@@ -146,6 +291,7 @@ describe('shared-environment config guardrails', () => {
 
   it('rejects file idempotency backend in shared mode', () => {
     resetEnv({
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
       DEPLOYMENT_MODE: 'shared',
       REDIS_URL: 'redis://127.0.0.1:6379',
       IDEMPOTENCY_BACKEND: 'file',
@@ -158,6 +304,7 @@ describe('shared-environment config guardrails', () => {
 
   it('rejects redis lock refresh interval that is not lower than lock ttl', () => {
     resetEnv({
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
       IDEMPOTENCY_BACKEND: 'redis',
       REDIS_URL: 'redis://127.0.0.1:6379',
       IDEMPOTENCY_REDIS_LOCK_TTL_MS: '1000',
@@ -171,6 +318,7 @@ describe('shared-environment config guardrails', () => {
 
   it('rejects invalid Solana keypair env values', () => {
     resetEnv({
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
       SOLANA_KEYPAIR: '[1,2,3]',
     });
 
@@ -209,6 +357,7 @@ describe('shared-environment config guardrails', () => {
 
   it('fails fast when Solana is enabled without a keypair', () => {
     resetEnv({
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
       SOLANA_ENABLED: 'true',
       SOLANA_DEVNET_RPC_URL: 'http://127.0.0.1:8899',
       SOLANA_DEVNET_WS_URL: 'ws://127.0.0.1:8900',
@@ -221,6 +370,7 @@ describe('shared-environment config guardrails', () => {
 
   it('fails fast when fixed Solana pricing is enabled without a fixed price', () => {
     resetEnv({
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
       SOLANA_ENABLED: 'true',
       SOLANA_DEVNET_RPC_URL: 'http://127.0.0.1:8899',
       SOLANA_DEVNET_WS_URL: 'ws://127.0.0.1:8900',

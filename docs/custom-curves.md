@@ -1,153 +1,134 @@
 # Custom Curve Guide
 
-This API supports multicurve launch configuration in two modes:
+Curve and initializer objects reject unknown fields. See `docs/openapi.yaml` for
+complete request examples.
 
-1. Preset curves (`curveConfig.type = "preset"`)
-2. Explicit ranges (`curveConfig.type = "ranges"`)
+## Static
 
-Recommendation:
+Set `auction.type` to `"static"` and choose one curve configuration:
 
-- Use `ranges` for production launches when you need explicit market-cap behavior.
-- Use `preset` only when the default low/medium/high tiers are intentionally acceptable.
+- A preset requires `type: "preset"` and `preset: "low"`, `"medium"`, or
+  `"high"`.
+- A manual range requires `type: "range"`, positive `marketCapStartUsd` and
+  `marketCapEndUsd`, and an end market cap greater than the start market cap.
 
-Initializer modes are configured separately at `auction.initializer`:
+Both configurations accept these optional fields:
 
-- `standard` (default; implemented via scheduled initializer with `startTime=0`)
-- `scheduled` (requires `startTime`)
-- `decay` (requires `startFee`, `durationSeconds`; optional `startTime`)
-- `rehype` (hook-based config for buyback/distribution behavior)
+- `fee`: one of `100`, `500`, `3000`, or `10000`.
+- `numPositions`: a positive integer.
+- `maxShareToBeSoldWad`: a positive integer string.
 
-## Preset mode
+Static requests do not accept `migration`.
 
-Use curated tiers (`low`, `medium`, `high`) and optionally choose fee/tick spacing.
+## Multicurve
 
-### Example
+Set `auction.type` to `"multicurve"` and choose one curve configuration:
 
-```json
-{
-  "auction": {
-    "type": "multicurve",
-    "curveConfig": {
-      "type": "preset",
-      "presets": ["low", "medium", "high"],
-      "fee": 12000
-    }
-  }
-}
-```
+- A preset uses `type: "preset"`. The optional `presets` array may contain
+  `"low"`, `"medium"`, and `"high"`.
+- Custom ranges use `type: "ranges"` and a non-empty `curves` array. Each curve
+  requires positive `marketCapStartUsd`, positive integer `numPositions`, and
+  a positive integer-string `sharesWad`. `marketCapEndUsd` is either a
+  positive number greater than the range start or `"max"`. Numeric ranges must
+  be contiguous, `"max"` is valid only on the final range, and all
+  `sharesWad` values must total `1000000000000000000`.
 
-### Tick spacing behavior
+Both configurations accept an integer `fee` from `0` through `100000` and a
+positive integer `tickSpacing`. Multicurve requests do not accept `migration`.
 
-- If `tickSpacing` is provided, the API passes your value through.
-- If `tickSpacing` is omitted:
-  - Standard fee tiers use SDK defaults.
-  - Custom fee tiers use API fallback derivation:
-    - `tickSpacing ≈ round((fee / 100) * 2)`
-    - For preset mode, the API additionally aligns spacing to preset tick compatibility.
+Omit `initializer` or set it to `{ "type": "standard" }` for the standard
+initializer. To use Rehype, set `initializer.type` to `"rehype"` and provide
+`initializer.config`.
 
-## Ranges mode
+### Rehype configuration
 
-Use explicit market-cap ranges and supply allocations (`sharesWad`).
+`startFee` and `feeDistributionInfo` are required. `startFee` is an integer
+from `0` through `800000`. Optional `endFee` has the same range and cannot
+exceed `startFee`; when it is lower than `startFee`, `durationSeconds` must be
+greater than zero. `durationSeconds` and `startingTime` are optional integers
+from `0` through `4294967295`.
 
-Note: `sharesWad` controls allocation across market-cap curves inside the launch market.
-Top-level sale allocation is configured separately with `economics.tokensForSale`:
+`feeDistributionInfo` contains these eight non-negative integer strings:
 
-- if omitted, 100% of supply is sold into the launch market
-- if provided, the remainder is allocated to provided addresses with lock settings from
-  `economics.allocations` (default 90-day vest)
-- when split allocations are used, market allocation must still be at least 20% of total supply
+- `assetFeesToAssetBuybackWad`
+- `assetFeesToNumeraireBuybackWad`
+- `assetFeesToBeneficiaryWad`
+- `assetFeesToLpWad`
+- `numeraireFeesToAssetBuybackWad`
+- `numeraireFeesToNumeraireBuybackWad`
+- `numeraireFeesToBeneficiaryWad`
+- `numeraireFeesToLpWad`
 
-### Requirements
+The four `assetFeesTo*` values must total `1000000000000000000`, and the four
+`numeraireFeesTo*` values must independently total the same amount.
 
-- Curves must be contiguous/cohesive (`next.start == previous.end`).
-- Shares must sum to `1e18` (`100%`).
-- Use positive `numPositions`.
-- `marketCapEndUsd` supports `"max"` in API payloads (internally resolved for SDK calls).
+Provide exactly one fee destination:
 
-### Example
+- `buybackDestination`: a non-zero EVM address.
+- `rehypeFeeBeneficiaries`: 1 to 10 entries with case-insensitively unique,
+  non-zero EVM addresses and positive integer-string `sharesWad` values. The
+  shares must total `1000000000000000000`.
 
-```json
-{
-  "auction": {
-    "type": "multicurve",
-    "curveConfig": {
-      "type": "ranges",
-      "fee": 15000,
-      "tickSpacing": 300,
-      "curves": [
-        {
-          "marketCapStartUsd": 100,
-          "marketCapEndUsd": 10000,
-          "numPositions": 11,
-          "sharesWad": "200000000000000000"
-        },
-        {
-          "marketCapStartUsd": 10000,
-          "marketCapEndUsd": 250000,
-          "numPositions": 11,
-          "sharesWad": "300000000000000000"
-        },
-        {
-          "marketCapStartUsd": 250000,
-          "marketCapEndUsd": "max",
-          "numPositions": 11,
-          "sharesWad": "500000000000000000"
-        }
-      ]
-    }
-  }
-}
-```
+Rehype beneficiaries receive hook fees and are separate from top-level
+`poolFeeBeneficiaries`. The API does not add the Airlock owner to the Rehype
+list because the hook reserves the owner's protocol fee separately. Top-level
+pool beneficiaries continue to require the protocol owner's minimum 5% share.
 
-## Full create payload example (ranges)
+The remaining optional Rehype fields are:
 
-```json
-{
-  "chainId": 84532,
-  "userAddress": "0x1111111111111111111111111111111111111111",
-  "integrationAddress": "0x1111111111111111111111111111111111111111",
-  "tokenMetadata": {
-    "name": "Custom Curve Token",
-    "symbol": "CCT",
-    "tokenURI": "ipfs://custom-curve-token"
-  },
-  "economics": {
-    "totalSupply": "1000000000000000000000000"
-  },
-  "pricing": {
-    "numerairePriceUsd": 3000
-  },
-  "governance": false,
-  "migration": {
-    "type": "noOp"
-  },
-  "auction": {
-    "type": "multicurve",
-    "curveConfig": {
-      "type": "ranges",
-      "fee": 18000,
-      "tickSpacing": 360,
-      "curves": [
-        {
-          "marketCapStartUsd": 250,
-          "marketCapEndUsd": 100000,
-          "numPositions": 10,
-          "sharesWad": "250000000000000000"
-        },
-        {
-          "marketCapStartUsd": 100000,
-          "marketCapEndUsd": 500000,
-          "numPositions": 12,
-          "sharesWad": "350000000000000000"
-        },
-        {
-          "marketCapStartUsd": 500000,
-          "marketCapEndUsd": "max",
-          "numPositions": 12,
-          "sharesWad": "400000000000000000"
-        }
-      ]
-    }
-  }
-}
-```
+- `graduationCalldata`: hex bytes beginning with `0x`.
+- `graduationMarketCap`: a positive number.
+- `numerairePrice`: a positive number.
+- `farTick`: an integer from `-8388608` through `8388607`.
+
+Do not provide both `graduationMarketCap` and `farTick`.
+
+## Dynamic
+
+Set `auction.type` to `"dynamic"` and
+`auction.curveConfig.type` to `"range"`. The curve requires:
+
+- Positive `marketCapStartUsd` and `marketCapMinUsd`, with
+  `marketCapMinUsd` less than `marketCapStartUsd`.
+- `minProceeds` and `maxProceeds` as non-negative decimal strings with at most
+  18 decimal places. `maxProceeds` must be greater than zero, and
+  `minProceeds` cannot exceed it.
+
+Optional curve fields follow these rules:
+
+- `durationSeconds` and `epochLengthSeconds` are positive safe integers. After
+  defaults are applied, `epochLengthSeconds` must divide `durationSeconds`
+  evenly.
+- `fee` is an integer from `0` through `100000`. A fee other than `100`, `500`,
+  `3000`, or `10000` requires an explicit `tickSpacing`.
+- `tickSpacing` is a positive safe integer no greater than `30`.
+- `gamma` is a positive safe integer divisible by the effective
+  `tickSpacing`.
+- `numPdSlugs` is a positive safe integer.
+
+Dynamic requests require a `migration`:
+
+- `uniswapV2` accepts only an optional
+  `feeBeneficiary: { address, percentage }`. The address must be non-zero, and
+  `percentage` must be an integer from `1` through `50`. Do not provide
+  top-level `poolFeeBeneficiaries` with this migration.
+- `uniswapV4` requires an integer `fee` from `0` through `150000`, a positive
+  integer `tickSpacing`, and an integer `lockDurationSeconds` from `0` through
+  `4294967295`. The resulting Uniswap V4 pool uses this fixed LP fee, and
+  top-level `poolFeeBeneficiaries` are supported.
+
+To use `RehypeDopplerHookMigrator`, add `migration.rehype` with:
+
+- `buybackDestination`: a non-zero EVM address.
+- `customFee`: the static Rehype hook fee, as an integer from `0` through
+  `1000000`.
+- `feeDistributionInfo`: the same eight-field WAD matrix described above;
+  each four-field currency row must total `1000000000000000000`.
+- Optional `feeRoutingMode`: `directBuyback` (the default) or
+  `routeToBeneficiaryFees`.
+
+The top-level migration `fee` remains the fixed Uniswap V4 LP fee.
+`rehype.customFee` is a separate hook fee.
+`routeToBeneficiaryFees` accrues hook fees for collection by
+`buybackDestination`; it does not route them through top-level
+`poolFeeBeneficiaries`.

@@ -20,7 +20,7 @@ describe('GET /v1/capabilities', () => {
       deploymentMode: 'standalone',
       apiKey: 'test-key',
       apiKeys: ['test-key'],
-      defaultChainId: 84532,
+      defaultChainId: null,
       privateKey: '0x59c6995e998f97a5a0044966f0945386f3f6f3d1063f4042afe30de8f34a4c9e',
       logLevel: 'silent',
       readyRpcTimeoutMs: 1000,
@@ -63,18 +63,18 @@ describe('GET /v1/capabilities', () => {
           chainId: 84532,
           rpcUrl: 'http://localhost:8545',
           defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
-          auctionTypes: ['multicurve'],
-          migrationModes: ['noOp'],
-          governanceModes: ['noOp'],
-          governanceEnabled: false,
+          auctionTypes: ['static', 'multicurve', 'dynamic'],
+          migrationModes: ['uniswapV2', 'uniswapV4'],
+          governanceModes: ['noOp', 'default', 'launchpad'],
+          governanceEnabled: true,
         },
         8453: {
           chainId: 8453,
           rpcUrl: 'http://localhost:8545',
           defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
-          auctionTypes: ['multicurve'],
-          migrationModes: ['noOp', 'uniswapV2'],
-          governanceModes: ['noOp', 'default'],
+          auctionTypes: ['static', 'multicurve', 'dynamic'],
+          migrationModes: ['uniswapV2', 'uniswapV4'],
+          governanceModes: ['noOp', 'default', 'launchpad'],
           governanceEnabled: true,
         },
       },
@@ -99,7 +99,7 @@ describe('GET /v1/capabilities', () => {
       config,
       metrics: new MetricsRegistry(),
       chainRegistry: {
-        defaultChainId: 84532,
+        defaultChainId: null,
         get: (chainId?: number) => (chainId === 8453 ? fakeChainB : fakeChainA),
         list: () => [fakeChainA, fakeChainB],
       } as any,
@@ -145,11 +145,15 @@ describe('GET /v1/capabilities', () => {
 
     expect(response.statusCode).toBe(200);
     const body = response.json() as {
+      defaultChainId: number | null;
       chains: Array<{
         chainId: number;
         governanceEnabled: boolean;
         governanceModes: string[];
         multicurveInitializers: string[];
+        auctionTypes: string[];
+        migrationModes: string[];
+        rpcUrl?: string;
       }>;
       pricing: { provider: string };
       solana: {
@@ -162,15 +166,22 @@ describe('GET /v1/capabilities', () => {
         priceResolutionModes: string[];
       };
     };
+    expect(body.defaultChainId).toBeNull();
     expect(body.chains).toHaveLength(2);
     expect(body.pricing.provider).toBe('coingecko');
     const byChain = new Map(body.chains.map((chain) => [chain.chainId, chain]));
-    expect(byChain.get(84532)?.governanceEnabled).toBe(false);
-    expect(byChain.get(84532)?.governanceModes).toEqual(['noOp']);
-    expect(byChain.get(84532)?.multicurveInitializers).toEqual(['standard']);
+    expect(byChain.get(84532)?.governanceEnabled).toBe(true);
+    expect(byChain.get(84532)?.governanceModes).toEqual(['noOp', 'default', 'launchpad']);
+    expect(byChain.get(84532)?.auctionTypes).toEqual(['static', 'multicurve', 'dynamic']);
+    expect(byChain.get(84532)?.migrationModes).toEqual(['uniswapV2', 'uniswapV4']);
+    expect(byChain.get(84532)?.multicurveInitializers).toEqual(['standard', 'rehype']);
     expect(byChain.get(8453)?.governanceEnabled).toBe(true);
-    expect(byChain.get(8453)?.governanceModes).toEqual(['noOp', 'default']);
-    expect(byChain.get(8453)?.multicurveInitializers).toEqual(['standard']);
+    expect(byChain.get(8453)?.governanceModes).toEqual(['noOp', 'default', 'launchpad']);
+    expect(byChain.get(8453)?.auctionTypes).toEqual(['static', 'multicurve', 'dynamic']);
+    expect(byChain.get(8453)?.migrationModes).toEqual(['uniswapV2', 'uniswapV4']);
+    expect(byChain.get(8453)?.multicurveInitializers).toEqual(['standard', 'rehype']);
+    expect(byChain.get(8453)).not.toHaveProperty('topUps');
+    expect(JSON.stringify(body)).not.toContain('http://localhost:8545');
     expect(body.solana).toEqual({
       enabled: false,
       supportedNetworks: [],

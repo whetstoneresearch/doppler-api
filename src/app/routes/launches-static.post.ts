@@ -22,13 +22,7 @@ export const registerCreateStaticAliasRoute = async (
     const idempotencyKey = Array.isArray(rawKey) ? rawKey[0] : rawKey;
     const result = await launchService.createLaunchWithIdempotency({
       idempotencyKey,
-      input: {
-        ...payload,
-        auction: {
-          type: 'static',
-          curveConfig: payload.auction.curveConfig,
-        },
-      },
+      input: payload,
     });
     if (result.replayed) {
       reply.header('x-idempotency-replayed', 'true');

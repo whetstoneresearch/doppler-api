@@ -1,165 +1,25 @@
 # API Reference
 
-Base URL (local): `http://localhost:3000`
+See the [OpenAPI specification](openapi.yaml) for complete request and response
+schemas and examples.
 
-## Authentication
+## Authentication and errors
 
-- Required on:
-  - `POST /v1/launches`
-  - `POST /v1/solana/launches`
-  - `POST /v1/launches/multicurve`
-  - `POST /v1/launches/static`
-  - `POST /v1/launches/dynamic`
-  - `GET /v1/launches/:launchId`
-  - `GET /v1/capabilities`
-  - `GET /ready`
-  - `GET /metrics`
-- Header:
-  - `x-api-key: <API_KEY>`
-- Not required on:
-  - `GET /health`
+Send `x-api-key` on every route except `GET /health`. Create routes accept
+`Idempotency-Key`; shared deployments require it.
 
-## Error behavior
+Errors use `{ "error": { "code", "message", "details?" } }`. Invalid or
+incompatible request data returns `422 INVALID_REQUEST`.
 
-- Error envelope shape: `{ error: { code, message, details? } }`
-- Rate limiting returns `429 RATE_LIMITED`.
-- `GET /health` is rate-limited by client IP.
-- For all `5xx` responses, `message` is intentionally generic (`"Internal server error"`).
+EVM launch requests may omit `chainId` when the deployment defines
+`DEFAULT_CHAIN_ID`. Otherwise, omission returns `422 CHAIN_ID_REQUIRED`.
+Requesting a supported chain without an enabled named RPC returns
+`422 CHAIN_NOT_CONFIGURED`; the request does not fall back to another chain.
 
-## Implemented endpoints
+## `POST /v1/launches`
 
-### `POST /v1/launches`
-
-Generic create endpoint.
-
-- Solana requests are dispatched only when `network` is one of:
-  - `solanaDevnet`
-  - `solanaMainnetBeta`
-- Short Solana aliases (`devnet`, `mainnet-beta`) are rejected on this route.
-
-#### EVM request shape
-
-- `chainId?: number`
-- `userAddress: 0x...`
-- `integrationAddress?: 0x...`
-- `tokenMetadata: { name, symbol, tokenURI }`
-- `economics: { totalSupply, tokensForSale?, allocations? }`
-- `pairing?: { numeraireAddress? }`
-- `pricing?: { numerairePriceUsd? }`
-- `feeBeneficiaries?: [{ address, sharesWad }]`
-- `governance?: boolean | { enabled, mode? }`
-- `migration: { type: "noOp" | "uniswapV2" | "uniswapV3" } | { type: "uniswapV4", fee, tickSpacing }`
-- `auction.type: "multicurve" | "static" | "dynamic"`
-- `auction:` network-specific config for the selected `auction.type`
-
-#### Solana request shape on the generic route
-
-- `network: "solanaDevnet" | "solanaMainnetBeta"`
-- `tokenMetadata: { name, symbol, tokenURI }`
-- `economics: { totalSupply, baseForDistribution?, baseForLiquidity? }`
-- `pairing?: { numeraireAddress? }`
-- `pricing?: { numerairePriceUsd? }`
-- `feeBeneficiaries?: [{ address, shareBps }]`
-- `governance?: false`
-- `migration?: { type: "none", supportCpmm?: boolean, minimumQuoteRaise?: string }`
-- `auction:`
-  - `type: "xyk"`
-  - `curveConfig: { type: "range", marketCapStartUsd, marketCapEndUsd }`
-  - `swapFeeBps?: number` preferred; `curveFeeBps?: number` is a backward-compatible alias
-  - `allowBuy?: boolean`
-  - `allowSell?: boolean`
-  - `dynamicFee?: { startingTime?: string, startFeeBps, endFeeBps, durationSeconds: string }`
-  - `cosignerGate?: { type: "cosigner", expiry? }`
-
-#### Solana request constraints
-
-- Solana create responses include `statusUrl` for `GET /v1/solana/launches/:launchAddress`.
-- `solanaMainnetBeta` is scaffolded but returns `501 SOLANA_NETWORK_UNSUPPORTED`.
-- WSOL is the only supported numeraire.
-- `migration.supportCpmm=true` registers the launch with the CPMM migrator. All API-created launches use Doppler launch hook v1; migration registration and hook features are independent.
-- `migration.minimumQuoteRaise` is required when `migration.supportCpmm=true` and is denominated in quote token atoms.
-- `economics.baseForDistribution` and `economics.baseForLiquidity` must be omitted or `0` unless `migration.supportCpmm=true`.
-- Non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled.
-- `auction.cosignerGate` configures Doppler-managed cosigning through Doppler launch hook v1, with or without CPMM migration. It requires `type: "cosigner"` and does not accept a caller-provided signer. The API resolves the canonical signer from the hook's on-chain config. Optional `expiry.mode` supports `disabled` and `unixTimestamp`; omitted or `disabled` expiry is indefinite, while timestamp mode requires `expiry.value`.
-- `auction.dynamicFee` configures a fee schedule on Doppler launch hook v1. `startFeeBps` and `endFeeBps` are basis points, `durationSeconds` is a non-negative integer string, and optional `startingTime` defaults to launch creation when omitted or `"0"`. The effective swap fee is `max(dynamicFee, swapFeeBps)`.
-- `auction.dynamicFee` can be combined with `auction.cosignerGate` to enable both features on the same hook.
-- `feeBeneficiaries` supports up to 8 unique Solana addresses, uses `shareBps`, and custom shares must sum to `10000`. If the API payer is the initializer protocol beneficiary, provide a non-protocol beneficiary list.
-- Unsupported fields are rejected instead of ignored, including:
-  - `economics.tokensForSale`
-  - allocations / vesting fields
-  - prediction-market fields
-  - `governance !== false`
-  - `migration.type !== "none"`
-  - non-`xyk` auction payloads
-
-#### Response `200`
-
-EVM response:
-
-- `launchId`, `chainId`, `txHash`, `statusUrl`
-- `predicted: { tokenAddress, poolId, gasEstimate? }`
-- `effectiveConfig: { tokensForSale, allocationAmount, allocationRecipient, allocationRecipients?, allocationLockMode, allocationLockDurationSeconds, numeraireAddress, numerairePriceUsd, feeBeneficiariesSource, initializer? }`
-
-Solana response:
-
-- `launchId`
-- `network`
-- `signature`
-- `explorerUrl`
-- `predicted: { tokenAddress, launchAuthorityAddress, launchFeeStateAddress, baseVaultAddress, quoteVaultAddress }`
-- `effectiveConfig: { tokensForSale, allocationAmount, baseForDistribution, baseForLiquidity, allocationLockMode, numeraireAddress, numerairePriceUsd, curveVirtualBase, curveVirtualQuote, curveFeeBps, swapFeeBps, feeBeneficiariesSource, feeBeneficiaries, allowBuy, allowSell, tokenDecimals }`
-- `tokenDecimals` is fixed to `6` for Solana base tokens.
-
-#### Idempotency header
-
-- Request header: `Idempotency-Key: <string>`
-  - optional in standalone mode
-  - required in shared mode
-- same key + same request payload: returns original response and sets `x-idempotency-replayed: true`
-- same key + different payload: returns `409 IDEMPOTENCY_KEY_REUSE_MISMATCH`
-- EVM crash-window retries can return `409 IDEMPOTENCY_KEY_IN_DOUBT`
-- Solana ambiguous confirmation retries can return `409 IDEMPOTENCY_KEY_IN_DOUBT`
-
-#### Error responses
-
-- `401 UNAUTHORIZED`
-- `429 RATE_LIMITED`
-- `422 INVALID_REQUEST` plus domain-specific `422` Solana or EVM validation failures
-- `409 IDEMPOTENCY_KEY_IN_DOUBT`
-- `501 MIGRATION_NOT_IMPLEMENTED`
-- `501 SOLANA_NETWORK_UNSUPPORTED`
-- `502 SOLANA_SUBMISSION_FAILED`
-- `503 SOLANA_NOT_READY`
-- `500 INTERNAL_ERROR`
-
----
-
-### `POST /v1/solana/launches`
-
-Dedicated Solana create endpoint.
-
-#### Request body
-
-- `network?: "devnet" | "mainnet-beta"`
-  - omitted uses `SOLANA_DEFAULT_NETWORK`
-  - `devnet` normalizes to `solanaDevnet`
-  - `mainnet-beta` normalizes to `solanaMainnetBeta`
-- `tokenMetadata: { name, symbol, tokenURI }`
-- `economics: { totalSupply, baseForDistribution?, baseForLiquidity? }`
-- `pairing?: { numeraireAddress? }`
-- `pricing?: { numerairePriceUsd? }`
-- `feeBeneficiaries?: [{ address, shareBps }]`
-- `governance?: false`
-- `migration?: { type: "none", supportCpmm?: boolean, minimumQuoteRaise?: string }`
-- `auction: { type: "xyk", curveConfig: { type: "range", marketCapStartUsd, marketCapEndUsd }, swapFeeBps?, curveFeeBps?, allowBuy?, allowSell? }`
-
-#### Response `200`
-
-- `launchId` is the base58 launch PDA
-- `statusUrl` points to `GET /v1/solana/launches/:launchAddress`
-- response shape matches the Solana response described on `POST /v1/launches`
-
-#### Create-time Solana validation
+Creates an EVM or Solana launch request. EVM requests use one of these auction
+families:
 
 - `solanaMainnetBeta` -> `501 SOLANA_NETWORK_UNSUPPORTED`
 - non-WSOL numeraire -> `422 SOLANA_NUMERAIRE_UNSUPPORTED`
@@ -177,151 +37,97 @@ Dedicated Solana create endpoint.
 Deterministic request validation runs before dependency readiness checks.
 
 ---
+- Static: `auction.type: "static"` with a static preset or range. `migration`
+  is not accepted.
+- Multicurve: `auction.type: "multicurve"` with presets or ranges and optional
+  `initializer.type: "standard" | "rehype"`. `migration` is not accepted.
+- Dynamic: `auction.type: "dynamic"` with exactly one migration:
+  `uniswapV2` or `uniswapV4`.
 
-### `GET /v1/solana/launches/:launchAddress`
+Static fees are limited to `100`, `500`, `3000`, or `10000`. Multicurve pool
+fees may be `0`.
 
-Returns devnet Solana launch account state.
+Dynamic ranges require descending market caps, duration evenly divisible by
+epoch length, and gamma aligned to tick spacing. A non-standard fee requires
+explicit tick spacing of at most `30`.
 
-#### Path param
+### Token metadata and fee beneficiaries
 
-- `launchAddress`: base58 launch PDA
+EVM token metadata uses `DopplerERC20V1` and may include `maxBalanceLimit`,
+`balanceLimitEnd`, `controller`, and `excludedFromBalanceLimit`.
 
-#### Response `200`
+EVM pool fees use `poolFeeBeneficiaries`; `feeBeneficiaries` is rejected for
+EVM requests. `poolFeeBeneficiaries` is not valid with dynamic `uniswapV2`.
+That migration instead accepts an optional
+`feeBeneficiary: { address, percentage }`, where `percentage` is an integer
+from 1 through 50.
 
-- `network = "solanaDevnet"`
-- `launchAddress`
-- `phase: { code, label }`
-- launch authority, namespace, mint, and vault addresses
-- supply split fields: `baseTotalSupply`, `baseForDistribution`, `baseForLiquidity`, `baseForCurve`
-- curve fields: `curveVirtualBase`, `curveVirtualQuote`, `curveFeeBps`, `swapFeeBps`, `allowBuy`, `allowSell`
-- hook/migrator fields: `hookProgram`, `hookFlags`, `migratorProgram`, `quoteDeposited`
-- `tokenDecimals` is fixed to `6` for Solana base tokens.
+Dynamic `uniswapV2` sends 95% of LP tokens to the migration recipient and 5%
+to a one-year locker. Locker exit fees belong to the Airlock owner. Dynamic
+`uniswapV4` creates a fixed-fee pool through `DopplerHookMigrator`. Adding
+`migration.rehype` selects `RehypeDopplerHookMigrator`; its static
+`customFee` and eight-field distribution matrix are separate from the
+Uniswap V4 LP fee.
 
-#### Error responses
+### Rehype routing
 
-- `404 SOLANA_LAUNCH_NOT_FOUND`
-- `422 SOLANA_INVALID_ADDRESS`
-- `501 SOLANA_NETWORK_UNSUPPORTED` when Solana is disabled
-- `502 SOLANA_LOOKUP_FAILED`
+A Rehype initializer accepts its eight-field WAD fee-distribution matrix and
+exactly one routing option:
 
----
+- `buybackDestination`; or
+- 1 to 10 unique `rehypeFeeBeneficiaries` with positive WAD shares totaling
+  `1e18`.
 
-### `POST /v1/launches/multicurve`
+`initializer.config.rehypeFeeBeneficiaries` controls hook-fee routing
+independently of top-level `poolFeeBeneficiaries`. Do not include the Airlock
+owner to account for the protocol fee; Rehype reserves that fee before applying
+the beneficiary routing.
 
-Convenience alias for EVM multicurve launches.
+Migrator-side Rehype uses `migration.rehype.buybackDestination` rather than a
+Rehype beneficiary list. Its optional `feeRoutingMode` is `directBuyback` or
+`routeToBeneficiaryFees`. The latter accrues hook fees for collection by
+`buybackDestination`; it does not use top-level `poolFeeBeneficiaries`.
 
-- Internally forwards to `POST /v1/launches` and forces `auction.type = "multicurve"`.
-- Solana is not supported on this alias route.
+### Governance
 
----
+EVM governance accepts an omitted value, `false`, `true`, or an EVM address:
 
-### `POST /v1/launches/static`
+| Request value      | Governance mode          |
+| ------------------ | ------------------------ |
+| omitted or `false` | `noOp`                   |
+| `true`             | `default`                |
+| EVM address        | `launchpad { multisig }` |
 
-Convenience alias for EVM static launches.
+Successful EVM responses include
+`effectiveConfig.poolFeeBeneficiariesSource` with `default`, `request`, or
+`none`. Dynamic `uniswapV2` returns `none`.
 
-- Internally forwards to `POST /v1/launches` and forces `auction.type = "static"`.
-- Solana is not supported on this alias route.
+## Family routes
 
----
+`POST /v1/launches/static`, `POST /v1/launches/multicurve`, and
+`POST /v1/launches/dynamic` accept their corresponding EVM request schemas.
 
-### `POST /v1/launches/dynamic`
+## `POST /v1/solana/launches`
 
-Convenience alias for EVM dynamic launches.
+Creates a Solana launch request. Solana `feeBeneficiaries` use Solana addresses
+and `shareBps`.
 
-- Internally forwards to `POST /v1/launches` and forces `auction.type = "dynamic"`.
-- Solana is not supported on this alias route.
+The dedicated route uses `devnet`; the generic launch route uses
+`solanaDevnet`. The corresponding Mainnet Beta values are recognized but
+return `501 SOLANA_NETWORK_UNSUPPORTED`.
 
----
+## `GET /v1/capabilities`
 
-### `GET /v1/launches/:launchId`
+Returns the default chain, or `null` if none is configured; pricing state;
+configured EVM chains; and Solana availability. RPC URLs are not included.
 
-Returns current launch transaction status for EVM launches only.
+Each EVM chain reports its `auctionTypes`, multicurve initializers (`standard`
+and `rehype`), migrations (`uniswapV2` and `uniswapV4`), and governance modes
+(`noOp`, `default`, and `launchpad`).
 
-#### Path param
+## Status and operations
 
-- `launchId: "<chainId>:<txHash>"`
-
-#### Response `200`
-
-- `status = "pending" | "confirmed" | "reverted" | "not_found"`
-- includes `confirmations`
-- `result` included when confirmed:
-  - `tokenAddress`
-  - `poolOrHookAddress`
-  - `poolId`
-  - `blockNumber`
-- `error` included when reverted
-
-#### Error responses
-
-- `401 UNAUTHORIZED`
-- `429 RATE_LIMITED`
-- `422 INVALID_LAUNCH_ID`
-- `502 CHAIN_LOOKUP_FAILED`
-- `502 CREATE_EVENT_NOT_FOUND`
-- `500 INTERNAL_ERROR`
-
----
-
-### `GET /v1/capabilities`
-
-Returns deployment profile and supported create capabilities.
-
-#### Response `200`
-
-- `defaultChainId`
-- `pricing: { enabled, provider }`
-- `chains[]`:
-  - `chainId`
-  - `auctionTypes`
-  - `multicurveInitializers`
-  - `migrationModes`
-  - `governanceModes`
-  - `governanceEnabled`
-- `solana`:
-  - `enabled`
-  - `supportedNetworks`
-  - `unsupportedNetworks`
-  - `dedicatedRouteInputAliases`
-  - `creationOnly`
-  - `numeraireAddress`
-  - `priceResolutionModes`
-
-#### Error responses
-
-- `401 UNAUTHORIZED`
-- `429 RATE_LIMITED`
-
----
-
-### `GET /health`
-
-Liveness probe.
-
-#### Response `200`
-
-```json
-{ "status": "ok" }
-```
-
----
-
-### `GET /ready`
-
-Dependency readiness probe.
-
-#### Response
-
-- `200` when all configured EVM chain checks and Solana readiness checks pass
-- `503` when any check fails
-- body:
-  - `status: "ready" | "degraded"`
-  - `checks[]` for configured EVM chains
-  - `solana: { enabled, ok, network?, checks[] }`
-
-#### Solana readiness checks
-
-- RPC reachable
-- latest blockhash fetch
-- initializer config account decode
-- configured devnet address lookup table presence when `SOLANA_DEVNET_ALT_ADDRESS` is set
+- `GET /v1/launches/:launchId` returns EVM launch status.
+- `GET /v1/solana/launches/:launchAddress` returns Solana launch state.
+- `GET /health`, `GET /ready`, and `GET /metrics` expose service health and
+  operational metrics.

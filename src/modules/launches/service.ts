@@ -54,6 +54,15 @@ export class LaunchService {
       return this.solanaLaunchService.createLaunch(input, idempotencyKey);
     }
 
+    const balanceLimitEnd = input.tokenMetadata.balanceLimitEnd;
+    if (balanceLimitEnd !== undefined && balanceLimitEnd <= Math.floor(Date.now() / 1_000)) {
+      throw new AppError(
+        422,
+        'INVALID_TOKEN_CONFIG',
+        'tokenMetadata.balanceLimitEnd must be a future Unix timestamp',
+      );
+    }
+
     const chain = this.chainRegistry.get(input.chainId);
 
     ensureAuctionSupported(input.auction.type, chain.config);

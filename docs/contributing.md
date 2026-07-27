@@ -1,42 +1,41 @@
-# Contributing Guide
+# Contributing
 
-## Quality standards
+## Setup
 
-This project uses:
-
-- Oxlint for code quality (configured in `oxlint.config.ts` via `defineConfig`)
-- Oxfmt for formatting (configured in `oxfmt.config.ts` via `defineConfig`)
-- Vitest for test coverage
-- Lefthook for git hooks (configured in `lefthook.yml`)
-
-## Local workflow
+Requirements: Node.js 22 and npm 10.
 
 ```bash
 nvm use
-npm install
-npm run format
-npm run lint:fix
-npm test
+npm ci
+cp .env.example .env
 ```
 
-## CI-oriented checks
+Configure `.env`, then start the development server:
 
 ```bash
-npm run format:check
-npm run lint
-npm run typecheck
-npm test
+npm run dev
 ```
 
-Or run all checks in one command:
+## Checks
+
+Apply formatting and lint fixes:
+
+```bash
+npm run fix
+```
+
+Run all CI checks:
 
 ```bash
 npm run check
 ```
 
-## Git hooks (lefthook)
+`npm run check` runs formatting, lint, type-checking, and tests.
 
-Hooks install automatically via the `prepare` script when you run `npm install`. To install or refresh manually:
+## Git hooks
+
+The `prepare` script installs Lefthook during dependency installation. To
+install or refresh hooks manually:
 
 ```bash
 npx lefthook install
@@ -44,15 +43,15 @@ npx lefthook install
 
 Configured hooks:
 
-- `pre-commit` — runs `oxfmt` and `oxlint --fix --deny-warnings` against staged files (autofixes are restaged), then `tsc --noEmit` when TypeScript files are staged.
-- `pre-push` — runs `format:check`, `lint`, `typecheck`, and `test:unit` in parallel.
-
-To bypass the hook for a single commit, use `git commit --no-verify`. Prefer fixing issues over bypassing.
+- `pre-commit`: formats and lints staged files, restages fixes, and runs the
+  project type-check when TypeScript files are staged.
+- `pre-push`: runs `format:check`, `lint`, `typecheck`, and `test:unit` in
+  parallel.
 
 ## CI
 
-- GitHub Actions runs `.github/workflows/ci.yml` on push/PR to `main`.
-- The workflow installs dependencies with `npm ci` and runs `npm run check`.
+GitHub Actions runs `.github/workflows/ci.yml` for pushes and pull requests to
+`main`. It installs dependencies with `npm ci` and runs `npm run check`.
 
 ## Container workflow
 
@@ -64,19 +63,14 @@ docker compose up --build
 ## Conventions
 
 - Keep API contracts backward-compatible where possible.
-- Add tests with each behavior change:
-  - unit tests for pure logic
-  - integration tests for route/service wiring
-  - live tests for onchain behavior
-- Update docs in `docs/` whenever:
-  - request/response fields change
-  - environment config changes
-  - capability matrix changes
+- Add unit tests for pure logic, integration tests for route or service wiring,
+  and live tests for onchain behavior.
+- Update `README.md`, `AGENT_INTEGRATION.md`, and relevant files under `docs/`
+  when behavior or API contracts change.
 
 ## Contributor checklist
 
-- [ ] Code compiles and tests pass locally
-- [ ] Lint and format checks pass
-- [ ] README and docs updated
-- [ ] New behavior covered by tests
-- [ ] `CHANGELOG.md` updated for user-visible behavior changes
+- [ ] `npm run check` passes.
+- [ ] New behavior is covered by the appropriate tests.
+- [ ] README, integration guidance, and relevant docs are updated.
+- [ ] `CHANGELOG.md` is updated for user-visible behavior changes.

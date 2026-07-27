@@ -1,8 +1,9 @@
 # Integration Guide
 
-This is the shortest practical guide for integrating with the API from scripts, apps, or AI agents.
+The machine-readable contract and request examples are in
+[`docs/openapi.yaml`](docs/openapi.yaml).
 
-## 1. Start the API
+## Start and authenticate
 
 ```bash
 npm install
@@ -10,621 +11,111 @@ cp .env.example .env
 npm run dev
 ```
 
-Before running, configure non-secrets in `doppler.config.ts`.
-Use env vars for secrets and runtime overrides.
-
-Container option:
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-Base URL: `http://localhost:3000`
-
-Use Node version from `.nvmrc` for local runs.
-
-## 1b. Validation commands
-
-```bash
-npm test
-npm run test:static
-npm run test:dynamic
-npm run test:live
-npm run test:live:static
-npm run test:live:dynamic
-npm run test:live:v2migration
-npm run test:live:v4migration
-npm run test:live:multicurve
-npm run test:live:multicurve:defaults
-npm run test:live:fees
-npm run test:live:governance
-npm run test:live:solana
-npm run test:live:solana:devnet
-npm run test:live:solana:defaults
-npm run test:live:solana:fees
-npm run test:live:solana:cpmm
-npm run test:live:solana:no-migration
-npm run test:live:solana:random
-npm run test:live:solana:cosigner
-npm run test:live:solana:dynamic-fee
-npm run test:live:solana:failing
-LIVE_TEST_VERBOSE=true npm run test:live
-```
-
-- Live tests are concise by default and print a launch summary table.
-- Set `LIVE_TEST_VERBOSE=true` to print per-launch parameter + onchain verification tables.
-- Live launch creation tests run sequentially to avoid nonce conflicts for one signer.
-- `test:live` is the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet create matrix. Solana live parity covers the supported defaults, fee-beneficiary, reserve-split/CPMM, launches with no migration criteria, generic-route replay, randomized XYK paths, Doppler launch hook v1 launches with managed cosigner gating, and hook launches with scheduled dynamic fees; governance, vesting/vault locks, and static/dynamic EVM auction engines remain EVM-only.
-- Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR_PATH` pointing to a Solana CLI keypair file, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, `SOLANA_DEVNET_ALT_ADDRESS`, and enough SOL for launch account creation. The configured ALT avoids per-launch setup for transactions that fit; oversized launches fall back to a launch-specific ALT. `SOLANA_KEYPAIR` remains available as an inline fallback, but do not set both payer variables. Solana RPC requests retry HTTP `429` responses with bounded exponential backoff. Live create verification retries transient `SOLANA_NOT_READY` and `SOLANA_SUBMISSION_FAILED` responses once after 10 seconds. Use `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` to tune the readiness gate.
-
-Lint, format, and typecheck:
-
-```bash
-npm run lint           # oxlint --deny-warnings
-npm run format:check   # oxfmt --check
-npm run typecheck      # tsc --noEmit
-npm run check          # format:check + lint + typecheck + test
-npm run fix            # format + lint:fix
-```
-
-Git hooks are managed by [lefthook](https://lefthook.dev) (`lefthook.yml`):
-
-- `pre-commit` formats staged files with `oxfmt`, runs `oxlint --fix --deny-warnings` on staged JS/TS, restages fixes, then runs `tsc --noEmit` when TS files are staged.
-- `pre-push` runs `format:check`, `lint`, `typecheck`, and `test:unit` in parallel.
-
-Hooks install via the `prepare` script on `npm install`; run `npx lefthook install` to install manually. Use `git commit --no-verify` to bypass for a single commit (discouraged).
-
-## 1c. Shared/prod mode requirements
-
-- Set `DEPLOYMENT_MODE=shared` (or run with `NODE_ENV=production` and no explicit deployment mode).
-- Set `REDIS_URL` and `IDEMPOTENCY_BACKEND=redis`.
-- In shared mode, create endpoints require `Idempotency-Key`.
-- Rate-limit state is Redis-backed; `GET /health` is IP-bucketed (spoofed `x-api-key` does not bypass).
-- Tx submission uses a Redis-backed distributed nonce lock so replicas can safely share one signer.
-- Redis idempotency writes an `in_progress` marker before tx submit and fails closed with `409 IDEMPOTENCY_KEY_IN_DOUBT` if a prior attempt is left in doubt after restart/crash.
-- Shared mode startup fails fast if Redis is unreachable.
-
-## 2. Required auth
-
-Include API key header on all endpoints except `GET /health`:
-
-- `x-api-key: <API_KEY>`
-
-## 2b. Error behavior
-
-- Error envelope shape: `{ "error": { "code", "message", "details?" } }`
-- Rate limiting returns `429` with code `RATE_LIMITED`.
-- `5xx` responses intentionally return a generic message (`"Internal server error"`).
-  Use server logs and `x-request-id` for detailed diagnostics.
-- `GET /ready` degraded checks intentionally return a generic per-chain error (`"dependency unavailable"`).
-
-## 3. One launch flow
-
-EVM flow:
-
-1. Call `POST /v1/launches`.
-   - Optional aliases:
-   - `POST /v1/launches/multicurve` (forces `auction.type="multicurve"`)
-   - `POST /v1/launches/static` (forces `auction.type="static"`)
-   - `POST /v1/launches/dynamic` (forces `auction.type="dynamic"`)
-2. Save `launchId` from response.
-3. Poll `GET /v1/launches/:launchId` every 3-5 seconds.
-4. Stop when status is `confirmed` or `reverted`.
-
-Solana flow:
-
-1. Call `POST /v1/solana/launches` or `POST /v1/launches` with `network: "solanaDevnet" | "solanaMainnetBeta"`.
-2. Save `launchId`, `signature`, `explorerUrl`, and `statusUrl`.
-3. Poll `GET /v1/solana/launches/:launchAddress` when you need current devnet launch account state; do not use the EVM `GET /v1/launches/:launchId` route for Solana.
-4. If the API returns `409 IDEMPOTENCY_KEY_IN_DOUBT`, use the returned `signature` and `explorerUrl` to reconcile the prior attempt before creating a new request.
-
-Auction selection guidance:
-
-- Default to `auction.type="multicurve"` whenever the target chain supports Uniswap V4.
-- Use `auction.type="dynamic"` for high value assets that need maximally capital-efficient price discovery.
-- Use `auction.type="static"` only for networks that do not support Uniswap V4.
-
-Use `Idempotency-Key` on all create requests in shared integrations (required by policy and recommended in standalone mode).
-If a retry returns `409 IDEMPOTENCY_KEY_IN_DOUBT`, poll status for the prior launch attempt before deciding to mint a new idempotency key.
-If a Solana retry returns `409 IDEMPOTENCY_KEY_IN_DOUBT`, fail closed and reconcile by signature instead of retrying blindly.
-
-## 4. Minimal request template
-
-```json
-{
-  "chainId": 84532,
-  "userAddress": "0x1111111111111111111111111111111111111111",
-  "tokenMetadata": {
-    "name": "My Token",
-    "symbol": "MTK",
-    "tokenURI": "ipfs://metadata"
-  },
-  "economics": {
-    "totalSupply": "1000000000000000000000000"
-  },
-  "pricing": {
-    "numerairePriceUsd": 3000
-  },
-  "governance": false,
-  "migration": {
-    "type": "noOp"
-  },
-  "auction": {
-    "type": "multicurve",
-    "curveConfig": {
-      "type": "preset",
-      "presets": ["low", "medium", "high"]
-    },
-    "initializer": {
-      "type": "standard"
-    }
-  }
-}
-```
-
-## 4a. Solana minimal request template
-
-Use the dedicated route with short aliases:
-
-```json
-{
-  "network": "devnet",
-  "tokenMetadata": {
-    "name": "My Solana Token",
-    "symbol": "MSOL",
-    "tokenURI": "ipfs://metadata"
-  },
-  "economics": {
-    "totalSupply": "1000000000"
-  },
-  "pricing": {
-    "numerairePriceUsd": 150
-  },
-  "governance": false,
-  "migration": {
-    "type": "none"
-  },
-  "auction": {
-    "type": "xyk",
-    "curveConfig": {
-      "type": "range",
-      "marketCapStartUsd": 100,
-      "marketCapEndUsd": 1000
-    }
-  }
-}
-```
-
-Use the generic route only with canonical prefixed networks:
-
-```json
-{
-  "network": "solanaDevnet",
-  "tokenMetadata": {
-    "name": "My Solana Token",
-    "symbol": "MSOL",
-    "tokenURI": "ipfs://metadata"
-  },
-  "economics": {
-    "totalSupply": "1000000000"
-  },
-  "governance": false,
-  "migration": {
-    "type": "none"
-  },
-  "auction": {
-    "type": "xyk",
-    "curveConfig": {
-      "type": "range",
-      "marketCapStartUsd": 100,
-      "marketCapEndUsd": 1000
-    }
-  }
-}
-```
-
-## 4b. Custom curve (ranges) template
-
-Use this when you want intentional market-cap bands and allocation shares instead of preset tiers.
-
-```json
-{
-  "chainId": 84532,
-  "userAddress": "0x1111111111111111111111111111111111111111",
-  "tokenMetadata": {
-    "name": "Agent Curve Token",
-    "symbol": "ACT",
-    "tokenURI": "ipfs://agent-curve-token"
-  },
-  "economics": {
-    "totalSupply": "1000000000000000000000000"
-  },
-  "pricing": {
-    "numerairePriceUsd": 3000
-  },
-  "governance": false,
-  "migration": {
-    "type": "noOp"
-  },
-  "auction": {
-    "type": "multicurve",
-    "curveConfig": {
-      "type": "ranges",
-      "fee": 15000,
-      "tickSpacing": 300,
-      "curves": [
-        {
-          "marketCapStartUsd": 100,
-          "marketCapEndUsd": 10000,
-          "numPositions": 11,
-          "sharesWad": "200000000000000000"
-        },
-        {
-          "marketCapStartUsd": 10000,
-          "marketCapEndUsd": 200000,
-          "numPositions": 11,
-          "sharesWad": "300000000000000000"
-        },
-        {
-          "marketCapStartUsd": 200000,
-          "marketCapEndUsd": "max",
-          "numPositions": 11,
-          "sharesWad": "500000000000000000"
-        }
-      ]
-    }
-  }
-}
-```
-
-## 5. Deployment modes and Redis
-
-- `standalone`: one API instance owns its own local state and does not need cross-instance coordination.
-- `shared`: multiple API instances can serve the same workload safely by coordinating through Redis.
-
-- Standalone mode:
-  - Set `DEPLOYMENT_MODE=standalone`.
-  - Redis is optional.
-  - Good fit for one API instance, one signer, and durable local storage.
-  - Redis is recommended if you want stronger crash/restart recovery for create requests.
-- Shared mode:
-  - Set `DEPLOYMENT_MODE=shared` (or run with `NODE_ENV=production` and no explicit deployment mode).
-  - Set `REDIS_URL` and `IDEMPOTENCY_BACKEND=redis`.
-  - In shared mode, create endpoints require `Idempotency-Key`.
-  - Rate-limit state is Redis-backed; `GET /health` is IP-bucketed (spoofed `x-api-key` does not bypass).
-  - Tx submission uses a Redis-backed distributed nonce lock so replicas can safely share one signer.
-  - Redis idempotency writes an `in_progress` marker before tx submit and fails closed with `409 IDEMPOTENCY_KEY_IN_DOUBT` if a prior attempt is left in doubt after restart/crash.
-  - Shared mode startup fails fast if Redis is unreachable.
-
-## 4c. Sale split template (20% sale / 80% non-market allocation)
-
-```json
-{
-  "chainId": 84532,
-  "userAddress": "0x1111111111111111111111111111111111111111",
-  "tokenMetadata": {
-    "name": "Split Token",
-    "symbol": "SPL",
-    "tokenURI": "ipfs://split-token"
-  },
-  "economics": {
-    "totalSupply": "1000000000000000000000000",
-    "tokensForSale": "200000000000000000000000",
-    "allocations": {
-      "mode": "vest",
-      "durationSeconds": 7776000
-    }
-  },
-  "pricing": {
-    "numerairePriceUsd": 3000
-  },
-  "governance": false,
-  "migration": {
-    "type": "noOp"
-  },
-  "auction": {
-    "type": "multicurve",
-    "curveConfig": {
-      "type": "preset",
-      "presets": ["medium"]
-    }
-  }
-}
-```
-
-## 4d. Multi-address non-market allocation template
-
-```json
-{
-  "chainId": 84532,
-  "userAddress": "0x1111111111111111111111111111111111111111",
-  "tokenMetadata": {
-    "name": "Team Split Token",
-    "symbol": "TST",
-    "tokenURI": "ipfs://team-split-token"
-  },
-  "economics": {
-    "totalSupply": "1000000000000000000000000",
-    "allocations": {
-      "recipients": [
-        {
-          "address": "0x2222222222222222222222222222222222222222",
-          "amount": "300000000000000000000000"
-        },
-        {
-          "address": "0x3333333333333333333333333333333333333333",
-          "amount": "500000000000000000000000"
-        }
-      ],
-      "mode": "vest",
-      "durationSeconds": 7776000
-    }
-  },
-  "pricing": {
-    "numerairePriceUsd": 3000
-  },
-  "governance": false,
-  "migration": {
-    "type": "noOp"
-  },
-  "auction": {
-    "type": "multicurve",
-    "curveConfig": {
-      "type": "preset",
-      "presets": ["medium"]
-    }
-  }
-}
-```
-
-## 4e. Static (V3) launch template
-
-Use this only when the target network does not support Uniswap V4/multicurve.
-For V4-capable networks, use the multicurve templates above.
-
-```json
-{
-  "chainId": 84532,
-  "userAddress": "0x1111111111111111111111111111111111111111",
-  "tokenMetadata": {
-    "name": "Static Token",
-    "symbol": "STC",
-    "tokenURI": "ipfs://static-token"
-  },
-  "economics": {
-    "totalSupply": "1000000000000000000000000"
-  },
-  "pricing": {
-    "numerairePriceUsd": 3000
-  },
-  "governance": false,
-  "migration": {
-    "type": "noOp"
-  },
-  "auction": {
-    "type": "static",
-    "curveConfig": {
-      "type": "preset",
-      "preset": "medium"
-    }
-  }
-}
-```
-
-## 4f. Static (V3) explicit range template (starts at $100)
-
-```json
-{
-  "chainId": 84532,
-  "userAddress": "0x1111111111111111111111111111111111111111",
-  "tokenMetadata": {
-    "name": "Static Range Token",
-    "symbol": "SRT",
-    "tokenURI": "ipfs://static-range-token"
-  },
-  "economics": {
-    "totalSupply": "1000000000000000000000000"
-  },
-  "pricing": {
-    "numerairePriceUsd": 3000
-  },
-  "governance": false,
-  "migration": {
-    "type": "noOp"
-  },
-  "auction": {
-    "type": "static",
-    "curveConfig": {
-      "type": "range",
-      "marketCapStartUsd": 100,
-      "marketCapEndUsd": 100000
-    }
-  }
-}
-```
-
-## 4g. Dynamic (V4) explicit range template (starts at $100)
-
-Use this for the dynamic flow on Base Sepolia with Uniswap V2 migration.
-Dynamic pools migrate immediately when `maxProceeds` is reached, or at auction end when `minProceeds` is reached.
-This mode is intended for assets with well-known value and maximally capital-efficient price discovery goals.
-
-```json
-{
-  "chainId": 84532,
-  "userAddress": "0x1111111111111111111111111111111111111111",
-  "tokenMetadata": {
-    "name": "Dynamic Token",
-    "symbol": "DYN",
-    "tokenURI": "ipfs://dynamic-token"
-  },
-  "economics": {
-    "totalSupply": "1000000000000000000000000"
-  },
-  "pricing": {
-    "numerairePriceUsd": 3000
-  },
-  "governance": false,
-  "migration": {
-    "type": "uniswapV2"
-  },
-  "auction": {
-    "type": "dynamic",
-    "curveConfig": {
-      "type": "range",
-      "marketCapStartUsd": 100,
-      "marketCapMinUsd": 50,
-      "minProceeds": "0.01",
-      "maxProceeds": "0.1",
-      "durationSeconds": 86400
-    }
-  }
-}
-```
-
-Custom-curve rules agents should enforce before submit:
-
-- Use 3-4 curves for most launches.
-- Keep curves cohesive (`next.start == previous.end`).
-- Ensure shares sum to `1e18` (100%).
-- Keep `numPositions > 0`.
-
-## 5. What to expect in create response
-
-- EVM:
-  - `launchId`: stable tracking key (`<chainId>:<txHash>`)
-  - `txHash`: onchain tx hash
-  - `predicted.tokenAddress` and `predicted.poolId`: simulation outputs
-  - `effectiveConfig`: defaults actually used by API
-- Solana:
-  - `launchId`: base58 launch PDA
-  - `signature`: submitted transaction signature
-  - `explorerUrl`: direct explorer link
-  - `predicted`: SDK-derived token / authority / vault addresses
-  - `effectiveConfig`: resolved WSOL price, reserve split, and derived XYK reserves
-
-## 6. Status handling rules
-
-- `pending`: continue polling.
-- `confirmed`: use `result.tokenAddress` and `result.poolId`.
-- `reverted`: treat as failed launch and surface `error.code/message`.
-- `not_found`: retry briefly, then fail.
-- Solana create responses include `statusUrl=/v1/solana/launches/:launchAddress`.
-- `GET /v1/solana/launches/:launchAddress` returns devnet launch account state, including
-  phase, mints, vaults, supply split, curve reserves, fee, and trading flags.
-
-## 7. Important defaults
-
-- Solana rules:
-  - use `POST /v1/solana/launches` for short `network` aliases (`devnet`, `mainnet-beta`)
-  - use `POST /v1/launches` for Solana only when `network` is `solanaDevnet` or `solanaMainnetBeta`
-  - only `solanaDevnet` is executable; `solanaMainnetBeta` returns `501 SOLANA_NETWORK_UNSUPPORTED`
-  - only WSOL is supported as numeraire
-  - Solana price resolution precedence is request override, fixed env price, then CoinGecko
-  - unsupported EVM-shaped fields are rejected instead of ignored
-- Solana `migration.type="none"` launches use the initializer curve. Set `migration.supportCpmm=true` and `migration.minimumQuoteRaise` to register the launch with the CPMM migrator. All API-created launches use Doppler launch hook v1; migration registration and hook features are independent.
-- Omit `economics.baseForDistribution` and `economics.baseForLiquidity`, or set both to `0`, unless `migration.supportCpmm=true`.
-- Non-zero Solana reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled.
-- `effectiveConfig.tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`.
-- Prefer Solana `auction.swapFeeBps`; `auction.curveFeeBps` remains accepted as a backward-compatible alias.
-- Use Solana `auction.cosignerGate` to configure Doppler-managed cosigning through Doppler launch hook v1, with or without CPMM migration. `type` must be `"cosigner"`; the API resolves the canonical signer from the on-chain hook config, and caller-provided cosigner addresses are rejected. Optional `expiry` supports `disabled` and `unixTimestamp`. Omitted or `disabled` expiry is indefinite; timestamp mode requires `value`.
-- Use Solana `auction.dynamicFee` to configure a fee schedule on Doppler launch hook v1. `startFeeBps` and `endFeeBps` are basis points, `durationSeconds` is a non-negative integer string, and optional `startingTime` defaults to launch creation when omitted or `"0"`. The effective swap fee is the greater of the schedule fee and `auction.swapFeeBps`.
-- Combine `auction.dynamicFee` with `auction.cosignerGate` to enable both features on the same hook.
-- Solana `feeBeneficiaries` is optional, supports up to 8 unique addresses, uses `shareBps`, and custom shares must sum to `10000`. If the API payer is the initializer protocol beneficiary, provide a non-protocol beneficiary list.
-- Multicurve initializer defaults to `standard` (implemented as scheduled with `startTime=0`).
-- Supported multicurve initializer modes:
-  - `standard`
-  - `scheduled` with required `startTime`
-  - `decay` with `startFee`, `durationSeconds`, optional `startTime`
-  - `rehype` with hook config and wad distribution fields
-- Static launches require `auction.curveConfig`:
-  - `type: "preset"` with `preset: "low" | "medium" | "high"`
-  - or `type: "range"` with explicit `marketCapStartUsd` and `marketCapEndUsd`
-- Static launches use lockable beneficiaries and `migration.type="noOp"` only in this API profile.
-- Dynamic launches require:
-  - `auction.curveConfig.type = "range"`
-  - `marketCapStartUsd`, `marketCapMinUsd`, `minProceeds`, `maxProceeds`
-  - custom dynamic fees are supported via `auction.curveConfig.fee` (with optional `tickSpacing`)
-  - `migration.type="uniswapV2"` or `migration.type="uniswapV4"` (required in this API profile)
-  - when `migration.type="uniswapV4"`, include `migration.fee` and `migration.tickSpacing`
-  - when `migration.type="uniswapV4"`, streamable fee beneficiaries are derived from `feeBeneficiaries` (or the default 95/5 split)
-- `migration.type="uniswapV3"` is not supported and currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
-- Agent policy: multicurve is the default and preferred auction type. Choose static only as a compatibility fallback for non-V4 networks.
-- Prefer multicurve `curveConfig.type="ranges"` when you need specific market-cap behavior; do not default to presets unless generic tiers are acceptable.
-- Non-market allocation is computed automatically:
-  - `allocationAmount = totalSupply - tokensForSale`
-  - default recipient is `userAddress`
-  - default lock mode is `vest`
-  - default lock duration is `7776000` seconds (90 days)
-- Explicit allocation split:
-  - use `economics.allocations.recipients` for up to 10 unique addresses
-  - no duplicate addresses
-  - amounts must sum exactly to `totalSupply - tokensForSale`
-  - if `tokensForSale` is omitted, API derives it from allocation amounts
-- Supported non-market allocation lock modes:
-  - `vest` (duration > 0)
-  - `unlock` (duration omitted or `0`)
-  - `vault` (duration > 0)
-- Percentage-based sale setup:
-  - compute `tokensForSale = totalSupply * salePercent / 100`
-  - example: `salePercent=20` => 20% sold in auction, 80% non-market allocation
-- `governance` defaults to `false` (no governance) when omitted.
-- `governance` is binary at create time:
-  - `false` or omitted => no governance
-  - `true` or `{ enabled: true }` => default token-holder governance (OpenZeppelin Governor via protocol governance factory)
-- `integrationAddress` is optional.
-- If `feeBeneficiaries` is omitted, API defaults to 95% user / 5% protocol owner.
-- `feeBeneficiaries` supports up to 10 unique addresses.
-- If protocol owner is omitted from `feeBeneficiaries`, provided shares must sum to 95% and API appends protocol owner at 5%.
-- If protocol owner is present in `feeBeneficiaries`, shares must sum to 100% and protocol owner must have at least 5%.
-- If no price provider is available, you must pass `pricing.numerairePriceUsd`.
-- Custom multicurve fees are supported via `auction.curveConfig.fee`.
-- Custom static fee input is supported via `auction.curveConfig.fee` (subject to Uniswap V3 fee tier constraints).
-- For custom multicurve fees with omitted `tickSpacing`, API derives fallback spacing.
-
-## 8. Copy/paste curl
-
-Create:
-
-```bash
-curl -X POST http://localhost:3000/v1/launches \
-  -H 'content-type: application/json' \
-  -H "x-api-key: $API_KEY" \
-  -H "Idempotency-Key: launch-$(date +%s)" \
-  -d @launch.json
-```
-
-Solana create:
-
-```bash
-curl -X POST http://localhost:3000/v1/solana/launches \
-  -H 'content-type: application/json' \
-  -H "x-api-key: $API_KEY" \
-  -H "Idempotency-Key: solana-launch-$(date +%s)" \
-  -d @solana-launch.json
-```
-
-Status:
-
-```bash
-curl -H "x-api-key: $API_KEY" \
-  "http://localhost:3000/v1/launches/$LAUNCH_ID"
-```
-
-Capabilities:
-
-```bash
-curl -H "x-api-key: $API_KEY" \
-  http://localhost:3000/v1/capabilities
-```
-
-## 9. Docs for agents
-
-For full contract details and schema references:
-
-- `docs/openapi.yaml` (machine-readable)
-- `docs/api-reference.md`
-- `docs/custom-curves.md`
-- `docs/mvp-launch.md`
-- `docs/errors.md`
+Set `API_KEY`, `PRIVATE_KEY`, and one or more named EVM RPC variables. Send
+`x-api-key` on every endpoint except `GET /health`; send a stable
+`Idempotency-Key` for create retries and always in shared deployments.
+
+## Choose an EVM family
+
+Use exactly one family shape:
+
+- `static`: do not include `migration`.
+- `multicurve`: do not include `migration`. Choose the `standard` or `rehype`
+  initializer. For Rehype, each currency-side set of four WAD shares must sum
+  to `1e18`. Choose exactly one route: `buybackDestination`, or 1 to 10 unique
+  `rehypeFeeBeneficiaries` whose positive `sharesWad` values sum to `1e18`.
+- `dynamic`: include exactly one `migration` with type `uniswapV2` or
+  `uniswapV4`.
+
+Optional EVM token controls are
+`maxBalanceLimit` (positive integer string below total supply),
+`balanceLimitEnd` (future Unix timestamp), `controller` (EVM address), and
+`excludedFromBalanceLimit` (case-insensitively unique EVM addresses).
+The two balance-limit fields must be supplied together.
+
+## Dynamic migration input
+
+`uniswapV2` accepts optional `feeBeneficiary: { address, percentage }`, where
+`percentage` is an integer from 1 through 50. Do not send top-level
+`poolFeeBeneficiaries` for V2. LP disposition has no API controls: 95% goes to
+the migration recipient and 5% to a one-year locker whose exit fees go to the
+Airlock owner.
+
+For `uniswapV4`, provide non-negative `fee`, positive `tickSpacing`, and
+non-negative `lockDurationSeconds`. The migrated pool uses that fixed LP fee
+and accepts top-level `poolFeeBeneficiaries`.
+
+Add `migration.rehype` to use `RehypeDopplerHookMigrator`. It requires a
+non-zero `buybackDestination`, a static `customFee` from 0 through 1,000,000,
+and the eight-field `feeDistributionInfo` matrix. Each currency-side row must
+sum to `1e18`. `feeRoutingMode` is optional and defaults to `directBuyback`;
+the other value is `routeToBeneficiaryFees`. The Rehype `customFee` is
+separate from the migration's fixed Uniswap V4 LP `fee`.
+`routeToBeneficiaryFees` accrues hook fees for collection by
+`buybackDestination`; it does not use `poolFeeBeneficiaries`.
+
+Use `poolFeeBeneficiaries` only for EVM pool fees; EVM requests reject
+`feeBeneficiaries`. It has at most 10 unique addresses. The default split is
+95% user and 5% protocol owner. If the protocol owner is omitted, supply 95%
+and the API appends 5%; if included, the total is 100% and that owner receives
+at least 5%.
+
+Rehype `initializer.config.rehypeFeeBeneficiaries` is not a pool-beneficiary list.
+The API neither inserts nor requires the Airlock owner. The owner's protocol
+fee is reserved separately before the remaining hook fee is routed.
+
+## Governance and allocations
+
+- Omit governance or set it to `false` to disable it.
+- Set it to `true` for default governance.
+- Set it to an EVM address to use that address as the launchpad multisig.
+
+`tokensForSale` defaults to `totalSupply`. The remaining supply can use up to
+10 independent vesting schedules. Each entry has `recipientAddress`, `amount`,
+`durationSeconds`, and optional `cliffDurationSeconds`; one recipient may have
+multiple entries. Static accepts presets or a manual range. Multicurve
+accepts presets or contiguous ranges and preserves final `marketCapEndUsd:
+"max"`. Multicurve fees may be `0`.
+
+Static custom fees are limited to `100`, `500`, `3000`, or `10000`. For a
+dynamic range, `marketCapMinUsd` must be less than `marketCapStartUsd`;
+`epochLengthSeconds` must divide the effective duration; `gamma` must be
+divisible by the effective tick spacing; and a non-standard fee requires an
+explicit `tickSpacing` no greater than `30`.
+
+## RPC selection and capabilities
+
+Enable any subset of `ETHEREUM_RPC_URL` (1), `MONAD_RPC_URL` (143),
+`ROBINHOOD_RPC_URL` (4663), `BASE_RPC_URL` (8453), and
+`BASE_SEPOLIA_RPC_URL` (84532). `DEFAULT_CHAIN_ID` is optional and, when set,
+must identify one of those enabled chains. A request with `chainId` uses that
+enabled chain. A request without it uses the configured default or fails with
+`CHAIN_ID_REQUIRED` when no default is configured. An explicitly requested
+supported chain without a configured named RPC fails with
+`CHAIN_NOT_CONFIGURED`; the service never falls back to another chain.
+
+Call `GET /v1/capabilities` before assembling a request. It lists only enabled
+chains, reports the default as its chain ID or `null`, and exposes no RPC
+values. EVM effective responses expose
+`poolFeeBeneficiariesSource: "default" | "request" | "none"`; dynamic V2 migration
+uses `"none"`.
+
+## Solana request model
+
+Solana payloads use `feeBeneficiaries` with `shareBps`.
+Do not apply EVM `poolFeeBeneficiaries` or EVM token/governance controls to
+Solana. Use `POST /v1/solana/launches` for dedicated Solana creation.
+
+## Errors and retry
+
+Malformed or unsupported EVM fields, unknown nested keys, and incompatible
+family combinations return `422 INVALID_REQUEST`. Reuse an idempotency key
+only for the identical request. A `409 IDEMPOTENCY_KEY_IN_DOUBT` requires
+reconciling the original EVM signer and nonce, or the recorded Solana
+signature, before using a new key. The API persists ambiguous EVM transport
+failures and nonce responses that may indicate acceptance, and does not
+automatically resubmit them. Deterministic wallet or provider rejections may
+be retried with the same key after correction. `503 NONCE_LOCK_LOST` occurs
+before broadcast and is safe to retry with the same key.
+A confirmed pre-broadcast token address collision returns
+`409 TOKEN_ADDRESS_COLLISION`; retry the launch to use a different salt.

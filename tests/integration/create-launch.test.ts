@@ -25,8 +25,6 @@ describe('POST /v1/launches', () => {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
         economics: { totalSupply: '1000' },
-        governance: { enabled: false, mode: 'noOp' },
-        migration: { type: 'noOp' },
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['low'] },
@@ -39,7 +37,82 @@ describe('POST /v1/launches', () => {
     expect(body.launchId).toContain('84532:0x');
     expect(body.effectiveConfig.tokensForSale).toBe('1000');
     expect(body.effectiveConfig.allocationAmount).toBe('0');
-    expect(body.effectiveConfig.allocationLockMode).toBe('none');
+    expect(body.effectiveConfig.vestingAllocations).toEqual([]);
+    expect(body.effectiveConfig.poolFeeBeneficiariesSource).toBe('default');
+  });
+
+  it('requires chainId when no default chain is configured', async () => {
+    app = await buildTestServer({ defaultChainId: null });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+        economics: { totalSupply: '1000' },
+        auction: {
+          type: 'multicurve',
+          curveConfig: { type: 'preset', presets: ['low'] },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error.code).toBe('CHAIN_ID_REQUIRED');
+  });
+
+  it('uses an explicit configured chain when no default chain is configured', async () => {
+    app = await buildTestServer({ defaultChainId: null });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        chainId: 84532,
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+        economics: { totalSupply: '1000' },
+        auction: {
+          type: 'multicurve',
+          curveConfig: { type: 'preset', presets: ['low'] },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().chainId).toBe(84532);
+  });
+
+  it('rejects an explicit chain without a configured RPC', async () => {
+    app = await buildTestServer({ defaultChainId: null });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches',
+      headers: {
+        'x-api-key': 'test-key',
+      },
+      payload: {
+        chainId: 8453,
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+        economics: { totalSupply: '1000' },
+        auction: {
+          type: 'multicurve',
+          curveConfig: { type: 'preset', presets: ['low'] },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error.code).toBe('CHAIN_NOT_CONFIGURED');
   });
 
   it('static launch: low market cap preset', async () => {
@@ -55,8 +128,6 @@ describe('POST /v1/launches', () => {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Static Token', symbol: 'STK', tokenURI: 'ipfs://token' },
         economics: { totalSupply: '1000' },
-        governance: { enabled: false, mode: 'noOp' },
-        migration: { type: 'noOp' },
         auction: {
           type: 'static',
           curveConfig: {
@@ -86,8 +157,6 @@ describe('POST /v1/launches', () => {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Static Range Token', symbol: 'SRT', tokenURI: 'ipfs://token' },
         economics: { totalSupply: '1000' },
-        governance: { enabled: false, mode: 'noOp' },
-        migration: { type: 'noOp' },
         auction: {
           type: 'static',
           curveConfig: {
@@ -118,7 +187,7 @@ describe('POST /v1/launches', () => {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Dynamic Token', symbol: 'DYN', tokenURI: 'ipfs://token' },
         economics: { totalSupply: '1000' },
-        governance: { enabled: false, mode: 'noOp' },
+        governance: false,
         migration: { type: 'uniswapV2' },
         auction: {
           type: 'dynamic',
@@ -140,7 +209,7 @@ describe('POST /v1/launches', () => {
     expect(body.effectiveConfig.tokensForSale).toBe('1000');
   });
 
-  it('dynamic launch: supports uniswapV4 migration config', async () => {
+  it('dynamic launch: supports uniswapV4 config', async () => {
     app = await buildTestServer();
 
     const response = await app.inject({
@@ -152,13 +221,18 @@ describe('POST /v1/launches', () => {
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: {
-          name: 'Dynamic V4 Migration Token',
-          symbol: 'DV4',
+          name: 'Dynamic Hook Migration Token',
+          symbol: 'DHM',
           tokenURI: 'ipfs://token',
         },
         economics: { totalSupply: '1000' },
-        governance: { enabled: false, mode: 'noOp' },
-        migration: { type: 'uniswapV4', fee: 20_000, tickSpacing: 100 },
+        governance: false,
+        migration: {
+          type: 'uniswapV4',
+          fee: 20_000,
+          tickSpacing: 100,
+          lockDurationSeconds: 86_400,
+        },
         auction: {
           type: 'dynamic',
           curveConfig: {
@@ -189,8 +263,6 @@ describe('POST /v1/launches', () => {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Static Alias Token', symbol: 'SAT', tokenURI: 'ipfs://token' },
         economics: { totalSupply: '1000' },
-        governance: { enabled: false, mode: 'noOp' },
-        migration: { type: 'noOp' },
         auction: {
           type: 'static',
           curveConfig: {
@@ -218,7 +290,7 @@ describe('POST /v1/launches', () => {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Dynamic Alias Token', symbol: 'DAT', tokenURI: 'ipfs://token' },
         economics: { totalSupply: '1000' },
-        governance: { enabled: false, mode: 'noOp' },
+        governance: false,
         migration: { type: 'uniswapV2' },
         auction: {
           type: 'dynamic',
@@ -251,8 +323,6 @@ describe('POST /v1/launches', () => {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Wrong Alias Token', symbol: 'WAT', tokenURI: 'ipfs://token' },
         economics: { totalSupply: '1000' },
-        governance: { enabled: false, mode: 'noOp' },
-        migration: { type: 'noOp' },
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['low'] },
@@ -276,8 +346,6 @@ describe('POST /v1/launches', () => {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Wrong Dynamic Alias', symbol: 'WDA', tokenURI: 'ipfs://token' },
         economics: { totalSupply: '1000' },
-        governance: { enabled: false, mode: 'noOp' },
-        migration: { type: 'noOp' },
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['low'] },
@@ -286,6 +354,86 @@ describe('POST /v1/launches', () => {
     });
 
     expect(response.statusCode).toBe(422);
+  });
+
+  it('multicurve alias rejects non-multicurve auction payloads', async () => {
+    app = await buildTestServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches/multicurve',
+      headers: { 'x-api-key': 'test-key' },
+      payload: {
+        userAddress: '0x1111111111111111111111111111111111111111',
+        tokenMetadata: { name: 'Wrong Multicurve Alias', symbol: 'WMA', tokenURI: 'ipfs://token' },
+        economics: { totalSupply: '1000' },
+        auction: {
+          type: 'static',
+          curveConfig: { type: 'preset', preset: 'low' },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error.code).toBe('INVALID_REQUEST');
+  });
+
+  it('retains the replay header on a canonical alias request', async () => {
+    app = await buildTestServer();
+    const payload = {
+      userAddress: '0x1111111111111111111111111111111111111111',
+      tokenMetadata: { name: 'Replay Token', symbol: 'RPL', tokenURI: 'ipfs://replay' },
+      economics: { totalSupply: '1000' },
+      auction: {
+        type: 'static',
+        curveConfig: { type: 'preset', preset: 'low' },
+      },
+    };
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/v1/launches/static',
+      headers: { 'x-api-key': 'test-key', 'idempotency-key': 'canonical-static' },
+      payload,
+    });
+    const replay = await app.inject({
+      method: 'POST',
+      url: '/v1/launches/static',
+      headers: { 'x-api-key': 'test-key', 'idempotency-key': 'canonical-static' },
+      payload,
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(first.headers['x-idempotency-replayed']).toBeUndefined();
+    expect(replay.statusCode).toBe(200);
+    expect(replay.headers['x-idempotency-replayed']).toBe('true');
+  });
+
+  it('rejects a legacy create body before idempotency lookup for old and new keys', async () => {
+    app = await buildTestServer();
+    const payload = {
+      userAddress: '0x1111111111111111111111111111111111111111',
+      tokenMetadata: { name: 'Legacy Token', symbol: 'LEG', tokenURI: 'ipfs://legacy' },
+      economics: { totalSupply: '1000' },
+      feeBeneficiaries: [],
+      auction: {
+        type: 'static',
+        curveConfig: { type: 'preset', preset: 'low' },
+      },
+    };
+
+    for (const idempotencyKey of ['previously-used-key', 'new-key']) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/launches/static',
+        headers: { 'x-api-key': 'test-key', 'idempotency-key': idempotencyKey },
+        payload,
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(response.json().error.code).toBe('INVALID_REQUEST');
+      expect(response.headers['x-idempotency-replayed']).toBeUndefined();
+    }
   });
 
   it('returns allocation defaults when sale is less than total supply', async () => {
@@ -301,8 +449,6 @@ describe('POST /v1/launches', () => {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Split Token', symbol: 'SPL', tokenURI: 'ipfs://split' },
         economics: { totalSupply: '1000', tokensForSale: '200' },
-        governance: { enabled: false, mode: 'noOp' },
-        migration: { type: 'noOp' },
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['medium'] },
@@ -314,14 +460,17 @@ describe('POST /v1/launches', () => {
     const body = response.json();
     expect(body.effectiveConfig.tokensForSale).toBe('200');
     expect(body.effectiveConfig.allocationAmount).toBe('800');
-    expect(body.effectiveConfig.allocationRecipient).toBe(
-      '0x1111111111111111111111111111111111111111',
-    );
-    expect(body.effectiveConfig.allocationLockMode).toBe('vest');
-    expect(body.effectiveConfig.allocationLockDurationSeconds).toBe(90 * 24 * 60 * 60);
+    expect(body.effectiveConfig.vestingAllocations).toEqual([
+      {
+        recipientAddress: '0x1111111111111111111111111111111111111111',
+        amount: '800',
+        durationSeconds: 90 * 24 * 60 * 60,
+        cliffDurationSeconds: 0,
+      },
+    ]);
   });
 
-  it('respects explicit allocation lock config', async () => {
+  it('respects an explicit vesting schedule', async () => {
     app = await buildTestServer();
 
     const response = await app.inject({
@@ -332,18 +481,19 @@ describe('POST /v1/launches', () => {
       },
       payload: {
         userAddress: '0x1111111111111111111111111111111111111111',
-        tokenMetadata: { name: 'Unlocked Token', symbol: 'ULK', tokenURI: 'ipfs://unlock' },
+        tokenMetadata: { name: 'Vested Token', symbol: 'VST', tokenURI: 'ipfs://vesting' },
         economics: {
           totalSupply: '1000',
           tokensForSale: '400',
-          allocations: {
-            recipientAddress: '0x2222222222222222222222222222222222222222',
-            mode: 'unlock',
-            durationSeconds: 0,
-          },
+          allocations: [
+            {
+              recipientAddress: '0x2222222222222222222222222222222222222222',
+              amount: '600',
+              durationSeconds: 86_400,
+              cliffDurationSeconds: 3_600,
+            },
+          ],
         },
-        governance: { enabled: false, mode: 'noOp' },
-        migration: { type: 'noOp' },
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['high'] },
@@ -355,11 +505,14 @@ describe('POST /v1/launches', () => {
     const body = response.json();
     expect(body.effectiveConfig.tokensForSale).toBe('400');
     expect(body.effectiveConfig.allocationAmount).toBe('600');
-    expect(body.effectiveConfig.allocationRecipient).toBe(
-      '0x2222222222222222222222222222222222222222',
-    );
-    expect(body.effectiveConfig.allocationLockMode).toBe('unlock');
-    expect(body.effectiveConfig.allocationLockDurationSeconds).toBe(0);
+    expect(body.effectiveConfig.vestingAllocations).toEqual([
+      {
+        recipientAddress: '0x2222222222222222222222222222222222222222',
+        amount: '600',
+        durationSeconds: 86_400,
+        cliffDurationSeconds: 3_600,
+      },
+    ]);
   });
 
   it('supports explicit multi-address allocations', async () => {
@@ -376,16 +529,20 @@ describe('POST /v1/launches', () => {
         tokenMetadata: { name: 'Team Split Token', symbol: 'TST', tokenURI: 'ipfs://split' },
         economics: {
           totalSupply: '1000',
-          allocations: {
-            mode: 'vest',
-            recipients: [
-              { address: '0x2222222222222222222222222222222222222222', amount: '300' },
-              { address: '0x3333333333333333333333333333333333333333', amount: '200' },
-            ],
-          },
+          allocations: [
+            {
+              recipientAddress: '0x2222222222222222222222222222222222222222',
+              amount: '300',
+              durationSeconds: 86_400,
+            },
+            {
+              recipientAddress: '0x3333333333333333333333333333333333333333',
+              amount: '200',
+              durationSeconds: 172_800,
+              cliffDurationSeconds: 86_400,
+            },
+          ],
         },
-        governance: { enabled: false, mode: 'noOp' },
-        migration: { type: 'noOp' },
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['medium'] },
@@ -397,16 +554,23 @@ describe('POST /v1/launches', () => {
     const body = response.json();
     expect(body.effectiveConfig.tokensForSale).toBe('500');
     expect(body.effectiveConfig.allocationAmount).toBe('500');
-    expect(body.effectiveConfig.allocationRecipient).toBe(
-      '0x2222222222222222222222222222222222222222',
-    );
-    expect(body.effectiveConfig.allocationRecipients).toEqual([
-      { address: '0x2222222222222222222222222222222222222222', amount: '300' },
-      { address: '0x3333333333333333333333333333333333333333', amount: '200' },
+    expect(body.effectiveConfig.vestingAllocations).toEqual([
+      {
+        recipientAddress: '0x2222222222222222222222222222222222222222',
+        amount: '300',
+        durationSeconds: 86_400,
+        cliffDurationSeconds: 0,
+      },
+      {
+        recipientAddress: '0x3333333333333333333333333333333333333333',
+        amount: '200',
+        durationSeconds: 172_800,
+        cliffDurationSeconds: 86_400,
+      },
     ]);
   });
 
-  it('accepts scheduled, decay, and rehype initializers', async () => {
+  it('preserves a canonical Rehype initializer through the multicurve alias', async () => {
     app = await buildTestServer();
 
     const basePayload = {
@@ -416,68 +580,46 @@ describe('POST /v1/launches', () => {
         totalSupply: '1000',
         tokensForSale: '800',
       },
-      governance: { enabled: false, mode: 'noOp' as const },
-      migration: { type: 'noOp' as const },
+      governance: false,
       auction: {
         type: 'multicurve' as const,
         curveConfig: { type: 'preset' as const, presets: ['medium' as const], fee: 10_000 },
       },
     };
 
-    const payloads = [
-      {
-        ...basePayload,
-        auction: {
-          ...basePayload.auction,
-          initializer: {
-            type: 'scheduled' as const,
-            startTime: 1_735_689_600,
-          },
-        },
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launches/multicurve',
+      headers: {
+        'x-api-key': 'test-key',
       },
-      {
+      payload: {
         ...basePayload,
         auction: {
           ...basePayload.auction,
           initializer: {
-            type: 'decay' as const,
-            startFee: 400_000,
-            durationSeconds: 45,
-            startTime: 1_735_689_600,
-          },
-        },
-      },
-      {
-        ...basePayload,
-        auction: {
-          ...basePayload.auction,
-          initializer: {
-            type: 'rehype' as const,
+            type: 'rehype',
             config: {
-              hookAddress: '0x2222222222222222222222222222222222222222',
               buybackDestination: '0x000000000000000000000000000000000000dEaD',
-              customFee: 30_000,
-              assetBuybackPercentWad: '500000000000000000',
-              numeraireBuybackPercentWad: '500000000000000000',
-              beneficiaryPercentWad: '0',
-              lpPercentWad: '0',
+              startFee: 30_000,
+              feeDistributionInfo: {
+                assetFeesToAssetBuybackWad: '500000000000000000',
+                assetFeesToNumeraireBuybackWad: '500000000000000000',
+                assetFeesToBeneficiaryWad: '0',
+                assetFeesToLpWad: '0',
+                numeraireFeesToAssetBuybackWad: '500000000000000000',
+                numeraireFeesToNumeraireBuybackWad: '500000000000000000',
+                numeraireFeesToBeneficiaryWad: '0',
+                numeraireFeesToLpWad: '0',
+              },
             },
           },
         },
       },
-    ];
+    });
 
-    for (const payload of payloads) {
-      const response = await app.inject({
-        method: 'POST',
-        url: '/v1/launches',
-        headers: {
-          'x-api-key': 'test-key',
-        },
-        payload,
-      });
-      expect(response.statusCode).toBe(200);
-    }
+    expect(response.statusCode).toBe(200);
+    expect(response.json().effectiveConfig.initializer).toEqual({ type: 'rehype' });
   });
 
   it('accepts governance=true for multicurve launches', async () => {
@@ -494,7 +636,6 @@ describe('POST /v1/launches', () => {
         tokenMetadata: { name: 'Governed Token', symbol: 'GOV', tokenURI: 'ipfs://token' },
         economics: { totalSupply: '1000' },
         governance: true,
-        migration: { type: 'noOp' },
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['medium'] },
@@ -520,7 +661,6 @@ describe('POST /v1/launches', () => {
         tokenMetadata: { name: 'Governed Static Token', symbol: 'GST', tokenURI: 'ipfs://token' },
         economics: { totalSupply: '1000' },
         governance: true,
-        migration: { type: 'noOp' },
         auction: {
           type: 'static',
           curveConfig: { type: 'preset', preset: 'medium' },
@@ -578,8 +718,6 @@ describe('POST /v1/launches', () => {
         userAddress: '0x1111111111111111111111111111111111111111',
         tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
         economics: { totalSupply: '1000' },
-        governance: { enabled: false, mode: 'noOp' },
-        migration: { type: 'noOp' },
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['low'] },

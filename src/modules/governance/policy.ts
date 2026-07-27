@@ -1,40 +1,33 @@
 import { AppError } from '../../core/errors';
-import type { GovernanceConfig } from '../../core/types';
 import type { ChainRuntimeConfig } from '../../core/config';
+import type { GovernanceMode, HexAddress } from '../../core/types';
 
-export type ResolvedGovernance = { type: 'noOp' } | { type: 'default' };
+export type ResolvedGovernance =
+  | { type: 'noOp' }
+  | { type: 'default' }
+  | { type: 'launchpad'; multisig: HexAddress };
 
 export const resolveGovernance = (
-  governance: GovernanceConfig | boolean | undefined,
+  governance: boolean | HexAddress | undefined,
   chainConfig: ChainRuntimeConfig,
 ): ResolvedGovernance => {
-  const enabled = typeof governance === 'boolean' ? governance : (governance?.enabled ?? false);
-  const explicitMode = typeof governance === 'object' ? governance.mode : undefined;
-  const resolvedMode = enabled ? 'default' : 'noOp';
+  const mode: GovernanceMode =
+    typeof governance === 'string' ? 'launchpad' : governance === true ? 'default' : 'noOp';
 
-  if (explicitMode && explicitMode !== resolvedMode) {
+  if (
+    !chainConfig.governanceModes.includes(mode) ||
+    (mode !== 'noOp' && !chainConfig.governanceEnabled)
+  ) {
     throw new AppError(
       422,
       'GOVERNANCE_MODE_UNSUPPORTED',
-      'governance supports only binary mode: enabled=true (default) or enabled=false (noOp)',
+      `Governance mode ${mode} is not enabled for chain ${chainConfig.chainId}`,
     );
   }
 
-  if (!chainConfig.governanceModes.includes(resolvedMode)) {
-    throw new AppError(
-      422,
-      'GOVERNANCE_MODE_UNSUPPORTED',
-      `Governance mode ${resolvedMode} is not enabled for chain ${chainConfig.chainId}`,
-    );
+  if (typeof governance === 'string') {
+    return { type: 'launchpad', multisig: governance };
   }
 
-  if (enabled && !chainConfig.governanceEnabled) {
-    throw new AppError(
-      422,
-      'GOVERNANCE_MODE_UNSUPPORTED',
-      `Governance is not enabled for chain ${chainConfig.chainId}`,
-    );
-  }
-
-  return { type: resolvedMode };
+  return governance === true ? { type: 'default' } : { type: 'noOp' };
 };

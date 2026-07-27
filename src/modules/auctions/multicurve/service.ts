@@ -1,12 +1,13 @@
-import {
-  airlockAbi,
-  type MigrationConfig,
-  type GovernanceOption,
-  type BeneficiaryData,
-} from '@whetstone-research/doppler-sdk/evm';
+// allow: SIZE_OK — multicurve launch assembly remains one transaction boundary.
+import { airlockAbi, type BeneficiaryData } from '@whetstone-research/doppler-sdk/evm';
 
 import { AppError } from '../../../core/errors';
-import type { CreateLaunchResponse, HexAddress, HexHash } from '../../../core/types';
+import type {
+  CreateLaunchResponse,
+  HexAddress,
+  HexHash,
+  RangesCurveInput,
+} from '../../../core/types';
 import type { PricingService } from '../../pricing/service';
 import type { CreateMulticurveLaunchRequestInput } from '../../launches/schema';
 import type { ChainContext } from '../../../infra/chain/registry';
@@ -46,6 +47,20 @@ const parseNonNegativeBigInt = (value: string, field: string): bigint => {
   return parsed;
 };
 
+const requireModuleAddress = (address: HexAddress | undefined, moduleName: string): HexAddress => {
+  if (!address) {
+    throw new AppError(
+      500,
+      'UNSUPPORTED_CHAIN',
+      `Doppler SDK is missing ${moduleName} for this chain`,
+    );
+  }
+
+  return address;
+};
+
+const normalizeHexData = (value: string): `0x${string}` => `0x${value.slice(2)}`;
+
 export const createMulticurveLaunch = async ({
   input,
   chain,
@@ -64,11 +79,10 @@ export const createMulticurveLaunch = async ({
 
   // Resolve policy-gated controls first so planned modes fail fast with 501
   // without requiring any RPC calls.
-  const governance = resolveGovernance(input.governance, chain.config) as GovernanceOption<any>;
-  const migration = resolveMigration(input.migration, chain.config) as MigrationConfig;
+  const governance = resolveGovernance(input.governance, chain.config);
+  const migration = resolveMigration();
 
   const protocolOwner = (await sdk.getAirlockOwner()) as HexAddress;
-
   const numeraireAddress =
     (input.pairing?.numeraireAddress as HexAddress | undefined) ??
     chain.config.defaultNumeraireAddress ??
@@ -98,9 +112,27 @@ export const createMulticurveLaunch = async ({
   const builder = sdk
     .buildMulticurveAuction()
     .tokenConfig({
+      type: 'dopplerERC20V1',
       name: input.tokenMetadata.name,
       symbol: input.tokenMetadata.symbol,
       tokenURI: input.tokenMetadata.tokenURI,
+      ...(input.tokenMetadata.maxBalanceLimit === undefined
+        ? {}
+        : {
+            maxBalanceLimit: parseNonNegativeBigInt(
+              input.tokenMetadata.maxBalanceLimit,
+              'tokenMetadata.maxBalanceLimit',
+            ),
+          }),
+      ...(input.tokenMetadata.balanceLimitEnd === undefined
+        ? {}
+        : { balanceLimitEnd: input.tokenMetadata.balanceLimitEnd }),
+      ...(input.tokenMetadata.controller === undefined
+        ? {}
+        : { controller: input.tokenMetadata.controller }),
+      ...(input.tokenMetadata.excludedFromBalanceLimit === undefined
+        ? {}
+        : { excludedFromBalanceLimit: input.tokenMetadata.excludedFromBalanceLimit }),
     })
     .saleConfig({
       initialSupply: totalSupply,
@@ -114,10 +146,14 @@ export const createMulticurveLaunch = async ({
 
   if (allocationPlan.allocationAmount > 0n) {
     builder.withVesting({
-      duration: BigInt(allocationPlan.lockDurationSeconds),
-      cliffDuration: allocationPlan.cliffDurationSeconds,
-      recipients: allocationPlan.recipients,
-      amounts: allocationPlan.amounts,
+      allocations: allocationPlan.allocations.map((allocation) => ({
+        recipient: allocation.recipient,
+        amount: allocation.amount,
+        schedule: {
+          duration: BigInt(allocation.durationSeconds),
+          cliffDuration: allocation.cliffDurationSeconds,
+        },
+      })),
     });
   }
 
@@ -140,11 +176,10 @@ export const createMulticurveLaunch = async ({
       tickSpacing: input.auction.curveConfig.tickSpacing,
     });
 
-    const ranges = input.auction.curveConfig.curves.map((curve) => ({
+    const ranges = input.auction.curveConfig.curves.map((curve: RangesCurveInput) => ({
       marketCap: {
         start: curve.marketCapStartUsd,
-        // keep raw request semantics and let the SDK perform validation / conversions
-        end: curve.marketCapEndUsd as unknown as number,
+        end: curve.marketCapEndUsd,
       },
       numPositions: curve.numPositions,
       shares: parsePositiveBigInt(curve.sharesWad, 'auction.curveConfig.curves[].sharesWad'),
@@ -155,51 +190,94 @@ export const createMulticurveLaunch = async ({
       fee: input.auction.curveConfig.fee,
       tickSpacing,
       curves: ranges,
-      beneficiaries: beneficiaries as BeneficiaryData[],
+      beneficiaries,
     });
   }
 
   const requestedInitializer = input.auction.initializer ?? { type: 'standard' as const };
-  if (requestedInitializer.type === 'standard') {
-    // Standard mode is implemented via scheduled initializer with startTime=0.
-    builder.withSchedule({ startTime: 0 });
-  } else if (requestedInitializer.type === 'scheduled') {
-    builder.withSchedule({ startTime: requestedInitializer.startTime });
-  } else if (requestedInitializer.type === 'decay') {
-    builder.withDecay({
-      startTime: requestedInitializer.startTime,
-      startFee: requestedInitializer.startFee,
-      durationSeconds: requestedInitializer.durationSeconds,
-    });
-  } else {
-    builder.withRehypeDopplerHook({
-      hookAddress: requestedInitializer.config.hookAddress as HexAddress,
-      buybackDestination: requestedInitializer.config.buybackDestination as HexAddress,
-      customFee: requestedInitializer.config.customFee,
-      assetBuybackPercentWad: parseNonNegativeBigInt(
-        requestedInitializer.config.assetBuybackPercentWad,
-        'auction.initializer.config.assetBuybackPercentWad',
+  if (requestedInitializer.type === 'rehype') {
+    const config = requestedInitializer.config;
+    const rehypeDestination = (() => {
+      if ('rehypeFeeBeneficiaries' in config) {
+        const [firstBeneficiary, ...remainingBeneficiaries] = config.rehypeFeeBeneficiaries;
+        const mapBeneficiary = (beneficiary: typeof firstBeneficiary) => ({
+          beneficiary: beneficiary.address,
+          shares: parsePositiveBigInt(
+            beneficiary.sharesWad,
+            `auction.initializer.config.rehypeFeeBeneficiaries[${beneficiary.address}].sharesWad`,
+          ),
+        });
+        const feeBeneficiaries: [BeneficiaryData, ...BeneficiaryData[]] = [
+          mapBeneficiary(firstBeneficiary),
+          ...remainingBeneficiaries.map((beneficiary) => ({
+            beneficiary: beneficiary.address,
+            shares: parsePositiveBigInt(
+              beneficiary.sharesWad,
+              `auction.initializer.config.rehypeFeeBeneficiaries[${beneficiary.address}].sharesWad`,
+            ),
+          })),
+        ];
+        return { feeBeneficiaries };
+      }
+      return { buybackDestination: config.buybackDestination };
+    })();
+    builder.withRehypeDopplerHookInitializer({
+      hookAddress: requireModuleAddress(
+        chain.addresses.rehypeDopplerHookInitializer,
+        'rehypeDopplerHookInitializer',
       ),
-      numeraireBuybackPercentWad: parseNonNegativeBigInt(
-        requestedInitializer.config.numeraireBuybackPercentWad,
-        'auction.initializer.config.numeraireBuybackPercentWad',
-      ),
-      beneficiaryPercentWad: parseNonNegativeBigInt(
-        requestedInitializer.config.beneficiaryPercentWad,
-        'auction.initializer.config.beneficiaryPercentWad',
-      ),
-      lpPercentWad: parseNonNegativeBigInt(
-        requestedInitializer.config.lpPercentWad,
-        'auction.initializer.config.lpPercentWad',
-      ),
-      graduationCalldata: requestedInitializer.config.graduationCalldata as
-        | `0x${string}`
-        | undefined,
-      graduationMarketCap: requestedInitializer.config.graduationMarketCap,
-      numerairePrice: requestedInitializer.config.numerairePrice,
-      farTick: requestedInitializer.config.farTick,
+      ...rehypeDestination,
+      startFee: config.startFee,
+      ...(config.endFee === undefined ? {} : { endFee: config.endFee }),
+      ...(config.durationSeconds === undefined ? {} : { durationSeconds: config.durationSeconds }),
+      ...(config.startingTime === undefined ? {} : { startingTime: config.startingTime }),
+      feeDistributionInfo: {
+        assetFeesToAssetBuybackWad: parseNonNegativeBigInt(
+          config.feeDistributionInfo.assetFeesToAssetBuybackWad,
+          'auction.initializer.config.feeDistributionInfo.assetFeesToAssetBuybackWad',
+        ),
+        assetFeesToNumeraireBuybackWad: parseNonNegativeBigInt(
+          config.feeDistributionInfo.assetFeesToNumeraireBuybackWad,
+          'auction.initializer.config.feeDistributionInfo.assetFeesToNumeraireBuybackWad',
+        ),
+        assetFeesToBeneficiaryWad: parseNonNegativeBigInt(
+          config.feeDistributionInfo.assetFeesToBeneficiaryWad,
+          'auction.initializer.config.feeDistributionInfo.assetFeesToBeneficiaryWad',
+        ),
+        assetFeesToLpWad: parseNonNegativeBigInt(
+          config.feeDistributionInfo.assetFeesToLpWad,
+          'auction.initializer.config.feeDistributionInfo.assetFeesToLpWad',
+        ),
+        numeraireFeesToAssetBuybackWad: parseNonNegativeBigInt(
+          config.feeDistributionInfo.numeraireFeesToAssetBuybackWad,
+          'auction.initializer.config.feeDistributionInfo.numeraireFeesToAssetBuybackWad',
+        ),
+        numeraireFeesToNumeraireBuybackWad: parseNonNegativeBigInt(
+          config.feeDistributionInfo.numeraireFeesToNumeraireBuybackWad,
+          'auction.initializer.config.feeDistributionInfo.numeraireFeesToNumeraireBuybackWad',
+        ),
+        numeraireFeesToBeneficiaryWad: parseNonNegativeBigInt(
+          config.feeDistributionInfo.numeraireFeesToBeneficiaryWad,
+          'auction.initializer.config.feeDistributionInfo.numeraireFeesToBeneficiaryWad',
+        ),
+        numeraireFeesToLpWad: parseNonNegativeBigInt(
+          config.feeDistributionInfo.numeraireFeesToLpWad,
+          'auction.initializer.config.feeDistributionInfo.numeraireFeesToLpWad',
+        ),
+      },
+      ...(config.graduationCalldata === undefined
+        ? {}
+        : { graduationCalldata: normalizeHexData(config.graduationCalldata) }),
+      ...(config.graduationMarketCap === undefined
+        ? {}
+        : { graduationMarketCap: config.graduationMarketCap }),
+      ...(config.numerairePrice === undefined ? {} : { numerairePrice: config.numerairePrice }),
+      ...(config.farTick === undefined ? {} : { farTick: config.farTick }),
     });
   }
+  builder.withDopplerHookInitializer(
+    requireModuleAddress(chain.addresses.dopplerHookInitializer, 'dopplerHookInitializer'),
+  );
 
   const params = builder
     .withGovernance(governance)
@@ -210,19 +288,9 @@ export const createMulticurveLaunch = async ({
   const effectiveInitializer =
     requestedInitializer.type === 'standard'
       ? ({ type: 'standard' } as const)
-      : requestedInitializer.type === 'scheduled'
-        ? ({ type: 'scheduled', startTime: requestedInitializer.startTime } as const)
-        : requestedInitializer.type === 'decay'
-          ? ({
-              type: 'decay',
-              startTime: requestedInitializer.startTime ?? 0,
-              startFee: requestedInitializer.startFee,
-              endFee: Number((params as { pool: { fee: number } }).pool.fee),
-              durationSeconds: requestedInitializer.durationSeconds,
-            } as const)
-          : ({ type: 'rehype' } as const);
+      : ({ type: 'rehype' } as const);
 
-  const simulation = await sdk.factory.simulateCreateMulticurve(params as any);
+  const simulation = await sdk.factory.simulateCreateMulticurve(params);
 
   const { request } = await chain.publicClient.simulateContract({
     address: chain.addresses.airlock,
@@ -231,11 +299,12 @@ export const createMulticurveLaunch = async ({
     args: [{ ...simulation.createParams }],
     account: chain.walletClient.account,
   });
+  const gasEstimate = typeof request.gas === 'bigint' ? request.gas : simulation.gasEstimate;
 
   const txHash = (await txSubmitter.submitCreateTx({
     chain,
     request: request as Record<string, unknown>,
-    gasEstimate: simulation.gasEstimate,
+    gasEstimate,
   })) as HexHash;
 
   const launchId = buildLaunchId(chain.chainId, txHash);
@@ -248,21 +317,20 @@ export const createMulticurveLaunch = async ({
     predicted: {
       tokenAddress: simulation.tokenAddress as HexAddress,
       poolId: simulation.poolId as HexHash,
-      ...(simulation.gasEstimate ? { gasEstimate: simulation.gasEstimate.toString() } : {}),
+      ...(gasEstimate ? { gasEstimate: gasEstimate.toString() } : {}),
     },
     effectiveConfig: {
       tokensForSale: tokensForSale.toString(),
       allocationAmount: allocationPlan.allocationAmount.toString(),
-      allocationRecipient: allocationPlan.recipientAddress,
-      allocationRecipients: allocationPlan.recipients.map((address, index) => ({
-        address,
-        amount: allocationPlan.amounts[index]!.toString(),
+      vestingAllocations: allocationPlan.allocations.map((allocation) => ({
+        recipientAddress: allocation.recipient,
+        amount: allocation.amount.toString(),
+        durationSeconds: allocation.durationSeconds,
+        cliffDurationSeconds: allocation.cliffDurationSeconds,
       })),
-      allocationLockMode: allocationPlan.lockMode,
-      allocationLockDurationSeconds: allocationPlan.lockDurationSeconds,
       numeraireAddress,
       numerairePriceUsd,
-      feeBeneficiariesSource: source,
+      poolFeeBeneficiariesSource: source,
       initializer: effectiveInitializer,
     },
   };

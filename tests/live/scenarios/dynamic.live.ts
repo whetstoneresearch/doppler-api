@@ -1,6 +1,7 @@
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { loadConfig } from '../../../src/core/config';
+import { EVM_LIVE_SCENARIO_GROUPS as groups } from '../scenario-metadata';
 import {
   DEFAULT_LIVE_TOTAL_SUPPLY,
   buildRandomAddressAllocations,
@@ -15,15 +16,16 @@ import {
 export const registerDynamicLiveScenarios = () => {
   liveIt(
     'DYNAMIC V4 Custom Fee (Random 0.10%-10.00%)',
-    ['dynamic', 'fees'],
+    groups.dynamicCustomFee,
     async () => {
       const randomFeePercent = randomFeePercentTwoDecimals();
       const randomFeeUnits = percentToFeeUnits(randomFeePercent);
-      const feeBeneficiaries = buildRandomFeeBeneficiaries(
+      const poolFeeBeneficiaries = buildRandomFeeBeneficiaries(
         privateKeyToAccount(loadConfig().privateKey).address,
       );
       await runDynamicLaunchAndVerify({
         configLabel: `DYNAMIC V4 Custom Fee (${randomFeePercent.toFixed(2)}%)`,
+        migrationType: 'uniswapV4',
         marketCapStartUsd: 100,
         marketCapMinUsd: 50,
         minProceeds: '0.01',
@@ -31,7 +33,7 @@ export const registerDynamicLiveScenarios = () => {
         durationSeconds: 24 * 60 * 60,
         fee: randomFeeUnits,
         tickSpacing: 10,
-        feeBeneficiaries,
+        poolFeeBeneficiaries,
       });
     },
     240_000,
@@ -39,15 +41,15 @@ export const registerDynamicLiveScenarios = () => {
 
   liveIt(
     'DYNAMIC V4 Random Fee + Beneficiaries ($12345->$123, min 1, max 10, 13m)',
-    ['dynamic', 'fees', 'migration-v4'],
+    groups.dynamicHookBeneficiaries,
     async () => {
       const randomFeePercent = randomFeePercentTwoDecimals();
       const randomFeeUnits = percentToFeeUnits(randomFeePercent);
-      const feeBeneficiaries = buildRandomFeeBeneficiaries(
+      const poolFeeBeneficiaries = buildRandomFeeBeneficiaries(
         privateKeyToAccount(loadConfig().privateKey).address,
       );
       await runDynamicLaunchAndVerify({
-        configLabel: `DYNAMIC V4 Random Fee + Beneficiaries (${randomFeePercent.toFixed(2)}%, $12345->$123, 13m)`,
+        configLabel: `DYNAMIC Uniswap V4 Random Fee + Beneficiaries (${randomFeePercent.toFixed(2)}%, $12345->$123, 13m)`,
         migrationType: 'uniswapV4',
         migrationFee: 10_000,
         migrationTickSpacing: 200,
@@ -59,7 +61,7 @@ export const registerDynamicLiveScenarios = () => {
         epochLengthSeconds: 60,
         fee: randomFeeUnits,
         tickSpacing: 10,
-        feeBeneficiaries,
+        poolFeeBeneficiaries,
       });
     },
     240_000,
@@ -67,7 +69,7 @@ export const registerDynamicLiveScenarios = () => {
 
   liveIt(
     'DYNAMIC Migration via UniswapV2',
-    ['dynamic', 'migration-v2'],
+    groups.dynamicUniswapV2,
     async () => {
       await runDynamicLaunchAndVerify({
         configLabel: 'DYNAMIC V4 Migration (uniswapV2)',
@@ -83,11 +85,11 @@ export const registerDynamicLiveScenarios = () => {
   );
 
   liveIt(
-    'DYNAMIC Migration via UniswapV4',
-    ['dynamic', 'migration-v4'],
+    'DYNAMIC Migration to Uniswap V4',
+    groups.dynamicUniswapV4,
     async () => {
       await runDynamicLaunchAndVerify({
-        configLabel: 'DYNAMIC V4 Migration (uniswapV4)',
+        configLabel: 'DYNAMIC Uniswap V4 Migration',
         migrationType: 'uniswapV4',
         migrationFee: 10_000,
         migrationTickSpacing: 200,
@@ -102,8 +104,43 @@ export const registerDynamicLiveScenarios = () => {
   );
 
   liveIt(
+    'DYNAMIC Migration to Rehype Uniswap V4',
+    groups.dynamicRehypeUniswapV4,
+    async () => {
+      const userAddress = privateKeyToAccount(loadConfig().privateKey).address;
+      await runDynamicLaunchAndVerify({
+        configLabel: 'DYNAMIC Rehype Uniswap V4 Migration',
+        migrationType: 'uniswapV4',
+        migrationFee: 3_000,
+        migrationTickSpacing: 60,
+        rehype: {
+          buybackDestination: userAddress,
+          customFee: 10_000,
+          feeRoutingMode: 'routeToBeneficiaryFees',
+          feeDistributionInfo: {
+            assetFeesToAssetBuybackWad: '500000000000000000',
+            assetFeesToNumeraireBuybackWad: '500000000000000000',
+            assetFeesToBeneficiaryWad: '0',
+            assetFeesToLpWad: '0',
+            numeraireFeesToAssetBuybackWad: '0',
+            numeraireFeesToNumeraireBuybackWad: '250000000000000000',
+            numeraireFeesToBeneficiaryWad: '250000000000000000',
+            numeraireFeesToLpWad: '500000000000000000',
+          },
+        },
+        marketCapStartUsd: 100,
+        marketCapMinUsd: 50,
+        minProceeds: '0.01',
+        maxProceeds: '0.1',
+        durationSeconds: 24 * 60 * 60,
+      });
+    },
+    240_000,
+  );
+
+  liveIt(
     'DYNAMIC V4 (Range $100->$50, min 0.01, max 0.1, 24h)',
-    ['dynamic'],
+    groups.dynamicRange,
     async () => {
       await runDynamicLaunchAndVerify({
         marketCapStartUsd: 100,
@@ -118,7 +155,7 @@ export const registerDynamicLiveScenarios = () => {
 
   liveIt(
     'DYNAMIC V4 Random 30-50% Sale + Random 3-5 Address Allocation Split',
-    ['dynamic'],
+    groups.dynamicVesting,
     async () => {
       const randomSalePercent = 30 + Math.floor(Math.random() * 21);
       const tokensForSale = calculateSaleAmount(DEFAULT_LIVE_TOTAL_SUPPLY, randomSalePercent);
@@ -129,11 +166,11 @@ export const registerDynamicLiveScenarios = () => {
       await runDynamicLaunchAndVerify({
         configLabel: `DYNAMIC V4 Random Split (${recipientCount} recipients, ${randomSalePercent}% market)`,
         salePercent: randomSalePercent,
-        allocations: {
-          mode: 'vest',
-          durationSeconds: 60 * 24 * 60 * 60,
-          recipients: allocations,
-        },
+        allocations: allocations.map((allocation, index) => ({
+          recipientAddress: allocation.address,
+          amount: allocation.amount,
+          durationSeconds: (60 + index * 30) * 24 * 60 * 60,
+        })),
         marketCapStartUsd: 100,
         marketCapMinUsd: 50,
         minProceeds: '0.01',
@@ -146,7 +183,7 @@ export const registerDynamicLiveScenarios = () => {
 
   liveIt(
     'DYNAMIC V4 Governance Enabled (Random Range/Proceeds)',
-    ['dynamic', 'governance'],
+    groups.dynamicGovernance,
     async () => {
       const marketCapStartUsd = 100 + Math.floor(Math.random() * 901);
       const minGapUsd = 20 + Math.floor(Math.random() * 181);

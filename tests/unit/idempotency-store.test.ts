@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { AppError } from '../../src/core/errors';
@@ -52,12 +55,10 @@ const buildResponse = (txHash: `0x${string}`): CreateLaunchResponse => ({
   effectiveConfig: {
     tokensForSale: '1000',
     allocationAmount: '0',
-    allocationRecipient: '0x1111111111111111111111111111111111111111',
-    allocationLockMode: 'none',
-    allocationLockDurationSeconds: 0,
+    vestingAllocations: [],
     numeraireAddress: '0x4200000000000000000000000000000000000006',
     numerairePriceUsd: 1000,
-    feeBeneficiariesSource: 'default',
+    poolFeeBeneficiariesSource: 'default',
   },
 });
 
@@ -68,6 +69,13 @@ const buildSolanaInDoubtError = () =>
       '5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J',
     explorerUrl:
       'https://explorer.solana.com/tx/5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J?cluster=devnet',
+  });
+
+const buildEvmInDoubtError = () =>
+  new AppError(409, 'IDEMPOTENCY_KEY_IN_DOUBT', 'Transaction broadcast result is ambiguous', {
+    chainId: 84532,
+    accountAddress: '0x1111111111111111111111111111111111111111',
+    nonce: 7,
   });
 
 class FakeRedisClient implements IdempotencyRedisClient {
@@ -170,6 +178,174 @@ class FlakyCompletedWriteRedisClient extends FakeRedisClient {
 }
 
 describe('idempotency store', () => {
+  it.each(['{', '{"records":{"broken":{"state":"completed"}}}'])(
+    'file backend fails closed on corrupt persisted state',
+    (persisted) => {
+      const directory = mkdtempSync(join(tmpdir(), 'doppler-idempotency-corrupt-'));
+      const path = join(directory, 'records.json');
+      writeFileSync(path, persisted, 'utf8');
+      try {
+        expect(
+          () =>
+            new FileIdempotencyStore({
+              enabled: true,
+              ttlMs: 100_000,
+              path,
+            }),
+        ).toThrow(
+          expect.objectContaining({
+            code: 'IDEMPOTENCY_STORE_CORRUPT',
+            statusCode: 500,
+          }),
+        );
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each(['{', '{"state":"completed"}'])(
+    'redis backend fails closed on corrupt persisted state',
+    async (persisted) => {
+      const redis = new FakeRedisClient();
+      await redis.set('test:idempotency:record:corrupt', persisted, 'PX', 100_000);
+      const store = new RedisIdempotencyStore({
+        enabled: true,
+        ttlMs: 100_000,
+        redis,
+        keyPrefix: 'test',
+      });
+      let actionCalled = false;
+
+      await expect(
+        store.execute('corrupt', samplePayload, async () => {
+          actionCalled = true;
+          return buildResponse(
+            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          );
+        }),
+      ).rejects.toMatchObject({
+        code: 'IDEMPOTENCY_STORE_CORRUPT',
+        statusCode: 500,
+      });
+      expect(actionCalled).toBe(false);
+    },
+  );
+
+  it('file backend persists in-progress state before invoking an irreversible action', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'doppler-idempotency-intent-'));
+    const path = join(directory, 'records.json');
+
+    try {
+      const store = new FileIdempotencyStore({
+        enabled: true,
+        ttlMs: 100_000,
+        path,
+      });
+
+      await store.execute('intent', samplePayload, async () => {
+        const persisted = JSON.parse(readFileSync(path, 'utf8')) as {
+          records: Record<string, { state: string }>;
+        };
+        expect(persisted.records.intent?.state).toBe('in_progress');
+        return buildResponse('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('file backend recovers a persisted in-progress action as in doubt', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'doppler-idempotency-recovery-'));
+    const path = join(directory, 'records.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        records: {
+          interrupted: {
+            state: 'in_progress',
+            payloadHash: hashPayload(samplePayload),
+            createdAtMs: Date.now(),
+          },
+        },
+      }),
+      'utf8',
+    );
+
+    try {
+      const store = new FileIdempotencyStore({
+        enabled: true,
+        ttlMs: 100_000,
+        path,
+      });
+      let actionCalled = false;
+
+      await expect(
+        store.execute('interrupted', samplePayload, async () => {
+          actionCalled = true;
+          return buildResponse(
+            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          );
+        }),
+      ).rejects.toMatchObject({
+        code: 'IDEMPOTENCY_KEY_IN_DOUBT',
+        statusCode: 409,
+      });
+      expect(actionCalled).toBe(false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['tagged', true],
+    ['untagged', false],
+  ] as const)(
+    'loads a %s legacy completed record without rewriting its stored response',
+    async (_label, tagged) => {
+      const directory = mkdtempSync(join(tmpdir(), 'doppler-idempotency-'));
+      const path = join(directory, 'records.json');
+      const currentResponse = buildResponse(
+        '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      );
+      const legacyResponse = {
+        ...currentResponse,
+        effectiveConfig: {
+          ...currentResponse.effectiveConfig,
+          poolFeeBeneficiariesSource: undefined,
+          feeBeneficiariesSource: 'request',
+        },
+      };
+      const record = {
+        ...(tagged ? { state: 'completed' as const } : {}),
+        payloadHash: hashPayload(samplePayload),
+        response: legacyResponse,
+        createdAtMs: Date.now(),
+      };
+      const persisted = JSON.stringify({ records: { legacy: record } });
+      writeFileSync(path, persisted, 'utf8');
+
+      try {
+        const store = new FileIdempotencyStore({
+          enabled: true,
+          ttlMs: 100_000,
+          path,
+        });
+        const result = await store.execute('legacy', samplePayload, async () => {
+          throw new Error('legacy record should replay');
+        });
+        const response = result.response as CreateLaunchResponse;
+
+        expect(result.replayed).toBe(true);
+        expect(response.effectiveConfig.poolFeeBeneficiariesSource).toBe('request');
+        expect(response.effectiveConfig).not.toHaveProperty('feeBeneficiariesSource');
+        expect(readFileSync(path, 'utf8')).toBe(persisted);
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('file backend replays same key and payload', async () => {
     const runId = Date.now().toString();
     const store = new FileIdempotencyStore({
@@ -453,6 +629,75 @@ describe('idempotency store', () => {
         launchId: '8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP',
       },
     });
+  });
+
+  it('file backend persists ambiguous EVM broadcasts and fails closed on retry', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'doppler-evm-in-doubt-'));
+    const path = join(directory, 'records.json');
+    const store = new FileIdempotencyStore({
+      enabled: true,
+      ttlMs: 100_000,
+      path,
+    });
+
+    try {
+      await expect(
+        store.execute('evm-in-doubt', samplePayload, async () => {
+          throw buildEvmInDoubtError();
+        }),
+      ).rejects.toMatchObject({
+        code: 'IDEMPOTENCY_KEY_IN_DOUBT',
+        statusCode: 409,
+      });
+
+      await expect(
+        store.execute('evm-in-doubt', samplePayload, async () => {
+          throw new Error('ambiguous EVM transaction must not be submitted again');
+        }),
+      ).rejects.toMatchObject({
+        code: 'IDEMPOTENCY_KEY_IN_DOUBT',
+        details: {
+          chainId: 84532,
+          accountAddress: '0x1111111111111111111111111111111111111111',
+          nonce: 7,
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('redis backend allows same-key retry after nonce lock loss before broadcast', async () => {
+    const redis = new FakeRedisClient();
+    const store = new RedisIdempotencyStore({
+      enabled: true,
+      ttlMs: 100_000,
+      redis,
+      keyPrefix: 'test',
+    });
+    let actionExecutions = 0;
+
+    await expect(
+      store.execute('nonce-lock-lost', samplePayload, async () => {
+        actionExecutions += 1;
+        throw new AppError(
+          503,
+          'NONCE_LOCK_LOST',
+          'Distributed nonce lock was lost before transaction broadcast; retry the request',
+        );
+      }),
+    ).rejects.toMatchObject({
+      code: 'NONCE_LOCK_LOST',
+      statusCode: 503,
+    });
+
+    const retried = await store.execute('nonce-lock-lost', samplePayload, async () => {
+      actionExecutions += 1;
+      return buildResponse('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    });
+
+    expect(actionExecutions).toBe(2);
+    expect(retried.replayed).toBe(false);
   });
 
   it('file backend does not persist non-idempotency Solana errors that happen to include launch details', async () => {
