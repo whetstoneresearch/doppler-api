@@ -41,9 +41,9 @@ The two balance-limit fields must be supplied together.
 the migration recipient and 5% to a one-year locker whose exit fees go to the
 Airlock owner.
 
-For `uniswapV4`, provide non-negative `fee`, positive `tickSpacing`, and
-non-negative `lockDurationSeconds`. The migrated pool uses that fixed LP fee
-and accepts top-level `poolFeeBeneficiaries`.
+For `uniswapV4`, provide non-negative `fee`, `tickSpacing` from 1 through
+32,767, and non-negative `lockDurationSeconds`. The migrated pool uses that
+fixed LP fee and accepts top-level `poolFeeBeneficiaries`.
 
 Add `migration.rehype` to use `RehypeDopplerHookMigrator`. It requires a
 non-zero `buybackDestination`, a static `customFee` from 0 through 1,000,000,
@@ -77,10 +77,12 @@ multiple entries. Static accepts presets or a manual range. Multicurve
 accepts presets or contiguous ranges and preserves final `marketCapEndUsd:
 "max"`. Multicurve fees may be `0`.
 
-Static custom fees are limited to `100`, `500`, `3000`, or `10000`. For a
-dynamic range, `marketCapMinUsd` must be less than `marketCapStartUsd`;
-`epochLengthSeconds` must divide the effective duration; `gamma` must be
-divisible by the effective tick spacing; and a non-standard fee requires an
+Static custom fees are limited to `100`, `500`, `3000`, or `10000`;
+`numPositions` is at most 65,535 and `maxShareToBeSoldWad` is at most `1e18`.
+For a dynamic range, `marketCapMinUsd` must be less than
+`marketCapStartUsd`; `epochLengthSeconds` must divide the effective duration;
+`gamma` is at most 8,388,607 and must be divisible by the effective tick
+spacing; `numPdSlugs` is at most 15; and a non-standard fee requires an
 explicit `tickSpacing` no greater than `30`.
 
 ## RPC selection and capabilities
@@ -110,9 +112,12 @@ Solana. Use `POST /v1/solana/launches` for dedicated Solana creation.
 
 Malformed or unsupported EVM fields, unknown nested keys, and incompatible
 family combinations return `422 INVALID_REQUEST`. Reuse an idempotency key
-only for the identical request. A `409 IDEMPOTENCY_KEY_IN_DOUBT` requires
-reconciling the original EVM signer and nonce, or the recorded Solana
-signature, before using a new key. The API persists ambiguous EVM transport
+only for the identical request. A completed request is replayed before current
+validation, including an exact historical payload that no longer matches the
+current schema. A `409 IDEMPOTENCY_KEY_IN_DOUBT` requires reconciling the
+original EVM signer and nonce, the recorded Solana signature, or the completed
+launch and transaction identifiers returned when completion could not be
+persisted, before using a new key. The API persists ambiguous EVM transport
 failures and nonce responses that may indicate acceptance, and does not
 automatically resubmit them. Deterministic wallet or provider rejections may
 be retried with the same key after correction. `503 NONCE_LOCK_LOST` occurs

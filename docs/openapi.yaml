@@ -292,6 +292,10 @@ components:
     PositiveIntegerString:
       type: string
       pattern: '^[1-9]\d*$'
+    MaxShareWadString:
+      type: string
+      pattern: '^(?:[1-9]\d{0,17}|1000000000000000000)$'
+      description: A positive integer no greater than 1e18.
     ErrorEnvelope:
       type: object
       additionalProperties: false
@@ -419,8 +423,9 @@ components:
             numPositions:
               type: integer
               minimum: 1
+              maximum: 65535
             maxShareToBeSoldWad:
-              $ref: '#/components/schemas/IntegerString'
+              $ref: '#/components/schemas/MaxShareWadString'
           required: [type, preset]
         - type: object
           additionalProperties: false
@@ -439,8 +444,9 @@ components:
             numPositions:
               type: integer
               minimum: 1
+              maximum: 65535
             maxShareToBeSoldWad:
-              $ref: '#/components/schemas/IntegerString'
+              $ref: '#/components/schemas/MaxShareWadString'
           required: [type, marketCapStartUsd, marketCapEndUsd]
     StaticAuction:
       type: object
@@ -663,10 +669,12 @@ components:
         gamma:
           type: integer
           minimum: 1
+          maximum: 8388607
           description: Must be divisible by the effective tickSpacing.
         numPdSlugs:
           type: integer
           minimum: 1
+          maximum: 15
       required: [type, marketCapStartUsd, marketCapMinUsd, minProceeds, maxProceeds]
     DynamicAuction:
       type: object
@@ -716,6 +724,7 @@ components:
         tickSpacing:
           type: integer
           minimum: 1
+          maximum: 32767
         lockDurationSeconds:
           type: integer
           minimum: 0

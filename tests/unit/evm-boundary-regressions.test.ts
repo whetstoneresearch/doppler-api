@@ -312,6 +312,12 @@ describe('canonical EVM boundary regressions', () => {
         tickSpacing: 1,
         lockDurationSeconds: 4_294_967_296,
       },
+      {
+        type: 'uniswapV4',
+        fee: 150_000,
+        tickSpacing: 32_768,
+        lockDurationSeconds: 0,
+      },
     ]) {
       expect(
         createLaunchRequestSchema.safeParse({
@@ -320,6 +326,60 @@ describe('canonical EVM boundary regressions', () => {
           auction: dynamicAuction,
         }).success,
       ).toBe(false);
+    }
+
+    for (const curveConfig of [
+      {
+        type: 'preset',
+        preset: 'medium',
+        numPositions: 65_536,
+      },
+      {
+        type: 'preset',
+        preset: 'medium',
+        maxShareToBeSoldWad: '1000000000000000001',
+      },
+      {
+        type: 'preset',
+        preset: 'medium',
+        maxShareToBeSoldWad: '0',
+      },
+    ]) {
+      expect(
+        createLaunchRequestSchema.safeParse({
+          ...baseRequest,
+          auction: {
+            type: 'static',
+            curveConfig,
+          },
+        }).success,
+      ).toBe(false);
+    }
+
+    for (const curveConfig of [
+      {
+        type: 'preset',
+        preset: 'medium',
+        numPositions: 65_535,
+        maxShareToBeSoldWad: WAD,
+      },
+      {
+        type: 'range',
+        marketCapStartUsd: 100,
+        marketCapEndUsd: 1_000,
+        numPositions: 65_535,
+        maxShareToBeSoldWad: WAD,
+      },
+    ]) {
+      expect(
+        createLaunchRequestSchema.safeParse({
+          ...baseRequest,
+          auction: {
+            type: 'static',
+            curveConfig,
+          },
+        }).success,
+      ).toBe(true);
     }
   });
 
@@ -387,6 +447,15 @@ describe('canonical EVM boundary regressions', () => {
         tickSpacing: 30,
         gamma: 31,
       },
+      {
+        ...dynamicAuction.curveConfig,
+        tickSpacing: 1,
+        gamma: 8_388_608,
+      },
+      {
+        ...dynamicAuction.curveConfig,
+        numPdSlugs: 16,
+      },
     ]) {
       expect(
         createLaunchRequestSchema.safeParse({
@@ -417,6 +486,24 @@ describe('canonical EVM boundary regressions', () => {
             durationSeconds: 120,
             epochLengthSeconds: 30,
             gamma: 20,
+          },
+        },
+      }).success,
+    ).toBe(true);
+
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...baseRequest,
+        migration: {
+          type: 'uniswapV2',
+        },
+        auction: {
+          type: 'dynamic',
+          curveConfig: {
+            ...dynamicAuction.curveConfig,
+            tickSpacing: 1,
+            gamma: 8_388_607,
+            numPdSlugs: 15,
           },
         },
       }).success,

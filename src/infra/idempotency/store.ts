@@ -182,6 +182,31 @@ const throwInDoubtError = (): never => {
   );
 };
 
+const completedWriteInDoubtError = (response: CreateAnyLaunchResponse): AppError => {
+  const details =
+    'txHash' in response
+      ? {
+          launchId: response.launchId,
+          chainId: response.chainId,
+          txHash: response.txHash,
+          statusUrl: response.statusUrl,
+        }
+      : {
+          launchId: response.launchId,
+          network: response.network,
+          signature: response.signature,
+          explorerUrl: response.explorerUrl,
+          statusUrl: response.statusUrl,
+        };
+
+  return new AppError(
+    409,
+    'IDEMPOTENCY_KEY_IN_DOUBT',
+    'Launch completed but its idempotency result could not be persisted; reconcile the original transaction before retrying',
+    details,
+  );
+};
+
 const isPersistableInDoubtError = (error: unknown): error is AppError =>
   error instanceof AppError &&
   error.code === 'IDEMPOTENCY_KEY_IN_DOUBT' &&
@@ -371,10 +396,10 @@ export class FileIdempotencyStore implements IdempotencyStore {
     this.persist();
     const promise = Promise.resolve().then(action);
     this.inFlight.set(key, { payloadHash, promise });
-    let actionCompleted = false;
+    let completedResponse: CreateAnyLaunchResponse | undefined;
     try {
       const response = await promise;
-      actionCompleted = true;
+      completedResponse = response;
       this.records.set(key, {
         state: 'completed',
         payloadHash,
@@ -398,16 +423,26 @@ export class FileIdempotencyStore implements IdempotencyStore {
         this.persist();
         throw error;
       }
-      if (actionCompleted) {
+      if (completedResponse !== undefined) {
+        const inDoubtError = completedWriteInDoubtError(completedResponse);
         this.records.set(key, {
-          state: 'in_progress',
+          state: 'in_doubt',
           payloadHash,
+          error: {
+            code: inDoubtError.code,
+            message: inDoubtError.message,
+            details: inDoubtError.details,
+          },
           createdAtMs: Date.now(),
         });
         try {
           this.persist();
-        } catch {}
-        throwInDoubtError();
+        } catch (persistenceError) {
+          if (!(persistenceError instanceof Error)) {
+            throw persistenceError;
+          }
+        }
+        throw inDoubtError;
       }
       this.records.delete(key);
       this.persist();
@@ -604,7 +639,7 @@ export class RedisIdempotencyStore implements IdempotencyStore {
     action: () => Promise<CreateAnyLaunchResponse>,
   ): Promise<{ response: CreateAnyLaunchResponse; replayed: boolean }> {
     let heartbeatTimer: NodeJS.Timeout | undefined;
-    let actionCompleted = false;
+    let completedResponse: CreateAnyLaunchResponse | undefined;
     const stopHeartbeat = () => {
       if (!heartbeatTimer) {
         return;
@@ -633,13 +668,23 @@ export class RedisIdempotencyStore implements IdempotencyStore {
       const promise = Promise.resolve().then(action);
       this.inFlight.set(key, { payloadHash, promise });
       const response = await promise;
-      actionCompleted = true;
+      completedResponse = response;
       await this.writeCompletedRecord(key, payloadHash, response);
       return { response, replayed: false };
     } catch (error) {
       if (isPersistableInDoubtError(error)) {
         await this.writeInDoubtRecord(key, payloadHash, error);
-      } else if (!actionCompleted) {
+      } else if (completedResponse !== undefined) {
+        const inDoubtError = completedWriteInDoubtError(completedResponse);
+        try {
+          await this.writeInDoubtRecord(key, payloadHash, inDoubtError);
+        } catch (persistenceError) {
+          if (!(persistenceError instanceof Error)) {
+            throw persistenceError;
+          }
+        }
+        throw inDoubtError;
+      } else {
         try {
           await this.clearRecord(key);
         } catch {

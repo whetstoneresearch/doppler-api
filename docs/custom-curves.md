@@ -15,8 +15,9 @@ Set `auction.type` to `"static"` and choose one curve configuration:
 Both configurations accept these optional fields:
 
 - `fee`: one of `100`, `500`, `3000`, or `10000`.
-- `numPositions`: a positive integer.
-- `maxShareToBeSoldWad`: a positive integer string.
+- `numPositions`: a positive integer no greater than `65535`.
+- `maxShareToBeSoldWad`: a positive integer string no greater than
+  `1000000000000000000`.
 
 Static requests do not accept `migration`.
 
@@ -102,9 +103,9 @@ Optional curve fields follow these rules:
 - `fee` is an integer from `0` through `100000`. A fee other than `100`, `500`,
   `3000`, or `10000` requires an explicit `tickSpacing`.
 - `tickSpacing` is a positive safe integer no greater than `30`.
-- `gamma` is a positive safe integer divisible by the effective
-  `tickSpacing`.
-- `numPdSlugs` is a positive safe integer.
+- `gamma` is a positive integer no greater than `8388607` and divisible by the
+  effective `tickSpacing`.
+- `numPdSlugs` is a positive integer no greater than `15`.
 
 Dynamic requests require a `migration`:
 
@@ -112,10 +113,11 @@ Dynamic requests require a `migration`:
   `feeBeneficiary: { address, percentage }`. The address must be non-zero, and
   `percentage` must be an integer from `1` through `50`. Do not provide
   top-level `poolFeeBeneficiaries` with this migration.
-- `uniswapV4` requires an integer `fee` from `0` through `150000`, a positive
-  integer `tickSpacing`, and an integer `lockDurationSeconds` from `0` through
-  `4294967295`. The resulting Uniswap V4 pool uses this fixed LP fee, and
-  top-level `poolFeeBeneficiaries` are supported.
+- `uniswapV4` requires an integer `fee` from `0` through `150000`, an integer
+  `tickSpacing` from `1` through `32767`, and an integer
+  `lockDurationSeconds` from `0` through `4294967295`. The resulting Uniswap
+  V4 pool uses this fixed LP fee, and top-level `poolFeeBeneficiaries` are
+  supported.
 
 To use `RehypeDopplerHookMigrator`, add `migration.rehype` with:
 

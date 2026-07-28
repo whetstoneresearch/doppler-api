@@ -23,6 +23,7 @@ const positiveBigintStringSchema = bigintStringSchema.refine(
 );
 const UINT32_MAX = 4_294_967_295;
 const UINT48_MAX = 281_474_976_710_655;
+const V4_MAX_TICK_SPACING = 32_767;
 const MIN_VESTING_DURATION_SECONDS = 86_400;
 
 const vestingAllocationSchema = z
@@ -174,7 +175,7 @@ const uniswapV4MigrationSchema = z
   .object({
     type: z.literal('uniswapV4'),
     fee: z.number().int().min(0).max(150_000),
-    tickSpacing: z.number().int().positive(),
+    tickSpacing: z.number().int().positive().max(V4_MAX_TICK_SPACING),
     lockDurationSeconds: z.number().int().min(0).max(UINT32_MAX),
     rehype: z
       .object({

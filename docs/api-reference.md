@@ -10,6 +10,9 @@ Send `x-api-key` on every route except `GET /health`. Create routes accept
 
 Errors use `{ "error": { "code", "message", "details?" } }`. Invalid or
 incompatible request data returns `422 INVALID_REQUEST`.
+An exact retry of a completed request is replayed before current request
+validation, including a historical payload that no longer matches the current
+schema.
 
 EVM launch requests may omit `chainId` when the deployment defines
 `DEFAULT_CHAIN_ID`. Otherwise, omission returns `422 CHAIN_ID_REQUIRED`.
@@ -44,12 +47,15 @@ Deterministic request validation runs before dependency readiness checks.
 - Dynamic: `auction.type: "dynamic"` with exactly one migration:
   `uniswapV2` or `uniswapV4`.
 
-Static fees are limited to `100`, `500`, `3000`, or `10000`. Multicurve pool
-fees may be `0`.
+Static fees are limited to `100`, `500`, `3000`, or `10000`;
+`numPositions` is at most 65,535 and `maxShareToBeSoldWad` is at most `1e18`.
+Multicurve pool fees may be `0`.
 
 Dynamic ranges require descending market caps, duration evenly divisible by
-epoch length, and gamma aligned to tick spacing. A non-standard fee requires
-explicit tick spacing of at most `30`.
+epoch length, `gamma` no greater than 8,388,607 and aligned to tick spacing,
+and `numPdSlugs` no greater than 15. A non-standard fee requires explicit tick
+spacing of at most `30`. Dynamic Uniswap V4 migration tick spacing is at most
+32,767.
 
 ### Token metadata and fee beneficiaries
 

@@ -135,10 +135,15 @@ Errors use this envelope:
 ```
 
 Validation and incompatible EVM family fields return `422 INVALID_REQUEST`.
+An exact retry of a completed request is replayed from its idempotency record
+before current request validation, so requests completed under an older API
+contract remain retryable with their original key and payload.
 Ambiguous EVM transaction submission may return
 `409 IDEMPOTENCY_KEY_IN_DOUBT`; reconcile the recorded signer and nonce before
-retrying. A lost distributed nonce lock returns `503 NONCE_LOCK_LOST`; retry
-the identical request with the same idempotency key.
+retrying. The same error is returned with the completed launch or transaction
+identifiers when the API cannot durably save a completed response. A lost
+distributed nonce lock returns `503 NONCE_LOCK_LOST`; retry the identical
+request with the same idempotency key.
 
 Operational references:
 

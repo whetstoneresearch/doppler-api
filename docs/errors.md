@@ -133,15 +133,20 @@ beneficiary fields.
 | `NONCE_LOCK_LOST`                | `503`  | Distributed nonce-lock ownership was lost before broadcast.                        |
 
 A completed request made again with the same key and payload returns the stored
-response. Reusing the key with a different payload returns
-`IDEMPOTENCY_KEY_REUSE_MISMATCH`.
+response before current request validation. This also permits an exact retry of
+a historical request that no longer matches the current schema. Reusing the key
+with a different payload returns `IDEMPOTENCY_KEY_REUSE_MISMATCH`.
 
 When an EVM broadcast result is ambiguous, `IDEMPOTENCY_KEY_IN_DOUBT` includes
 `chainId`, `accountAddress`, and `nonce`. Reconcile that account and nonce before
 submitting another transaction. When Solana submission succeeds but confirmation
 remains ambiguous, the error includes `launchId`, `signature`, and `explorerUrl`;
-use those values to reconcile the submitted transaction. Retries with the same
-key continue to fail closed while the in-doubt record exists.
+use those values to reconcile the submitted transaction. If a completed response
+cannot be durably persisted, the error instead preserves the completed response
+identifiers: `launchId`, `chainId`, `txHash`, and `statusUrl` for EVM, or
+`launchId`, `network`, `signature`, `explorerUrl`, and `statusUrl` for Solana.
+Retries with the same key continue to return the same details and fail closed
+while the in-doubt record exists.
 
 Deterministic wallet and provider rejections are not persisted as in doubt.
 `NONCE_LOCK_LOST` occurs before broadcast, so the identical request may be

@@ -6,6 +6,10 @@ import { ChainRegistry } from '../../src/infra/chain/registry';
 
 interface BuildTestServerOptions {
   defaultChainId?: number | null;
+  legacyIdempotencyRecord?: {
+    key: string;
+    payload: unknown;
+  };
   readyCheckFails?: boolean;
   launchStatusResponse?: {
     status: 'pending' | 'not_found' | 'reverted' | 'confirmed';
@@ -329,6 +333,13 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
     return buildLaunchResponse(input as Parameters<typeof buildLaunchResponse>[0]);
   };
 
+  if (options.legacyIdempotencyRecord) {
+    idempotencyResults.set(options.legacyIdempotencyRecord.key, {
+      payloadHash: stableStringify(options.legacyIdempotencyRecord.payload),
+      response: resolveLaunchResponse(options.legacyIdempotencyRecord.payload),
+    });
+  }
+
   const services: AppServices = {
     config,
     metrics: new MetricsRegistry(),
@@ -418,23 +429,16 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
       createLaunch: async (payload?: { governance?: unknown }) => {
         return resolveLaunchResponse(payload);
       },
-      createLaunchWithIdempotency: async (payload?: {
-        governance?: unknown;
+      createLaunchWithIdempotency: async (payload: {
         input?: unknown;
+        rawInput?: unknown;
+        parseInput?: (input: unknown) => unknown;
         idempotencyKey?: string;
       }) => {
-        const key = payload?.idempotencyKey?.trim();
-        const input = payload?.input;
-
-        if (!key) {
-          return {
-            replayed: false,
-            response: resolveLaunchResponse(input),
-          };
-        }
-
-        const payloadHash = stableStringify(input);
-        const existing = idempotencyResults.get(key);
+        const key = payload.idempotencyKey?.trim();
+        const rawInput = payload.rawInput ?? payload.input;
+        const payloadHash = stableStringify(rawInput);
+        const existing = key ? idempotencyResults.get(key) : undefined;
         if (existing) {
           if (existing.payloadHash !== payloadHash) {
             throw new AppError(
@@ -450,8 +454,11 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
           };
         }
 
+        const input = payload.parseInput ? payload.parseInput(rawInput) : rawInput;
         const response = resolveLaunchResponse(input);
-        idempotencyResults.set(key, { payloadHash, response });
+        if (key) {
+          idempotencyResults.set(key, { payloadHash, response });
+        }
 
         return {
           replayed: false,

@@ -9,6 +9,8 @@ import {
 
 const decimalStringSchema = z.string().regex(/^\d+(\.\d+)?$/, 'must be a positive decimal string');
 const standardFeeTiers = new Set<number>(VALID_FEE_TIERS);
+const INT24_MAX = 8_388_607;
+const MAX_PRICE_DISCOVERY_SLUGS = 15;
 
 const dynamicRangeCurveConfigBaseSchema = z
   .object({
@@ -21,8 +23,8 @@ const dynamicRangeCurveConfigBaseSchema = z
     epochLengthSeconds: z.number().int().positive().safe().optional(),
     fee: z.number().int().min(0).max(V4_MAX_FEE).safe().optional(),
     tickSpacing: z.number().int().positive().max(DOPPLER_MAX_TICK_SPACING).safe().optional(),
-    gamma: z.number().int().positive().safe().optional(),
-    numPdSlugs: z.number().int().positive().safe().optional(),
+    gamma: z.number().int().positive().max(INT24_MAX).safe().optional(),
+    numPdSlugs: z.number().int().positive().max(MAX_PRICE_DISCOVERY_SLUGS).safe().optional(),
   })
   .strict();
 

@@ -409,31 +409,43 @@ describe('POST /v1/launches', () => {
     expect(replay.headers['x-idempotency-replayed']).toBe('true');
   });
 
-  it('rejects a legacy create body before idempotency lookup for old and new keys', async () => {
-    app = await buildTestServer();
+  it('replays a legacy create body before current request validation', async () => {
     const payload = {
       userAddress: '0x1111111111111111111111111111111111111111',
       tokenMetadata: { name: 'Legacy Token', symbol: 'LEG', tokenURI: 'ipfs://legacy' },
       economics: { totalSupply: '1000' },
-      feeBeneficiaries: [],
+      governance: { enabled: false, mode: 'noOp' },
+      migration: { type: 'noOp' },
       auction: {
-        type: 'static',
-        curveConfig: { type: 'preset', preset: 'low' },
+        type: 'multicurve',
+        curveConfig: { type: 'preset' },
       },
     };
-
-    for (const idempotencyKey of ['previously-used-key', 'new-key']) {
-      const response = await app.inject({
-        method: 'POST',
-        url: '/v1/launches/static',
-        headers: { 'x-api-key': 'test-key', 'idempotency-key': idempotencyKey },
+    app = await buildTestServer({
+      legacyIdempotencyRecord: {
+        key: 'previously-used-key',
         payload,
-      });
+      },
+    });
 
-      expect(response.statusCode).toBe(422);
-      expect(response.json().error.code).toBe('INVALID_REQUEST');
-      expect(response.headers['x-idempotency-replayed']).toBeUndefined();
-    }
+    const replay = await app.inject({
+      method: 'POST',
+      url: '/v1/launches',
+      headers: { 'x-api-key': 'test-key', 'idempotency-key': 'previously-used-key' },
+      payload,
+    });
+    const newRequest = await app.inject({
+      method: 'POST',
+      url: '/v1/launches',
+      headers: { 'x-api-key': 'test-key', 'idempotency-key': 'new-key' },
+      payload,
+    });
+
+    expect(replay.statusCode).toBe(200);
+    expect(replay.headers['x-idempotency-replayed']).toBe('true');
+    expect(newRequest.statusCode).toBe(422);
+    expect(newRequest.json().error.code).toBe('INVALID_REQUEST');
+    expect(newRequest.headers['x-idempotency-replayed']).toBeUndefined();
   });
 
   it('returns allocation defaults when sale is less than total supply', async () => {

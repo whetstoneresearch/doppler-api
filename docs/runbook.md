@@ -75,8 +75,13 @@ transaction was rejected.
 
 1. Stop retries and do not submit the request with a new idempotency key.
 2. Use the error details and logs to reconcile the transaction:
-   - EVM errors include `chainId`, `accountAddress`, and `nonce`.
-   - Solana errors include `launchId`, `signature`, and `explorerUrl`.
+   - An ambiguous EVM broadcast includes `chainId`, `accountAddress`, and
+     `nonce`.
+   - A completed EVM response that could not be persisted includes `launchId`,
+     `chainId`, `txHash`, and `statusUrl`.
+   - Solana errors include `launchId`, `signature`, and `explorerUrl`; a
+     completed response that could not be persisted also includes `network`
+     and `statusUrl`.
 3. Search a trusted RPC and explorer for pending, confirmed, replaced, reverted,
    or dropped transactions.
 4. Resume only after establishing the transaction's outcome. Restarting,

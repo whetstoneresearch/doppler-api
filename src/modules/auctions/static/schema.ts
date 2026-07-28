@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-const bigintStringSchema = z.string().regex(/^\d+$/, 'must be a positive integer string');
+const WAD = 10n ** 18n;
+const UINT16_MAX = 65_535;
+const maxShareToBeSoldSchema = z
+  .string()
+  .regex(/^[1-9]\d*$/, 'must be a positive integer string')
+  .refine((value) => BigInt(value) <= WAD, `must be less than or equal to ${WAD.toString()}`);
 const staticFeeSchema = z.union([
   z.literal(100),
   z.literal(500),
@@ -13,8 +18,8 @@ const staticPresetCurveConfigSchema = z
     type: z.literal('preset'),
     preset: z.enum(['low', 'medium', 'high']),
     fee: staticFeeSchema.optional(),
-    numPositions: z.number().int().positive().optional(),
-    maxShareToBeSoldWad: bigintStringSchema.optional(),
+    numPositions: z.number().int().positive().max(UINT16_MAX).optional(),
+    maxShareToBeSoldWad: maxShareToBeSoldSchema.optional(),
   })
   .strict();
 
@@ -24,8 +29,8 @@ const staticRangeCurveConfigSchema = z
     marketCapStartUsd: z.number().positive(),
     marketCapEndUsd: z.number().positive(),
     fee: staticFeeSchema.optional(),
-    numPositions: z.number().int().positive().optional(),
-    maxShareToBeSoldWad: bigintStringSchema.optional(),
+    numPositions: z.number().int().positive().max(UINT16_MAX).optional(),
+    maxShareToBeSoldWad: maxShareToBeSoldSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {

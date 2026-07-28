@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -369,6 +369,58 @@ describe('idempotency store', () => {
     );
   });
 
+  it('file backend retains reconciliation details when completed record persistence fails', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'doppler-idempotency-completed-write-'));
+    const path = join(directory, 'records.json');
+    const store = new FileIdempotencyStore({
+      enabled: true,
+      ttlMs: 100_000,
+      path,
+    });
+    const response = buildResponse(
+      '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    );
+    const details = {
+      launchId: response.launchId,
+      chainId: response.chainId,
+      txHash: response.txHash,
+      statusUrl: response.statusUrl,
+    };
+    let actionExecutions = 0;
+
+    try {
+      await expect(
+        store.execute('completed-write-failure', samplePayload, async () => {
+          actionExecutions += 1;
+          rmSync(directory, { recursive: true });
+          writeFileSync(directory, 'not a directory', 'utf8');
+          return response;
+        }),
+      ).rejects.toMatchObject({
+        code: 'IDEMPOTENCY_KEY_IN_DOUBT',
+        statusCode: 409,
+        details,
+      });
+
+      rmSync(directory);
+      mkdirSync(directory);
+
+      await expect(
+        store.execute('completed-write-failure', samplePayload, async () => {
+          actionExecutions += 1;
+          return response;
+        }),
+      ).rejects.toMatchObject({
+        code: 'IDEMPOTENCY_KEY_IN_DOUBT',
+        statusCode: 409,
+        details,
+      });
+      expect(actionExecutions).toBe(1);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('file backend rejects same key with different payload', async () => {
     const runId = (Date.now() + 1).toString();
     const store = new FileIdempotencyStore({
@@ -581,12 +633,26 @@ describe('idempotency store', () => {
 
     let actionExecutions = 0;
 
+    const response = buildResponse(
+      '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    );
+    const details = {
+      launchId: response.launchId,
+      chainId: response.chainId,
+      txHash: response.txHash,
+      statusUrl: response.statusUrl,
+    };
+
     await expect(
       store.execute('completed-write-failure', samplePayload as any, async () => {
         actionExecutions += 1;
-        return buildResponse('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+        return response;
       }),
-    ).rejects.toThrow('simulated redis write failure after launch success');
+    ).rejects.toMatchObject({
+      code: 'IDEMPOTENCY_KEY_IN_DOUBT',
+      statusCode: 409,
+      details,
+    });
 
     await expect(
       store.execute('completed-write-failure', samplePayload as any, async () => {
@@ -596,6 +662,7 @@ describe('idempotency store', () => {
     ).rejects.toMatchObject({
       code: 'IDEMPOTENCY_KEY_IN_DOUBT',
       statusCode: 409,
+      details,
     });
 
     expect(actionExecutions).toBe(1);

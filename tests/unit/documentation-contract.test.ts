@@ -335,6 +335,13 @@ describe('documentation contract', () => {
   it('keeps OpenAPI numeric-string constraints aligned with runtime validation', () => {
     const document = openApiDocument();
     expect(readOpenApiSchemaBlock('PositiveIntegerString')).toContain("pattern: '^[1-9]\\d*$'");
+    expect(readOpenApiSchemaBlock('MaxShareWadString')).toContain(
+      "pattern: '^(?:[1-9]\\d{0,17}|1000000000000000000)$'",
+    );
+    expect(readOpenApiSchemaBlock('StaticCurveConfig')).toContain('maximum: 65535');
+    expect(readOpenApiSchemaBlock('DynamicCurveConfig')).toContain('maximum: 8388607');
+    expect(readOpenApiSchemaBlock('DynamicCurveConfig')).toContain('maximum: 15');
+    expect(readOpenApiSchemaBlock('UniswapV4Migration')).toContain('maximum: 32767');
     expect(document).toContain("pattern: '^\\d+:0x[a-fA-F0-9]{64}$'");
     expect(document).toContain("pattern: '^\\d+(\\.\\d+)?$'");
   });
