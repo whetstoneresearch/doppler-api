@@ -1,11 +1,8 @@
 # Doppler API
 
-A self-hosted TypeScript REST API for creating and monitoring Doppler token
-launches without embedding the Doppler SDK. It supports EVM launches across
-configured chains, an optional Solana launch surface, durable idempotency, and
-health and metrics endpoints for production operation.
+A self-hosted TypeScript REST API for creating and monitoring Doppler token launches without embedding the Doppler SDK. It supports EVM launches across configured chains, an optional Solana launch surface, durable idempotency, and health and metrics endpoints for production operation.
 
-## Quick start
+## Run locally
 
 Requirements: Node.js 22 and npm 10.
 
@@ -14,29 +11,77 @@ npm install
 cp .env.example .env
 ```
 
-Set `API_KEY`, `PRIVATE_KEY`, and at least one EVM RPC URL in `.env`, then start
-the development server:
+Set `API_KEY`, `PRIVATE_KEY`, and at least one named EVM RPC URL in `.env`. The following example uses `BASE_SEPOLIA_RPC_URL` and chain ID `84532`. Start the development server:
 
 ```bash
 npm run dev
 ```
 
-For a production build:
+The API listens on `http://localhost:3000` by default.
+
+## Create a multicurve launch
+
+This quick-start sends a minimal multicurve request to the shared EVM launch route. Multicurve launches require the flattened Rehype initializer shown below. Set the request's addresses for your launch, and use an enabled `chainId`.
 
 ```bash
-npm run build
-npm start
+curl --request POST 'http://localhost:3000/v1/launches' \
+  --header 'content-type: application/json' \
+  --header 'x-api-key: replace-with-api-key' \
+  --header 'Idempotency-Key: rehype-quick-start-1' \
+  --data '{
+    "chainId": 84532,
+    "userAddress": "0x1111111111111111111111111111111111111111",
+    "tokenMetadata": {
+      "name": "Example Token",
+      "symbol": "EXAMPLE",
+      "tokenURI": "ipfs://example-token"
+    },
+    "economics": {
+      "totalSupply": "1000000000000000000000000"
+    },
+    "pricing": {
+      "numerairePriceUsd": 2500
+    },
+    "auction": {
+      "type": "multicurve",
+      "curveConfig": {
+        "type": "preset",
+        "presets": ["medium"]
+      },
+      "initializer": {
+        "startFee": 3000,
+        "feeDistributionInfo": {
+          "assetFeesToAssetBuybackWad": "250000000000000000",
+          "assetFeesToNumeraireBuybackWad": "250000000000000000",
+          "assetFeesToBeneficiaryWad": "250000000000000000",
+          "assetFeesToLpWad": "250000000000000000",
+          "numeraireFeesToAssetBuybackWad": "250000000000000000",
+          "numeraireFeesToNumeraireBuybackWad": "250000000000000000",
+          "numeraireFeesToBeneficiaryWad": "250000000000000000",
+          "numeraireFeesToLpWad": "250000000000000000"
+        },
+        "buybackDestination": "0x2222222222222222222222222222222222222222"
+      }
+    }
+  }'
 ```
 
-The repository includes a `Dockerfile` and `docker-compose.yml`. CI and
-container builds use npm with the committed `package-lock.json`.
+See the [Rehype Guide](docs/rehype.md) for fee schedules, distribution weights, initializer routing, and dynamic migration configuration. The [Launch Request Examples](docs/launch-examples.md) cover every supported EVM family.
 
 ## API surface
 
+The shared EVM launch route dispatches by `auction.type`:
+
 - `POST /v1/launches`
+
+The family-specific routes accept the corresponding EVM request shape:
+
 - `POST /v1/launches/static`
 - `POST /v1/launches/multicurve`
 - `POST /v1/launches/dynamic`
+
+Status and operational routes are:
+
 - `GET /v1/launches/:launchId`
 - `GET /v1/capabilities`
 - `POST /v1/solana/launches`
@@ -45,12 +90,29 @@ container builds use npm with the committed `package-lock.json`.
 - `GET /ready`
 - `GET /metrics`
 
-Every route except `GET /health` requires `x-api-key`. Create routes accept an
-`Idempotency-Key`; shared deployments require one.
+Every route except `GET /health` requires `x-api-key`. Create routes accept an `Idempotency-Key`; shared deployments require one.
 
-Use [`docs/openapi.yaml`](docs/openapi.yaml) for exact request and response
-schemas and copyable examples. The human-readable endpoint guide is
-[`docs/api-reference.md`](docs/api-reference.md).
+Use the [OpenAPI specification](docs/openapi.yaml) for exact request and response schemas and the [API reference](docs/api-reference.md) for endpoint behavior.
+
+## Solana behavior
+
+Use `POST /v1/solana/launches` for dedicated Solana creation, or the shared route with a canonical `solanaDevnet` or `solanaMainnetBeta` network. Only Devnet is executable.
+
+All API-created Solana launches use Doppler launch hook v1. `auction.cosignerGate` uses the canonical managed cosigner from the hook's onchain configuration; callers do not provide a cosigner address, and optional expiry supports only `disabled` or `unixTimestamp`. `auction.dynamicFee` may be used independently or with managed cosigning.
+
+When `SOLANA_DEVNET_ALT_ADDRESS` is configured, creation reuses it when the transaction fits and falls back to a launch-specific lookup table otherwise. Solana RPC requests retry HTTP `429` responses with bounded exponential backoff; a transaction that remains oversized returns `422 SOLANA_TRANSACTION_TOO_LARGE`.
+
+Enable Solana with a funded payer from `SOLANA_KEYPAIR_PATH` (preferred) or inline `SOLANA_KEYPAIR`, but not both. See the [Configuration Reference](docs/configuration.md) for the complete runtime and live-test requirements.
+
+## Supported EVM families
+
+| Family | Curve | Migration |
+| --- | --- | --- |
+| `static` | `low`, `medium`, or `high` preset; or a manual Uniswap V3 range | None |
+| `multicurve` | Presets or contiguous manual ranges | None; a Rehype initializer is required |
+| `dynamic` | Dynamic range | Required Uniswap V2 or Uniswap V4 migration; Uniswap V4 can add Rehype |
+
+All EVM families use `DopplerERC20V1`. See the [Custom Curve Guide](docs/custom-curves.md) for curve configuration and the [Rehype Guide](docs/rehype.md) for initializer and migrator configuration.
 
 ## Configuration
 
@@ -70,94 +132,24 @@ Each non-empty RPC variable enables its corresponding chain:
 | Base         |     8453 | `BASE_RPC_URL`         |
 | Base Sepolia |    84532 | `BASE_SEPOLIA_RPC_URL` |
 
-`DEFAULT_CHAIN_ID` may identify one enabled chain. Without it, each EVM launch
-request must supply `chainId`. The service does not fall back to Base Sepolia or
-the first configured chain. `GET /v1/capabilities` reports enabled chains
-without exposing RPC URLs.
+`DEFAULT_CHAIN_ID` may identify one enabled chain. Without it, each EVM launch request supplies `chainId`. The service does not fall back to Base Sepolia or the first configured chain. `GET /v1/capabilities` reports enabled chains without exposing RPC URLs.
 
-Standalone mode uses local durable state by default. Set
-`DEPLOYMENT_MODE=shared` for multiple replicas; shared mode requires Redis, the
-Redis idempotency backend, and idempotency keys on create requests. Solana,
-pricing, CORS, rate limiting, logging, and readiness checks have separate
-optional settings.
+Standalone mode uses local durable state by default. Set `DEPLOYMENT_MODE=shared` for multiple replicas; shared mode requires Redis, the Redis idempotency backend, and idempotency keys on create requests.
 
-See [`docs/configuration.md`](docs/configuration.md) and [`.env.example`](.env.example)
-for the complete configuration reference.
+See the [Configuration Reference](docs/configuration.md) and [`.env.example`](.env.example) for EVM, Solana, pricing, CORS, rate limiting, logging, and readiness settings.
 
-## Supported EVM launches
+## Production and operations
 
-`POST /v1/launches` accepts three family-discriminated request shapes. The
-family-specific routes accept the same corresponding shapes.
+Create a production build and start it:
 
-- `static`: a `low`, `medium`, or `high` preset or a manual Uniswap V3 range
-- `multicurve`: presets or contiguous manual ranges, with a `standard` or
-  `rehype` initializer
-- `dynamic`: a dynamic auction with exactly one `uniswapV2` or `uniswapV4`
-  migration configuration
-
-All EVM families use `DopplerERC20V1` and support optional balance controls.
-They also support governance configuration and up to 10 non-market allocation
-vesting schedules. EVM pool-fee routing uses `poolFeeBeneficiaries`; dynamic
-`uniswapV2` instead supports its singular proceeds `feeBeneficiary`.
-Rehype's `initializer.config.rehypeFeeBeneficiaries` is a separate hook-fee
-routing list.
-Both multicurve initializer modes are submitted through the canonical
-`DopplerHookInitializer`; `rehype` changes the hook configuration, not the
-initializer contract.
-Dynamic `uniswapV4` migrations use a fixed LP fee. Optional
-`migration.rehype` selects `RehypeDopplerHookMigrator` with a separate static
-hook fee and eight-field distribution matrix.
-
-EVM integer-string and WAD fields accept decimal digits only. Malformed values
-are rejected as `422 INVALID_REQUEST`.
-
-For exact defaults, validation rules, fee distribution, curve constraints, and
-allocation behavior, see:
-
-- [`docs/api-reference.md`](docs/api-reference.md)
-- [`docs/custom-curves.md`](docs/custom-curves.md)
-- [`docs/launch-examples.md`](docs/launch-examples.md)
-- [`docs/openapi.yaml`](docs/openapi.yaml)
-
-## Solana
-
-Solana uses dedicated configuration and routes. Its request contract uses
-Solana `feeBeneficiaries` with `shareBps`, independently of the EVM
-`poolFeeBeneficiaries` contract. Solana support is disabled unless
-`SOLANA_ENABLED=true`.
-
-## Operations
-
-Errors use this envelope:
-
-```json
-{
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "Human-readable message",
-    "details": {}
-  }
-}
+```bash
+npm run build
+npm start
 ```
 
-Validation and incompatible EVM family fields return `422 INVALID_REQUEST`.
-An exact retry of a completed request is replayed from its idempotency record
-before current request validation, so requests completed under an older API
-contract remain retryable with their original key and payload.
-Ambiguous EVM transaction submission may return
-`409 IDEMPOTENCY_KEY_IN_DOUBT`; reconcile the recorded signer and nonce before
-retrying. The same error is returned with the completed launch or transaction
-identifiers when the API cannot durably save a completed response. A lost
-distributed nonce lock returns `503 NONCE_LOCK_LOST`; retry the identical
-request with the same idempotency key.
-Create simulations and token-collision checks use pending chain state so a
-token deployed by an unmined transaction is not submitted again.
+The repository includes a `Dockerfile` and `docker-compose.yml`. CI and container builds use npm with the committed `package-lock.json`.
 
-Operational references:
-
-- [`docs/errors.md`](docs/errors.md): error codes and retry guidance
-- [`docs/runbook.md`](docs/runbook.md): health checks and incident procedures
-- [`SECURITY.md`](SECURITY.md): vulnerability reporting
+An exact retry of a completed request replays its durable idempotency record. Ambiguous transaction submission returns `409 IDEMPOTENCY_KEY_IN_DOUBT`; lost distributed nonce ownership returns `503 NONCE_LOCK_LOST`. See [Error Handling](docs/errors.md) for response codes and the [Operations Runbook](docs/runbook.md) for health checks, recovery, and incident procedures.
 
 ## Development
 
@@ -167,9 +159,6 @@ npm run typecheck
 npm test
 ```
 
-`npm run test:all` runs unit, integration, and the onchain live suite. It
-enables live execution and requires the RPC and signer environment described
-in `.env.example`.
+`npm run test:all` runs unit, integration, and onchain live coverage. It requires the RPC and signer environment described in `.env.example`.
 
-See [`docs/contributing.md`](docs/contributing.md) for the contributor workflow
-and [`docs/README.md`](docs/README.md) for the documentation index.
+See the [Contributing Guide](docs/contributing.md) for the contributor workflow and the [Documentation Index](docs/README.md) for all guides and references.

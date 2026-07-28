@@ -71,6 +71,37 @@ const token = {
   tokenURI: 'ipfs://canonical',
 } as const;
 
+const REQUEST_REHYPE_BUYBACK_INITIALIZER = {
+  buybackDestination: RECIPIENT,
+  startFee: 5_000,
+  feeDistributionInfo: {
+    assetFeesToAssetBuybackWad: WAD.toString(),
+    assetFeesToNumeraireBuybackWad: '0',
+    assetFeesToBeneficiaryWad: '0',
+    assetFeesToLpWad: '0',
+    numeraireFeesToAssetBuybackWad: '0',
+    numeraireFeesToNumeraireBuybackWad: WAD.toString(),
+    numeraireFeesToBeneficiaryWad: '0',
+    numeraireFeesToLpWad: '0',
+  },
+} as const;
+
+const SDK_REHYPE_BUYBACK_INITIALIZER = {
+  hookAddress: modules.rehypeDopplerHookInitializer,
+  buybackDestination: RECIPIENT,
+  startFee: 5_000,
+  feeDistributionInfo: {
+    assetFeesToAssetBuybackWad: WAD,
+    assetFeesToNumeraireBuybackWad: 0n,
+    assetFeesToBeneficiaryWad: 0n,
+    assetFeesToLpWad: 0n,
+    numeraireFeesToAssetBuybackWad: 0n,
+    numeraireFeesToNumeraireBuybackWad: WAD,
+    numeraireFeesToBeneficiaryWad: 0n,
+    numeraireFeesToLpWad: 0n,
+  },
+} as const;
+
 const publicClient = {
   simulateContract: vi.fn(async () => ({
     request: { gas: 1_000_000n },
@@ -394,16 +425,18 @@ describe('SDK 1.0.33 canonical EVM simulation matrix', () => {
     });
   });
 
-  it('simulates standard multicurve low/medium/high presets with default beneficiaries', async () => {
+  it('simulates Rehype multicurve low/medium/high presets with default beneficiaries', async () => {
     const normalized = await resolveBeneficiaries({
       type: 'multicurve',
       curveConfig: { type: 'preset', presets: ['low', 'medium', 'high'] },
+      initializer: REQUEST_REHYPE_BUYBACK_INITIALIZER,
     });
     const params = multicurveBuilder()
       .withMarketCapPresets({
         presets: ['low', 'medium', 'high'],
         beneficiaries: normalized.beneficiaries,
       })
+      .withRehypeDopplerHookInitializer(SDK_REHYPE_BUYBACK_INITIALIZER)
       .withDopplerHookInitializer(modules.dopplerHookInitializer)
       .withGovernance({ type: 'default' })
       .build();
@@ -413,7 +446,10 @@ describe('SDK 1.0.33 canonical EVM simulation matrix', () => {
     expect(params.token).toEqual(token);
     expect(params.pool.curves).toHaveLength(4);
     expect(params.pool.beneficiaries).toEqual(normalized.beneficiaries);
-    expect(params.initializer).toEqual({ type: 'standard' });
+    expect(params.initializer).toMatchObject({
+      type: 'rehype',
+      config: SDK_REHYPE_BUYBACK_INITIALIZER,
+    });
     expect(params.vesting).toBeUndefined();
     expect(params.governance).toEqual({ type: 'default' });
     expect(params.migration).toEqual({ type: 'noOp' });
@@ -450,6 +486,7 @@ describe('SDK 1.0.33 canonical EVM simulation matrix', () => {
             },
           ],
         },
+        initializer: REQUEST_REHYPE_BUYBACK_INITIALIZER,
       },
       [{ address: RECIPIENT, sharesWad: ((WAD * 95n) / 100n).toString() }],
     );
@@ -476,6 +513,7 @@ describe('SDK 1.0.33 canonical EVM simulation matrix', () => {
           },
         ],
       })
+      .withRehypeDopplerHookInitializer(SDK_REHYPE_BUYBACK_INITIALIZER)
       .withDopplerHookInitializer(modules.dopplerHookInitializer)
       .withGovernance({ type: 'noOp' })
       .build();
@@ -485,7 +523,10 @@ describe('SDK 1.0.33 canonical EVM simulation matrix', () => {
     expect(params.token).toEqual(token);
     expect(params.pool.curves).toHaveLength(2);
     expect(params.pool.beneficiaries).toEqual(normalized.beneficiaries);
-    expect(params.initializer).toEqual({ type: 'standard' });
+    expect(params.initializer).toMatchObject({
+      type: 'rehype',
+      config: SDK_REHYPE_BUYBACK_INITIALIZER,
+    });
     expect(params.vesting?.allocations).toEqual([
       {
         recipient: OWNER,
@@ -519,29 +560,26 @@ describe('SDK 1.0.33 canonical EVM simulation matrix', () => {
         type: 'multicurve',
         curveConfig: { type: 'preset', presets: ['medium'] },
         initializer: {
-          type: 'rehype',
-          config: {
-            rehypeFeeBeneficiaries: [
-              { address: USER, sharesWad: (WAD / 5n).toString() },
-              { address: RECIPIENT, sharesWad: ((WAD * 3n) / 10n).toString() },
-              {
-                address: '0x4444444444444444444444444444444444444444',
-                sharesWad: (WAD / 2n).toString(),
-              },
-            ],
-            startFee: 5_000,
-            endFee: 3_000,
-            durationSeconds: 86_400,
-            feeDistributionInfo: {
-              assetFeesToAssetBuybackWad: '0',
-              assetFeesToNumeraireBuybackWad: '0',
-              assetFeesToBeneficiaryWad: WAD.toString(),
-              assetFeesToLpWad: '0',
-              numeraireFeesToAssetBuybackWad: '0',
-              numeraireFeesToNumeraireBuybackWad: '0',
-              numeraireFeesToBeneficiaryWad: WAD.toString(),
-              numeraireFeesToLpWad: '0',
+          rehypeFeeBeneficiaries: [
+            { address: USER, sharesWad: (WAD / 5n).toString() },
+            { address: RECIPIENT, sharesWad: ((WAD * 3n) / 10n).toString() },
+            {
+              address: '0x4444444444444444444444444444444444444444',
+              sharesWad: (WAD / 2n).toString(),
             },
+          ],
+          startFee: 5_000,
+          endFee: 3_000,
+          durationSeconds: 86_400,
+          feeDistributionInfo: {
+            assetFeesToAssetBuybackWad: '0',
+            assetFeesToNumeraireBuybackWad: '0',
+            assetFeesToBeneficiaryWad: WAD.toString(),
+            assetFeesToLpWad: '0',
+            numeraireFeesToAssetBuybackWad: '0',
+            numeraireFeesToNumeraireBuybackWad: '0',
+            numeraireFeesToBeneficiaryWad: WAD.toString(),
+            numeraireFeesToLpWad: '0',
           },
         },
       },
@@ -845,13 +883,29 @@ describe('canonical address and negative public matrix', () => {
   );
 
   it.each([
+    ['scheduled initializer', { type: 'scheduled', startTime: 1 }],
+    ['decay initializer', { type: 'decay' }],
+    ['manual Rehype fee routing mode', { feeRoutingMode: 1 }],
+  ])('rejects incompatible flattened %s', (_label, incompatibleFields) => {
+    expect(
+      createLaunchRequestSchema.safeParse({
+        userAddress: USER,
+        tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+        economics: { totalSupply: '1000000' },
+        auction: {
+          type: 'multicurve',
+          curveConfig: { type: 'preset', presets: ['low'] },
+          initializer: {
+            ...REQUEST_REHYPE_BUYBACK_INITIALIZER,
+            ...incompatibleFields,
+          },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([
     ['legacy key', { feeBeneficiaries: [] }],
-    ['scheduled initializer', { auction: { initializer: { type: 'scheduled', startTime: 1 } } }],
-    ['decay initializer', { auction: { initializer: { type: 'decay', startFee: 5_000 } } }],
-    [
-      'manual Rehype fee routing mode',
-      { auction: { initializer: { type: 'rehype', config: { feeRoutingMode: 1 } } } },
-    ],
     ['V2 top-level beneficiaries', { migration: { type: 'uniswapV2' }, poolFeeBeneficiaries: [] }],
     [
       'fee beneficiary above 50%',
@@ -900,10 +954,15 @@ describe('canonical address and negative public matrix', () => {
         },
       },
     };
+    const requestOverride = override as Record<string, unknown>;
+    const auctionOverride = requestOverride.auction;
     const candidate = {
       ...base,
-      ...override,
-      auction: { ...base.auction, ...('auction' in override ? override.auction : {}) },
+      ...requestOverride,
+      auction: {
+        ...base.auction,
+        ...(typeof auctionOverride === 'object' && auctionOverride !== null ? auctionOverride : {}),
+      },
     };
     expect(createLaunchRequestSchema.safeParse(candidate).success).toBe(false);
   });
@@ -951,6 +1010,7 @@ describe('canonical address and negative public matrix', () => {
         presets: ['low'],
         beneficiaries: [{ beneficiary: OWNER, shares: WAD }],
       })
+      .withRehypeDopplerHookInitializer(SDK_REHYPE_BUYBACK_INITIALIZER)
       .withDopplerHookInitializer(modules.dopplerHookInitializer)
       .withGovernance({ type: 'noOp' })
       .withMigration({ type: 'noOp' })

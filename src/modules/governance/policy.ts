@@ -11,8 +11,14 @@ export const resolveGovernance = (
   governance: boolean | HexAddress | undefined,
   chainConfig: ChainRuntimeConfig,
 ): ResolvedGovernance => {
-  const mode: GovernanceMode =
-    typeof governance === 'string' ? 'launchpad' : governance === true ? 'default' : 'noOp';
+  let mode: GovernanceMode;
+  if (typeof governance === 'string') {
+    mode = 'custom';
+  } else if (governance === true) {
+    mode = 'default';
+  } else {
+    mode = 'noOp';
+  }
 
   if (
     !chainConfig.governanceModes.includes(mode) ||

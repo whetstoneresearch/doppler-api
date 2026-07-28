@@ -97,7 +97,7 @@ const buildChain = (chainId: number): ChainContext => {
       defaultNumeraireAddress: getAddresses(chainId).weth,
       auctionTypes: ['multicurve'],
       migrationModes: ['noOp'],
-      governanceModes: ['noOp', 'default', 'launchpad'],
+      governanceModes: ['noOp', 'default', 'custom'],
       governanceEnabled: true,
     },
     addresses: getAddresses(chainId),
@@ -141,7 +141,7 @@ const captureBuiltParams = async (
   throw new Error('Expected SDK params capture to stop launch submission');
 };
 
-const buildStandardInput = (chainId: number): CreateMulticurveLaunchRequestInput => ({
+const buildBuybackInput = (chainId: number): CreateMulticurveLaunchRequestInput => ({
   chainId,
   userAddress: USER,
   tokenMetadata: {
@@ -150,7 +150,7 @@ const buildStandardInput = (chainId: number): CreateMulticurveLaunchRequestInput
     tokenURI: 'ipfs://canonical',
     maxBalanceLimit: '123456789',
     balanceLimitEnd: 4_000_000_000,
-    controller: CONTROLLER,
+    balanceController: CONTROLLER,
     excludedFromBalanceLimit: [EXCLUDED],
   },
   economics: {
@@ -182,26 +182,77 @@ const buildStandardInput = (chainId: number): CreateMulticurveLaunchRequestInput
         },
       ],
     },
-    initializer: { type: 'standard' },
+    initializer: {
+      buybackDestination: BUYBACK_DESTINATION,
+      startFee: 30_000,
+      endFee: 10_000,
+      durationSeconds: 86_400,
+      startingTime: 1_700_000_000,
+      feeDistributionInfo: {
+        assetFeesToAssetBuybackWad: '200000000000000000',
+        assetFeesToNumeraireBuybackWad: '300000000000000000',
+        assetFeesToBeneficiaryWad: '100000000000000000',
+        assetFeesToLpWad: '400000000000000000',
+        numeraireFeesToAssetBuybackWad: '200000000000000000',
+        numeraireFeesToNumeraireBuybackWad: '300000000000000000',
+        numeraireFeesToBeneficiaryWad: '100000000000000000',
+        numeraireFeesToLpWad: '400000000000000000',
+      },
+    },
   },
 });
 
 describe('multicurve launch service', () => {
-  it('builds the canonical DopplerHookInitializer on all configured EVM chains', async () => {
+  it('maps flattened Rehype buyback configuration on all configured EVM chains', async () => {
     const withCurvesSpy = vi.spyOn(MulticurveBuilder.prototype, 'withCurves');
-    const withScheduleSpy = vi.spyOn(MulticurveBuilder.prototype, 'withSchedule');
+    const withRehypeSpy = vi.spyOn(MulticurveBuilder.prototype, 'withRehypeDopplerHookInitializer');
 
     for (const chainId of CHAIN_IDS) {
-      const captured = await captureBuiltParams(buildStandardInput(chainId));
+      const captured = await captureBuiltParams(buildBuybackInput(chainId));
       const addresses = getAddresses(chainId);
+      const rehypeInput = withRehypeSpy.mock.calls.at(-1)?.[0] satisfies
+        | RehypeDopplerHookInitializerConfig
+        | undefined;
 
+      expect(rehypeInput).toEqual({
+        hookAddress: addresses.rehypeDopplerHookInitializer,
+        buybackDestination: BUYBACK_DESTINATION,
+        startFee: 30_000,
+        endFee: 10_000,
+        durationSeconds: 86_400,
+        startingTime: 1_700_000_000,
+        feeDistributionInfo: {
+          assetFeesToAssetBuybackWad: 200000000000000000n,
+          assetFeesToNumeraireBuybackWad: 300000000000000000n,
+          assetFeesToBeneficiaryWad: 100000000000000000n,
+          assetFeesToLpWad: 400000000000000000n,
+          numeraireFeesToAssetBuybackWad: 200000000000000000n,
+          numeraireFeesToNumeraireBuybackWad: 300000000000000000n,
+          numeraireFeesToBeneficiaryWad: 100000000000000000n,
+          numeraireFeesToLpWad: 400000000000000000n,
+        },
+      });
+      expect(rehypeInput).not.toHaveProperty('graduationCalldata');
+      expect(rehypeInput).not.toHaveProperty('graduationMarketCap');
+      expect(rehypeInput).not.toHaveProperty('numerairePrice');
+      expect(rehypeInput).not.toHaveProperty('farTick');
+      expect(captured.params.initializer).toMatchObject({
+        type: 'rehype',
+        config: {
+          hookAddress: addresses.rehypeDopplerHookInitializer,
+          buybackDestination: BUYBACK_DESTINATION,
+          feeRoutingMode: 0,
+          startFee: 30_000,
+          endFee: 10_000,
+          durationSeconds: 86_400,
+          startingTime: 1_700_000_000,
+        },
+      });
       expect(captured.params.modules?.dopplerHookInitializer).toBe(
         addresses.dopplerHookInitializer,
       );
       expect(captured.createParams.poolInitializer).toBe(addresses.dopplerHookInitializer);
       expect(captured.createParams.poolInitializerData).toMatch(/^0x[0-9a-f]+$/i);
-      expect(captured.params.initializer).toEqual({ type: 'standard' });
-      expect(withScheduleSpy).not.toHaveBeenCalled();
       expect(captured.params.token).toEqual({
         type: 'dopplerERC20V1',
         name: 'Canonical Multicurve',
@@ -237,97 +288,7 @@ describe('multicurve launch service', () => {
     expect(ranges?.curves[0]?.marketCap.end).toBe('max');
   });
 
-  it('builds the canonical RehypeDopplerHookInitializer with canonical hook separation', async () => {
-    const withRehypeSpy = vi.spyOn(MulticurveBuilder.prototype, 'withRehypeDopplerHookInitializer');
-    const input: CreateMulticurveLaunchRequestInput = {
-      chainId: 84532,
-      userAddress: USER,
-      tokenMetadata: { name: 'Rehype', symbol: 'RHP', tokenURI: 'ipfs://rehype' },
-      economics: { totalSupply: '1000', tokensForSale: '1000' },
-      pricing: { numerairePriceUsd: 3_000 },
-      poolFeeBeneficiaries: [{ address: BENEFICIARY, sharesWad: '950000000000000000' }],
-      auction: {
-        type: 'multicurve',
-        curveConfig: { type: 'preset', presets: ['low', 'medium', 'high'] },
-        initializer: {
-          type: 'rehype',
-          config: {
-            buybackDestination: BUYBACK_DESTINATION,
-            startFee: 30_000,
-            endFee: 10_000,
-            durationSeconds: 86_400,
-            startingTime: 1_700_000_000,
-            feeDistributionInfo: {
-              assetFeesToAssetBuybackWad: '200000000000000000',
-              assetFeesToNumeraireBuybackWad: '300000000000000000',
-              assetFeesToBeneficiaryWad: '100000000000000000',
-              assetFeesToLpWad: '400000000000000000',
-              numeraireFeesToAssetBuybackWad: '200000000000000000',
-              numeraireFeesToNumeraireBuybackWad: '300000000000000000',
-              numeraireFeesToBeneficiaryWad: '100000000000000000',
-              numeraireFeesToLpWad: '400000000000000000',
-            },
-            graduationCalldata: '0x1234',
-            farTick: 200_000,
-          },
-        },
-      },
-    };
-
-    const captured = await captureBuiltParams(input);
-    const addresses = getAddresses(84532);
-    const rehypeConfig = withRehypeSpy.mock.calls.at(-1)?.[0] satisfies
-      | RehypeDopplerHookInitializerConfig
-      | undefined;
-
-    expect(captured.params.modules?.dopplerHookInitializer).toBe(addresses.dopplerHookInitializer);
-    expect(captured.createParams.poolInitializer).toBe(addresses.dopplerHookInitializer);
-    expect(captured.createParams.poolInitializerData).toMatch(/^0x[0-9a-f]+$/i);
-    expect(rehypeConfig).toMatchObject({
-      hookAddress: addresses.rehypeDopplerHookInitializer,
-      buybackDestination: BUYBACK_DESTINATION,
-      startFee: 30_000,
-      endFee: 10_000,
-      durationSeconds: 86_400,
-      startingTime: 1_700_000_000,
-      feeDistributionInfo: {
-        assetFeesToAssetBuybackWad: 200000000000000000n,
-        assetFeesToNumeraireBuybackWad: 300000000000000000n,
-        assetFeesToBeneficiaryWad: 100000000000000000n,
-        assetFeesToLpWad: 400000000000000000n,
-        numeraireFeesToAssetBuybackWad: 200000000000000000n,
-        numeraireFeesToNumeraireBuybackWad: 300000000000000000n,
-        numeraireFeesToBeneficiaryWad: 100000000000000000n,
-        numeraireFeesToLpWad: 400000000000000000n,
-      },
-      graduationCalldata: '0x1234',
-      farTick: 200_000,
-    });
-    expect(rehypeConfig).not.toHaveProperty('feeBeneficiaries');
-    expect(rehypeConfig).not.toHaveProperty('feeRoutingMode');
-    expect(captured.params.pool.beneficiaries).toEqual(
-      expect.arrayContaining([
-        { beneficiary: BENEFICIARY, shares: 950000000000000000n },
-        { beneficiary: PROTOCOL_OWNER, shares: 50000000000000000n },
-      ]),
-    );
-    expect(captured.params.migration).toEqual({ type: 'noOp' });
-    expect(captured.params.governance).toEqual({ type: 'noOp' });
-    expect(captured.params.token).toMatchObject({ type: 'dopplerERC20V1' });
-    expect(captured.params.initializer).toMatchObject({
-      type: 'rehype',
-      config: {
-        hookAddress: addresses.rehypeDopplerHookInitializer,
-        buybackDestination: BUYBACK_DESTINATION,
-        startFee: 30_000,
-        endFee: 10_000,
-        durationSeconds: 86_400,
-        startingTime: 1_700_000_000,
-      },
-    });
-  });
-
-  it('passes Rehype fee beneficiaries without appending the Airlock owner', async () => {
+  it('maps flattened weighted Rehype beneficiaries without appending the Airlock owner', async () => {
     const withRehypeSpy = vi.spyOn(MulticurveBuilder.prototype, 'withRehypeDopplerHookInitializer');
     const input: CreateMulticurveLaunchRequestInput = {
       chainId: 84532,
@@ -340,45 +301,78 @@ describe('multicurve launch service', () => {
         type: 'multicurve',
         curveConfig: { type: 'preset', presets: ['medium'] },
         initializer: {
-          type: 'rehype',
-          config: {
-            rehypeFeeBeneficiaries: [
-              { address: BENEFICIARY, sharesWad: '200000000000000000' },
-              { address: REHYPE_BENEFICIARY_TWO, sharesWad: '300000000000000000' },
-              { address: REHYPE_BENEFICIARY_THREE, sharesWad: '500000000000000000' },
-            ],
-            startFee: 30_000,
-            feeDistributionInfo: {
-              assetFeesToAssetBuybackWad: '0',
-              assetFeesToNumeraireBuybackWad: '0',
-              assetFeesToBeneficiaryWad: '1000000000000000000',
-              assetFeesToLpWad: '0',
-              numeraireFeesToAssetBuybackWad: '0',
-              numeraireFeesToNumeraireBuybackWad: '0',
-              numeraireFeesToBeneficiaryWad: '1000000000000000000',
-              numeraireFeesToLpWad: '0',
-            },
+          rehypeFeeBeneficiaries: [
+            { address: BENEFICIARY, sharesWad: '200000000000000000' },
+            { address: REHYPE_BENEFICIARY_TWO, sharesWad: '300000000000000000' },
+            { address: REHYPE_BENEFICIARY_THREE, sharesWad: '500000000000000000' },
+          ],
+          startFee: 30_000,
+          feeDistributionInfo: {
+            assetFeesToAssetBuybackWad: '0',
+            assetFeesToNumeraireBuybackWad: '0',
+            assetFeesToBeneficiaryWad: '1000000000000000000',
+            assetFeesToLpWad: '0',
+            numeraireFeesToAssetBuybackWad: '0',
+            numeraireFeesToNumeraireBuybackWad: '0',
+            numeraireFeesToBeneficiaryWad: '1000000000000000000',
+            numeraireFeesToLpWad: '0',
           },
         },
       },
     };
 
-    await captureBuiltParams(input);
+    const captured = await captureBuiltParams(input);
+    const addresses = getAddresses(84532);
+    const rehypeInput = withRehypeSpy.mock.calls.at(-1)?.[0] satisfies
+      | RehypeDopplerHookInitializerConfig
+      | undefined;
 
-    expect(withRehypeSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+    expect(rehypeInput).toEqual({
+      hookAddress: addresses.rehypeDopplerHookInitializer,
       feeBeneficiaries: [
         { beneficiary: BENEFICIARY, shares: 200000000000000000n },
         { beneficiary: REHYPE_BENEFICIARY_TWO, shares: 300000000000000000n },
         { beneficiary: REHYPE_BENEFICIARY_THREE, shares: 500000000000000000n },
       ],
+      startFee: 30_000,
+      feeDistributionInfo: {
+        assetFeesToAssetBuybackWad: 0n,
+        assetFeesToNumeraireBuybackWad: 0n,
+        assetFeesToBeneficiaryWad: 1000000000000000000n,
+        assetFeesToLpWad: 0n,
+        numeraireFeesToAssetBuybackWad: 0n,
+        numeraireFeesToNumeraireBuybackWad: 0n,
+        numeraireFeesToBeneficiaryWad: 1000000000000000000n,
+        numeraireFeesToLpWad: 0n,
+      },
     });
-    expect(withRehypeSpy.mock.calls.at(-1)?.[0]).not.toHaveProperty('buybackDestination');
-    expect(withRehypeSpy.mock.calls.at(-1)?.[0]?.feeBeneficiaries).not.toEqual(
+    expect(rehypeInput).not.toHaveProperty('buybackDestination');
+    expect(rehypeInput).not.toHaveProperty('graduationCalldata');
+    expect(rehypeInput).not.toHaveProperty('graduationMarketCap');
+    expect(rehypeInput).not.toHaveProperty('numerairePrice');
+    expect(rehypeInput).not.toHaveProperty('farTick');
+    expect(captured.params.initializer).toMatchObject({
+      type: 'rehype',
+      config: {
+        hookAddress: addresses.rehypeDopplerHookInitializer,
+        feeBeneficiaries: [
+          { beneficiary: BENEFICIARY, shares: 200000000000000000n },
+          { beneficiary: REHYPE_BENEFICIARY_TWO, shares: 300000000000000000n },
+          { beneficiary: REHYPE_BENEFICIARY_THREE, shares: 500000000000000000n },
+        ],
+        feeRoutingMode: 1,
+        startFee: 30_000,
+        endFee: 30_000,
+        durationSeconds: 0,
+        startingTime: 0,
+      },
+    });
+    expect(rehypeInput?.feeBeneficiaries).not.toEqual(
       expect.arrayContaining([{ beneficiary: PROTOCOL_OWNER, shares: expect.any(BigInt) }]),
     );
   });
 
-  it('rejects a missing canonical initializer before simulation or submission', async () => {
+  it('rejects a missing DopplerHookInitializer before simulation or submission', async () => {
     const canonicalChain = buildChain(84532);
     const chain = {
       ...canonicalChain,
@@ -396,7 +390,7 @@ describe('multicurve launch service', () => {
 
     await expect(
       createMulticurveLaunch({
-        input: buildStandardInput(84532),
+        input: buildBuybackInput(84532),
         chain,
         sdkRegistry,
         pricingService: new PricingService(pricingConfig),

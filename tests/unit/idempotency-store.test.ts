@@ -16,11 +16,10 @@ const samplePayload = {
   userAddress: '0x1111111111111111111111111111111111111111',
   tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
   economics: { totalSupply: '1000' },
-  governance: { enabled: false, mode: 'noOp' as const },
-  migration: { type: 'noOp' as const },
+  governance: false,
   auction: {
-    type: 'multicurve' as const,
-    curveConfig: { type: 'preset' as const },
+    type: 'static' as const,
+    curveConfig: { type: 'preset' as const, preset: 'low' as const },
   },
 };
 

@@ -146,8 +146,8 @@ export const createDynamicLaunch = async ({
       ...(input.tokenMetadata.balanceLimitEnd !== undefined
         ? { balanceLimitEnd: input.tokenMetadata.balanceLimitEnd }
         : {}),
-      ...(input.tokenMetadata.controller !== undefined
-        ? { controller: input.tokenMetadata.controller }
+      ...(input.tokenMetadata.balanceController !== undefined
+        ? { controller: input.tokenMetadata.balanceController }
         : {}),
       ...(input.tokenMetadata.excludedFromBalanceLimit !== undefined
         ? { excludedFromBalanceLimit: input.tokenMetadata.excludedFromBalanceLimit }

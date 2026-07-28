@@ -7,11 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Malformed EVM WAD strings now return `422 INVALID_REQUEST` instead of an internal server error.
-- Multicurve launches now use the canonical `DopplerHookInitializer`, and
-  omitted preset tick spacing is aligned to every selected curve boundary.
-- EVM create simulation and token-collision detection now use pending chain
-  state, preventing broadcasts that target an address deployed by an unmined
-  transaction.
+- Multicurve launches now use the canonical `DopplerHookInitializer`, and omitted preset tick spacing is aligned to every selected curve boundary.
+- EVM create simulation and token-collision detection now use pending chain state, preventing broadcasts that target an address deployed by an unmined transaction.
 
 ### Changed
 
@@ -21,14 +18,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- EVM launches support DopplerERC20V1 balance controls, per-recipient vesting schedules, default and launchpad governance, and Rehype multicurve initialization.
-- Dynamic EVM launches support Uniswap V2 split, fixed-fee Doppler Hook V4
-  migrations, and Rehype Doppler Hook migrations with static hook-fee routing.
+- EVM launches support DopplerERC20V1 balance controls, per-recipient vesting schedules, default and custom governance, and Rehype multicurve initialization.
+- Dynamic EVM launches support Uniswap V2 split, fixed-fee Doppler Hook V4 migrations, and Rehype Doppler Hook migrations with static hook-fee routing.
 
 ### Changed
 
 - Updated `@whetstone-research/doppler-sdk` from `1.0.29` to `1.0.33` and aligned EVM launch assembly with the canonical SDK contracts.
 - EVM create requests use strict auction-family contracts. Static and multicurve launches no longer accept a public migration field, and EVM pool fee routing uses `poolFeeBeneficiaries`.
+- Multicurve requests on the shared EVM launch route and family-specific route now require a flattened Rehype `auction.initializer` with `startFee`, `feeDistributionInfo`, one of `buybackDestination` or `rehypeFeeBeneficiaries`, and the optional Rehype timing and end-fee fields. The initializer no longer accepts `type`, nested `config`, `graduationCalldata`, `graduationMarketCap`, `numerairePrice`, or `farTick`, and it cannot be omitted or replaced by a standard, scheduled, or decay initializer.
+- The public governance mode is now `custom` rather than `launchpad`, while the governance policy maps it to the SDK launchpad configuration internally. `tokenMetadata.controller` is now `tokenMetadata.balanceController`; neither breaking rename retains a compatibility alias.
 - EVM chain availability is derived from named RPC configuration for Ethereum, Monad, Robinhood, Base, and Base Sepolia. `DEFAULT_CHAIN_ID` is optional, and requests no longer fall back to another configured chain.
 - EVM transaction retry handling distinguishes pre-broadcast failures from ambiguous submissions and preserves reconciliation details for transactions that may have been accepted.
 

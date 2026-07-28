@@ -96,7 +96,7 @@ const createFixture = () => {
       defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
       auctionTypes: ['dynamic'],
       migrationModes: ['uniswapV2', 'uniswapV4'],
-      governanceModes: ['noOp', 'default', 'launchpad'],
+      governanceModes: ['noOp', 'default', 'custom'],
       governanceEnabled: true,
     } satisfies ChainRuntimeConfig,
     addresses: {
@@ -229,7 +229,7 @@ describe('dynamic launch service', () => {
         tokenURI: 'ipfs://token',
         maxBalanceLimit: '123',
         balanceLimitEnd: 999,
-        controller: CONTROLLER,
+        balanceController: CONTROLLER,
         excludedFromBalanceLimit: [EXCLUDED],
       },
       poolFeeBeneficiaries: [{ address: BENEFICIARY, sharesWad: ((WAD * 95n) / 100n).toString() }],

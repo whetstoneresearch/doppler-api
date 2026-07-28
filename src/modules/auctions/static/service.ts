@@ -142,9 +142,9 @@ export const createStaticLaunch = async ({
       ...(input.tokenMetadata.balanceLimitEnd === undefined
         ? {}
         : { balanceLimitEnd: input.tokenMetadata.balanceLimitEnd }),
-      ...(input.tokenMetadata.controller === undefined
+      ...(input.tokenMetadata.balanceController === undefined
         ? {}
-        : { controller: input.tokenMetadata.controller }),
+        : { controller: input.tokenMetadata.balanceController }),
       ...(input.tokenMetadata.excludedFromBalanceLimit === undefined
         ? {}
         : { excludedFromBalanceLimit: input.tokenMetadata.excludedFromBalanceLimit }),

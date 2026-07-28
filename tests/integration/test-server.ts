@@ -2,6 +2,7 @@ import { buildServer, type AppServices } from '../../src/app/server';
 import type { AppConfig } from '../../src/core/config';
 import { AppError } from '../../src/core/errors';
 import { MetricsRegistry } from '../../src/core/metrics';
+import type { MulticurveInitializerConfig } from '../../src/core/types';
 import { ChainRegistry } from '../../src/infra/chain/registry';
 
 interface BuildTestServerOptions {
@@ -93,7 +94,7 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
         defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
         auctionTypes: ['multicurve'],
         migrationModes: ['noOp'],
-        governanceModes: ['noOp', 'default'],
+        governanceModes: ['noOp', 'default', 'custom'],
         governanceEnabled: true,
       },
     },
@@ -136,9 +137,7 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
       }>;
     };
     auction?: {
-      initializer?: {
-        type: 'standard' | 'rehype';
-      };
+      initializer?: MulticurveInitializerConfig;
     };
   }) => {
     const totalSupply = BigInt(payload?.economics?.totalSupply ?? '1000');
@@ -191,7 +190,7 @@ export const buildTestServer = async (options: BuildTestServerOptions = {}) => {
         poolFeeBeneficiariesSource: 'default' as const,
         ...(payload?.auction?.initializer === undefined
           ? {}
-          : { initializer: { type: payload.auction.initializer.type } }),
+          : { initializer: payload.auction.initializer }),
       },
     };
   };

@@ -95,6 +95,8 @@ describe('live readiness check', () => {
       parseTransientSolanaCreateFailure(buildResponse(422, 'SOLANA_INVALID_CURVE')),
     ).toBeNull();
     expect(parseTransientSolanaCreateFailure(buildResponse(503, 'INTERNAL_ERROR'))).toBeNull();
+  });
+
   it('keeps exact EVM migrator scripts aligned with readiness filters', () => {
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
       scripts: Record<string, string>;

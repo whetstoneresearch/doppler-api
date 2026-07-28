@@ -17,6 +17,14 @@ const FEE_DISTRIBUTION_INFO = {
   numeraireFeesToBeneficiaryWad: '0',
   numeraireFeesToLpWad: '0',
 } as const;
+const REHYPE_BUYBACK_INITIALIZER = {
+  buybackDestination: BENEFICIARY,
+  startFee: 30_000,
+  endFee: 10_000,
+  durationSeconds: 86_400,
+  startingTime: 1_735_689_600,
+  feeDistributionInfo: FEE_DISTRIBUTION_INFO,
+} as const;
 
 const staticRequest = {
   userAddress: USER,
@@ -33,6 +41,7 @@ const multicurveRequest = {
   auction: {
     type: 'multicurve' as const,
     curveConfig: { type: 'preset' as const, presets: ['low' as const] },
+    initializer: REHYPE_BUYBACK_INITIALIZER,
   },
 };
 
@@ -162,14 +171,14 @@ describe('canonical EVM create launch schema', () => {
     ).toBe(false);
   });
 
-  it('accepts every DopplerERC20V1 control with its canonical type', () => {
+  it('accepts every DopplerERC20V1 control with balanceController', () => {
     const parsed = createLaunchRequestSchema.parse({
       ...staticRequest,
       tokenMetadata: {
         ...staticRequest.tokenMetadata,
         maxBalanceLimit: '10',
         balanceLimitEnd: 4_000_000_000,
-        controller: BENEFICIARY,
+        balanceController: BENEFICIARY,
         excludedFromBalanceLimit: [USER, BENEFICIARY],
       },
     });
@@ -177,9 +186,18 @@ describe('canonical EVM create launch schema', () => {
     expect(parsed.tokenMetadata).toMatchObject({
       maxBalanceLimit: '10',
       balanceLimitEnd: 4_000_000_000,
-      controller: BENEFICIARY,
+      balanceController: BENEFICIARY,
       excludedFromBalanceLimit: [USER, BENEFICIARY],
     });
+  });
+
+  it('rejects the retired controller token metadata field', () => {
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...staticRequest,
+        tokenMetadata: { ...staticRequest.tokenMetadata, controller: BENEFICIARY },
+      }).success,
+    ).toBe(false);
   });
 
   it.each([
@@ -187,7 +205,7 @@ describe('canonical EVM create launch schema', () => {
     { maxBalanceLimit: 1 },
     { balanceLimitEnd: -1 },
     { balanceLimitEnd: 1.5 },
-    { controller: '0x123' },
+    { balanceController: '0x123' },
     { type: 'standard' },
     { type: 'doppler404' },
   ])('rejects malformed or alternate token control %#', (invalidControl) => {
@@ -214,44 +232,49 @@ describe('canonical EVM create launch schema', () => {
     ).toBe(false);
   });
 
-  it('accepts only standard and rehype multicurve initializers', () => {
-    expect(
-      createLaunchRequestSchema.parse({
-        ...multicurveRequest,
-        auction: { ...multicurveRequest.auction, initializer: { type: 'standard' } },
-      }).auction.type,
-    ).toBe('multicurve');
-    expect(
-      createLaunchRequestSchema.parse({
-        ...multicurveRequest,
-        auction: {
-          ...multicurveRequest.auction,
-          initializer: {
-            type: 'rehype',
-            config: {
-              buybackDestination: BENEFICIARY,
-              startFee: 30_000,
-              endFee: 10_000,
-              durationSeconds: 86_400,
-              startingTime: 1_735_689_600,
-              feeDistributionInfo: FEE_DISTRIBUTION_INFO,
-            },
-          },
-        },
-      }).auction.type,
-    ).toBe('multicurve');
+  it('requires the flattened Rehype multicurve initializer', () => {
+    expect(createLaunchRequestSchema.parse(multicurveRequest).auction).toEqual(
+      multicurveRequest.auction,
+    );
 
     for (const initializer of [
-      { type: 'scheduled', startTime: 1 },
-      { type: 'decay', startFee: 1, durationSeconds: 1 },
+      undefined,
+      { type: 'standard' },
+      { type: 'rehype', config: REHYPE_BUYBACK_INITIALIZER },
     ]) {
       expect(
         createLaunchRequestSchema.safeParse({
           ...multicurveRequest,
-          auction: { ...multicurveRequest.auction, initializer },
+          auction:
+            initializer === undefined
+              ? {
+                  type: 'multicurve',
+                  curveConfig: multicurveRequest.auction.curveConfig,
+                }
+              : { ...multicurveRequest.auction, initializer },
         }).success,
       ).toBe(false);
     }
+  });
+
+  it.each([
+    ['graduationCalldata', '0x'],
+    ['graduationMarketCap', 1_000_000],
+    ['numerairePrice', 3_000],
+    ['farTick', 100],
+  ])('rejects removed multicurve initializer field %s', (field, value) => {
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...multicurveRequest,
+        auction: {
+          ...multicurveRequest.auction,
+          initializer: {
+            ...REHYPE_BUYBACK_INITIALIZER,
+            [field]: value,
+          },
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it.each([
@@ -266,13 +289,8 @@ describe('canonical EVM create launch schema', () => {
         auction: {
           ...multicurveRequest.auction,
           initializer: {
-            type: 'rehype',
-            config: {
-              buybackDestination: BENEFICIARY,
-              startFee: 30_000,
-              feeDistributionInfo: FEE_DISTRIBUTION_INFO,
-              ...forbiddenField,
-            },
+            ...REHYPE_BUYBACK_INITIALIZER,
+            ...forbiddenField,
           },
         },
       }).success,

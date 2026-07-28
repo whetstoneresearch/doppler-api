@@ -20,7 +20,10 @@ import {
   decodeStandardTokenFactoryData,
   type DecodedStandardTokenFactoryData,
 } from './calldata-decoders';
-import { decodeDopplerHookInitializerData } from './doppler-hook-calldata';
+import {
+  decodeDopplerHookInitializerData,
+  type DecodedDopplerHookInitializerData,
+} from './doppler-hook-calldata';
 import type { EvmLiveScenarioGroup } from '../scenario-metadata';
 
 const runLive = process.env.LIVE_TEST_ENABLE === 'true';
@@ -318,6 +321,27 @@ const DEFAULT_ALLOCATION_LOCK_DURATION_SECONDS = 90 * 24 * 60 * 60;
 const DEFAULT_LIVE_TOTAL_SUPPLY = 1_000_000n * 10n ** 18n;
 const WAD = 10n ** 18n;
 const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD' as const;
+const buildMulticurveRehypeTestInput = (args: {
+  userAddress: `0x${string}`;
+  poolFee: number;
+}): MulticurveInitializerConfig => {
+  const quarterWad = (WAD / 4n).toString();
+
+  return {
+    buybackDestination: args.userAddress,
+    startFee: args.poolFee,
+    feeDistributionInfo: {
+      assetFeesToAssetBuybackWad: quarterWad,
+      assetFeesToNumeraireBuybackWad: quarterWad,
+      assetFeesToBeneficiaryWad: quarterWad,
+      assetFeesToLpWad: quarterWad,
+      numeraireFeesToAssetBuybackWad: quarterWad,
+      numeraireFeesToNumeraireBuybackWad: quarterWad,
+      numeraireFeesToBeneficiaryWad: quarterWad,
+      numeraireFeesToLpWad: quarterWad,
+    },
+  };
+};
 
 const calculateSaleAmount = (totalSupply: bigint, salePercent: number): bigint => {
   return (totalSupply * BigInt(salePercent)) / 100n;
@@ -401,8 +425,6 @@ const buildRandomFeeBeneficiaries = (
   }));
 };
 
-type InitializerMode = 'standard' | 'rehype';
-
 interface DecodedDynamicPoolConfig {
   minimumProceeds: bigint;
   maximumProceeds: bigint;
@@ -441,19 +463,95 @@ const decodeDynamicPoolConfig = (poolInitializerData: `0x${string}`): DecodedDyn
   };
 };
 
-const resolveExpectedMulticurveInitializer = (args: {
-  chainAddresses: Partial<{
-    dopplerHookInitializer: `0x${string}`;
-  }>;
-  initializerType: InitializerMode;
+const resolveExpectedMulticurveInitializer = (chainAddresses: {
+  dopplerHookInitializer?: `0x${string}`;
 }): `0x${string}` => {
-  const { chainAddresses, initializerType } = args;
-
-  const standardAddress = chainAddresses.dopplerHookInitializer;
-  if (!standardAddress) {
-    throw new Error(`dopplerHookInitializer address missing for ${initializerType} initializer`);
+  const initializerAddress = chainAddresses.dopplerHookInitializer;
+  if (!initializerAddress) {
+    throw new Error('dopplerHookInitializer address missing for Rehype initializer');
   }
-  return standardAddress;
+  return initializerAddress;
+};
+
+const assertDecodedMulticurveRehypeInitializer = (args: {
+  decodedPoolConfig: DecodedDopplerHookInitializerData;
+  expectedInitializer: MulticurveInitializerConfig;
+  rehypeDopplerHookInitializer?: `0x${string}`;
+  airlockOwner?: `0x${string}`;
+}): void => {
+  const rehypeDopplerHookInitializer = args.rehypeDopplerHookInitializer;
+  if (!rehypeDopplerHookInitializer) {
+    throw new Error('rehypeDopplerHookInitializer address missing for Rehype test input');
+  }
+
+  expect(args.decodedPoolConfig.dopplerHook.toLowerCase()).toBe(
+    rehypeDopplerHookInitializer.toLowerCase(),
+  );
+  const decodedInitializer = decodeRehypeInitCalldata(
+    args.decodedPoolConfig.onInitializationDopplerHookCalldata,
+  );
+  const expectedBeneficiaries = args.expectedInitializer.rehypeFeeBeneficiaries;
+
+  if (expectedBeneficiaries !== undefined) {
+    expect(decodedInitializer.buybackDst).toBe(zeroAddress);
+    expect(decodedInitializer.feeRoutingMode).toBe(1);
+    expect(
+      decodedInitializer.feeBeneficiaries.map((beneficiary) => ({
+        address: beneficiary.beneficiary.toLowerCase(),
+        sharesWad: beneficiary.shares.toString(),
+      })),
+    ).toEqual(
+      [...expectedBeneficiaries]
+        .sort((left, right) =>
+          left.address.toLowerCase().localeCompare(right.address.toLowerCase()),
+        )
+        .map((beneficiary) => ({
+          address: beneficiary.address.toLowerCase(),
+          sharesWad: beneficiary.sharesWad,
+        })),
+    );
+    if (args.airlockOwner !== undefined) {
+      expect(
+        decodedInitializer.feeBeneficiaries.some(
+          (beneficiary) =>
+            beneficiary.beneficiary.toLowerCase() === args.airlockOwner?.toLowerCase(),
+        ),
+      ).toBe(false);
+    }
+  } else {
+    const expectedBuybackDestination = args.expectedInitializer.buybackDestination;
+    if (!expectedBuybackDestination) {
+      throw new Error('Rehype test input is missing its buyback destination');
+    }
+    expect(decodedInitializer.buybackDst.toLowerCase()).toBe(
+      expectedBuybackDestination.toLowerCase(),
+    );
+    expect(decodedInitializer.feeRoutingMode).toBe(0);
+    expect(decodedInitializer.feeBeneficiaries).toEqual([]);
+  }
+
+  expect(decodedInitializer.startFee).toBe(args.expectedInitializer.startFee);
+  expect(decodedInitializer.endFee).toBe(
+    args.expectedInitializer.endFee ?? args.expectedInitializer.startFee,
+  );
+  expect(decodedInitializer.durationSeconds).toBe(args.expectedInitializer.durationSeconds ?? 0);
+  expect(decodedInitializer.startingTime).toBe(args.expectedInitializer.startingTime ?? 0);
+  expect({
+    assetFeesToAssetBuybackWad:
+      decodedInitializer.feeDistributionInfo.assetFeesToAssetBuybackWad.toString(),
+    assetFeesToNumeraireBuybackWad:
+      decodedInitializer.feeDistributionInfo.assetFeesToNumeraireBuybackWad.toString(),
+    assetFeesToBeneficiaryWad:
+      decodedInitializer.feeDistributionInfo.assetFeesToBeneficiaryWad.toString(),
+    assetFeesToLpWad: decodedInitializer.feeDistributionInfo.assetFeesToLpWad.toString(),
+    numeraireFeesToAssetBuybackWad:
+      decodedInitializer.feeDistributionInfo.numeraireFeesToAssetBuybackWad.toString(),
+    numeraireFeesToNumeraireBuybackWad:
+      decodedInitializer.feeDistributionInfo.numeraireFeesToNumeraireBuybackWad.toString(),
+    numeraireFeesToBeneficiaryWad:
+      decodedInitializer.feeDistributionInfo.numeraireFeesToBeneficiaryWad.toString(),
+    numeraireFeesToLpWad: decodedInitializer.feeDistributionInfo.numeraireFeesToLpWad.toString(),
+  }).toEqual(args.expectedInitializer.feeDistributionInfo);
 };
 
 const assertDecodedVestingData = (args: {
@@ -657,10 +755,15 @@ const runMulticurveLaunchAndVerify = async (
     expectedVestingAllocations.length === 0
       ? '0 (default)'
       : expectedVestingAllocations.map((allocation) => allocation.durationSeconds).join(', ');
-  const requestedInitializer = overrides?.initializer ?? ({ type: 'standard' } as const);
   const explorerBase = getBaseScanUrl(chain.chainId);
   const numerairePriceUsd = Number(process.env.LIVE_NUMERAIRE_PRICE_USD || '3000');
   const feeConfig = overrides?.feeConfigOverride ?? feeConfigByPreset[preset];
+  const requestedInitializer =
+    overrides?.initializer ??
+    buildMulticurveRehypeTestInput({
+      userAddress,
+      poolFee: feeConfig.fee,
+    });
   const configLabel = overrides?.configLabel ?? `${preset.toUpperCase()} Default Configuration`;
   const summary: LaunchSummaryRow = {
     config: configLabel,
@@ -734,7 +837,7 @@ const runMulticurveLaunchAndVerify = async (
         ['Configured Fee', `${feeConfig.feePercent} (${feeConfig.fee})`],
         ['Fee Beneficiaries', overrides?.poolFeeBeneficiaries?.length ?? 'default'],
         ['Tick Spacing', 'default (API derives for custom fee tiers)'],
-        ['Initializer', requestedInitializer.type],
+        ['Initializer', 'rehype'],
         [
           'Launch Mode',
           `multicurve + migration:noOp + governance:${overrides?.governance ? 'default' : 'none'}`,
@@ -828,7 +931,7 @@ const runMulticurveLaunchAndVerify = async (
     expect(createResponse.effectiveConfig.poolFeeBeneficiariesSource).toBe(
       expectedFeeBeneficiariesSource,
     );
-    expect(createResponse.effectiveConfig.initializer?.type).toBe(requestedInitializer.type);
+    expect(createResponse.effectiveConfig.initializer).toEqual(requestedInitializer);
 
     let decodedTokenFactoryData: ReturnType<typeof decodeStandardTokenFactoryData> | null = null;
     if (shouldAssertAllocationDetails(allocationAmount)) {
@@ -839,10 +942,7 @@ const runMulticurveLaunchAndVerify = async (
       });
     }
 
-    const expectedInitializerAddress = resolveExpectedMulticurveInitializer({
-      chainAddresses: chain.addresses,
-      initializerType: requestedInitializer.type,
-    });
+    const expectedInitializerAddress = resolveExpectedMulticurveInitializer(chain.addresses);
     expect(createArg.poolInitializer.toLowerCase()).toBe(expectedInitializerAddress.toLowerCase());
 
     const decodedPoolConfig = decodeDopplerHookInitializerData(createArg.poolInitializerData);
@@ -865,77 +965,12 @@ const runMulticurveLaunchAndVerify = async (
       chain.addresses.noOpMigrator?.toLowerCase(),
     );
 
-    if (requestedInitializer.type === 'standard') {
-      expect(decodedPoolConfig.dopplerHook).toBe(zeroAddress);
-      expect(decodedPoolConfig.onInitializationDopplerHookCalldata).toBe('0x');
-      expect(decodedPoolConfig.graduationDopplerHookCalldata).toBe('0x');
-    } else {
-      expect(decodedPoolConfig.dopplerHook?.toLowerCase()).toBe(
-        chain.addresses.rehypeDopplerHookInitializer?.toLowerCase(),
-      );
-      const rehypeInitCalldata = decodeRehypeInitCalldata(
-        decodedPoolConfig.onInitializationDopplerHookCalldata,
-      );
-
-      if (requestedInitializer.config.rehypeFeeBeneficiaries) {
-        expect(rehypeInitCalldata.buybackDst).toBe(zeroAddress);
-        expect(rehypeInitCalldata.feeRoutingMode).toBe(1);
-        expect(
-          rehypeInitCalldata.feeBeneficiaries.map((beneficiary) => ({
-            address: beneficiary.beneficiary.toLowerCase(),
-            sharesWad: beneficiary.shares.toString(),
-          })),
-        ).toEqual(
-          [...requestedInitializer.config.rehypeFeeBeneficiaries]
-            .sort((left, right) =>
-              left.address.toLowerCase().localeCompare(right.address.toLowerCase()),
-            )
-            .map((beneficiary) => ({
-              address: beneficiary.address.toLowerCase(),
-              sharesWad: beneficiary.sharesWad,
-            })),
-        );
-        expect(
-          rehypeInitCalldata.feeBeneficiaries.some(
-            (beneficiary) => beneficiary.beneficiary.toLowerCase() === airlockOwner.toLowerCase(),
-          ),
-        ).toBe(false);
-      } else {
-        expect(rehypeInitCalldata.buybackDst.toLowerCase()).toBe(
-          requestedInitializer.config.buybackDestination.toLowerCase(),
-        );
-        expect(rehypeInitCalldata.feeRoutingMode).toBe(0);
-        expect(rehypeInitCalldata.feeBeneficiaries).toEqual([]);
-      }
-      expect(rehypeInitCalldata.startFee).toBe(requestedInitializer.config.startFee);
-      expect(rehypeInitCalldata.endFee).toBe(
-        requestedInitializer.config.endFee ?? requestedInitializer.config.startFee,
-      );
-      expect(rehypeInitCalldata.feeDistributionInfo.assetFeesToAssetBuybackWad.toString()).toBe(
-        requestedInitializer.config.feeDistributionInfo.assetFeesToAssetBuybackWad,
-      );
-      expect(rehypeInitCalldata.feeDistributionInfo.assetFeesToNumeraireBuybackWad.toString()).toBe(
-        requestedInitializer.config.feeDistributionInfo.assetFeesToNumeraireBuybackWad,
-      );
-      expect(rehypeInitCalldata.feeDistributionInfo.assetFeesToBeneficiaryWad.toString()).toBe(
-        requestedInitializer.config.feeDistributionInfo.assetFeesToBeneficiaryWad,
-      );
-      expect(rehypeInitCalldata.feeDistributionInfo.assetFeesToLpWad.toString()).toBe(
-        requestedInitializer.config.feeDistributionInfo.assetFeesToLpWad,
-      );
-      expect(rehypeInitCalldata.feeDistributionInfo.numeraireFeesToAssetBuybackWad.toString()).toBe(
-        requestedInitializer.config.feeDistributionInfo.numeraireFeesToAssetBuybackWad,
-      );
-      expect(
-        rehypeInitCalldata.feeDistributionInfo.numeraireFeesToNumeraireBuybackWad.toString(),
-      ).toBe(requestedInitializer.config.feeDistributionInfo.numeraireFeesToNumeraireBuybackWad);
-      expect(rehypeInitCalldata.feeDistributionInfo.numeraireFeesToBeneficiaryWad.toString()).toBe(
-        requestedInitializer.config.feeDistributionInfo.numeraireFeesToBeneficiaryWad,
-      );
-      expect(rehypeInitCalldata.feeDistributionInfo.numeraireFeesToLpWad.toString()).toBe(
-        requestedInitializer.config.feeDistributionInfo.numeraireFeesToLpWad,
-      );
-    }
+    assertDecodedMulticurveRehypeInitializer({
+      decodedPoolConfig,
+      expectedInitializer: requestedInitializer,
+      rehypeDopplerHookInitializer: chain.addresses.rehypeDopplerHookInitializer,
+      airlockOwner,
+    });
 
     const status = await services.statusService.getLaunchStatus(createResponse.launchId);
     expect(status.status).toBe('confirmed');
@@ -1694,6 +1729,10 @@ const runCustomCurveLaunchAndVerify = async () => {
   const numerairePriceUsd = Number(process.env.LIVE_NUMERAIRE_PRICE_USD || '3000');
   const randomFeePercent = randomFeePercentTwoDecimals();
   const randomFeeUnits = percentToFeeUnits(randomFeePercent);
+  const requestedInitializer = buildMulticurveRehypeTestInput({
+    userAddress,
+    poolFee: randomFeeUnits,
+  });
   const customTickSpacing = 200;
   const customFiniteMaxMarketCapUsd = 1_000_000_000_000_000;
   const customCurvePlan = buildRandomCustomCurvePlan(customFiniteMaxMarketCapUsd);
@@ -1735,6 +1774,7 @@ const runCustomCurveLaunchAndVerify = async () => {
         tickSpacing: customTickSpacing,
         curves: customCurvePlan.curves,
       },
+      initializer: requestedInitializer,
     },
   };
 
@@ -1851,12 +1891,20 @@ const runCustomCurveLaunchAndVerify = async () => {
     expect(createArg.numTokensToSell.toString()).toBe(totalSupply);
     expect(createArg.integrator.toLowerCase()).toBe(userAddress.toLowerCase());
     expect(createArg.numeraire).not.toBe(zeroAddress);
+    expect(createResponse.effectiveConfig.initializer).toEqual(requestedInitializer);
 
     const decodedPoolConfig = decodeDopplerHookInitializerData(createArg.poolInitializerData);
 
     expect(decodedPoolConfig.fee).toBe(randomFeeUnits);
     expect(decodedPoolConfig.tickSpacing).toBe(customTickSpacing);
-    expect(decodedPoolConfig.dopplerHook).toBe(zeroAddress);
+    expect(createArg.poolInitializer.toLowerCase()).toBe(
+      resolveExpectedMulticurveInitializer(chain.addresses).toLowerCase(),
+    );
+    assertDecodedMulticurveRehypeInitializer({
+      decodedPoolConfig,
+      expectedInitializer: requestedInitializer,
+      rehypeDopplerHookInitializer: chain.addresses.rehypeDopplerHookInitializer,
+    });
     expect(decodedPoolConfig.curves.length).toBe(customCurvePlan.curves.length);
     const shares = decodedPoolConfig.curves.map((curve) => curve.shares.toString());
     expect(shares).toEqual(expectedSharesWad);
@@ -1921,6 +1969,10 @@ const runCustomCurveWithRandomVestingAndAllocations = async () => {
   const numerairePriceUsd = Number(process.env.LIVE_NUMERAIRE_PRICE_USD || '3000');
   const randomFeePercent = randomFeePercentTwoDecimals();
   const randomFeeUnits = percentToFeeUnits(randomFeePercent);
+  const requestedInitializer = buildMulticurveRehypeTestInput({
+    userAddress,
+    poolFee: randomFeeUnits,
+  });
   const tickSpacing = 200;
   const customFiniteMaxMarketCapUsd = 1_000_000_000_000_000;
   const customCurvePlan = buildRandomCustomCurvePlan(customFiniteMaxMarketCapUsd);
@@ -1980,6 +2032,7 @@ const runCustomCurveWithRandomVestingAndAllocations = async () => {
         tickSpacing,
         curves: customCurvePlan.curves,
       },
+      initializer: requestedInitializer,
     },
   };
 
@@ -2051,6 +2104,7 @@ const runCustomCurveWithRandomVestingAndAllocations = async () => {
         cliffDurationSeconds,
       })),
     );
+    expect(createResponse.effectiveConfig.initializer).toEqual(requestedInitializer);
 
     const tx = (await waitForTransactionByHash({
       publicClient: chain.publicClient as {
@@ -2087,7 +2141,14 @@ const runCustomCurveWithRandomVestingAndAllocations = async () => {
     const decodedPoolConfig = decodeDopplerHookInitializerData(createArg.poolInitializerData);
     expect(decodedPoolConfig.fee).toBe(randomFeeUnits);
     expect(decodedPoolConfig.tickSpacing).toBe(tickSpacing);
-    expect(decodedPoolConfig.dopplerHook).toBe(zeroAddress);
+    expect(createArg.poolInitializer.toLowerCase()).toBe(
+      resolveExpectedMulticurveInitializer(chain.addresses).toLowerCase(),
+    );
+    assertDecodedMulticurveRehypeInitializer({
+      decodedPoolConfig,
+      expectedInitializer: requestedInitializer,
+      rehypeDopplerHookInitializer: chain.addresses.rehypeDopplerHookInitializer,
+    });
     expect(decodedPoolConfig.curves.map((curve) => curve.shares.toString())).toEqual(
       expectedSharesWad,
     );

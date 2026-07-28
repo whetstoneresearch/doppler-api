@@ -47,7 +47,7 @@ describe('static launch service', () => {
         defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
         auctionTypes: ['multicurve', 'static'],
         migrationModes: ['noOp'],
-        governanceModes: ['noOp', 'default', 'launchpad'],
+        governanceModes: ['noOp', 'default', 'custom'],
         governanceEnabled: true,
       },
       addresses: {
@@ -83,7 +83,7 @@ describe('static launch service', () => {
         tokenURI: 'ipfs://token',
         maxBalanceLimit: '400',
         balanceLimitEnd: 86_400,
-        controller: '0x3333333333333333333333333333333333333333',
+        balanceController: '0x3333333333333333333333333333333333333333',
         excludedFromBalanceLimit: ['0x4444444444444444444444444444444444444444'],
       },
       economics: {

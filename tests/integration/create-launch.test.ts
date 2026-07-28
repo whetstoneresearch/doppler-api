@@ -2,6 +2,23 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { buildTestServer } from './test-server';
 
+const REHYPE_FEE_DISTRIBUTION_INFO = {
+  assetFeesToAssetBuybackWad: '500000000000000000',
+  assetFeesToNumeraireBuybackWad: '500000000000000000',
+  assetFeesToBeneficiaryWad: '0',
+  assetFeesToLpWad: '0',
+  numeraireFeesToAssetBuybackWad: '500000000000000000',
+  numeraireFeesToNumeraireBuybackWad: '500000000000000000',
+  numeraireFeesToBeneficiaryWad: '0',
+  numeraireFeesToLpWad: '0',
+} as const;
+
+const REHYPE_BUYBACK_INITIALIZER = {
+  buybackDestination: '0x000000000000000000000000000000000000dEaD',
+  startFee: 30_000,
+  feeDistributionInfo: REHYPE_FEE_DISTRIBUTION_INFO,
+} as const;
+
 describe('POST /v1/launches', () => {
   let app: Awaited<ReturnType<typeof buildTestServer>> | null = null;
 
@@ -28,6 +45,7 @@ describe('POST /v1/launches', () => {
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['low'] },
+          initializer: REHYPE_BUYBACK_INITIALIZER,
         },
       },
     });
@@ -57,6 +75,7 @@ describe('POST /v1/launches', () => {
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['low'] },
+          initializer: REHYPE_BUYBACK_INITIALIZER,
         },
       },
     });
@@ -82,6 +101,7 @@ describe('POST /v1/launches', () => {
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['low'] },
+          initializer: REHYPE_BUYBACK_INITIALIZER,
         },
       },
     });
@@ -107,6 +127,7 @@ describe('POST /v1/launches', () => {
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['low'] },
+          initializer: REHYPE_BUYBACK_INITIALIZER,
         },
       },
     });
@@ -326,6 +347,7 @@ describe('POST /v1/launches', () => {
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['low'] },
+          initializer: REHYPE_BUYBACK_INITIALIZER,
         },
       },
     });
@@ -349,6 +371,7 @@ describe('POST /v1/launches', () => {
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['low'] },
+          initializer: REHYPE_BUYBACK_INITIALIZER,
         },
       },
     });
@@ -418,17 +441,14 @@ describe('POST /v1/launches', () => {
             type: 'multicurve',
             curveConfig: { type: 'preset' },
             initializer: {
-              type: 'rehype',
-              config: {
-                rehypeFeeBeneficiaries: [
-                  {
-                    address: '0x2222222222222222222222222222222222222222',
-                    sharesWad: 'not-an-integer',
-                  },
-                ],
-                startFee: 1,
-                feeDistributionInfo,
-              },
+              rehypeFeeBeneficiaries: [
+                {
+                  address: '0x2222222222222222222222222222222222222222',
+                  sharesWad: 'not-an-integer',
+                },
+              ],
+              startFee: 1,
+              feeDistributionInfo,
             },
           },
         },
@@ -534,6 +554,7 @@ describe('POST /v1/launches', () => {
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['medium'] },
+          initializer: REHYPE_BUYBACK_INITIALIZER,
         },
       },
     });
@@ -579,6 +600,7 @@ describe('POST /v1/launches', () => {
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['high'] },
+          initializer: REHYPE_BUYBACK_INITIALIZER,
         },
       },
     });
@@ -628,6 +650,7 @@ describe('POST /v1/launches', () => {
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['medium'] },
+          initializer: REHYPE_BUYBACK_INITIALIZER,
         },
       },
     });
@@ -652,7 +675,7 @@ describe('POST /v1/launches', () => {
     ]);
   });
 
-  it('preserves a canonical Rehype initializer through the multicurve alias', async () => {
+  it('preserves a flattened Rehype initializer through the multicurve alias', async () => {
     app = await buildTestServer();
 
     const basePayload = {
@@ -666,6 +689,7 @@ describe('POST /v1/launches', () => {
       auction: {
         type: 'multicurve' as const,
         curveConfig: { type: 'preset' as const, presets: ['medium' as const], fee: 10_000 },
+        initializer: REHYPE_BUYBACK_INITIALIZER,
       },
     };
 
@@ -675,33 +699,11 @@ describe('POST /v1/launches', () => {
       headers: {
         'x-api-key': 'test-key',
       },
-      payload: {
-        ...basePayload,
-        auction: {
-          ...basePayload.auction,
-          initializer: {
-            type: 'rehype',
-            config: {
-              buybackDestination: '0x000000000000000000000000000000000000dEaD',
-              startFee: 30_000,
-              feeDistributionInfo: {
-                assetFeesToAssetBuybackWad: '500000000000000000',
-                assetFeesToNumeraireBuybackWad: '500000000000000000',
-                assetFeesToBeneficiaryWad: '0',
-                assetFeesToLpWad: '0',
-                numeraireFeesToAssetBuybackWad: '500000000000000000',
-                numeraireFeesToNumeraireBuybackWad: '500000000000000000',
-                numeraireFeesToBeneficiaryWad: '0',
-                numeraireFeesToLpWad: '0',
-              },
-            },
-          },
-        },
-      },
+      payload: basePayload,
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().effectiveConfig.initializer).toEqual({ type: 'rehype' });
+    expect(response.json().effectiveConfig.initializer).toEqual(REHYPE_BUYBACK_INITIALIZER);
   });
 
   it('accepts governance=true for multicurve launches', async () => {
@@ -721,6 +723,7 @@ describe('POST /v1/launches', () => {
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['medium'] },
+          initializer: REHYPE_BUYBACK_INITIALIZER,
         },
       },
     });
@@ -803,6 +806,7 @@ describe('POST /v1/launches', () => {
         auction: {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['low'] },
+          initializer: REHYPE_BUYBACK_INITIALIZER,
         },
       },
     });

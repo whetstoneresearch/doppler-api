@@ -335,6 +335,7 @@ describe('shared-environment config guardrails', () => {
     try {
       writeFileSync(keypairPath, JSON.stringify(keypairBytes));
       resetEnv({
+        BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
         SOLANA_KEYPAIR_PATH: keypairPath,
       });
 
@@ -348,6 +349,7 @@ describe('shared-environment config guardrails', () => {
 
   it('rejects ambiguous Solana keypair env sources', () => {
     resetEnv({
+      BASE_SEPOLIA_RPC_URL: 'https://rpc-base-sepolia.example',
       SOLANA_KEYPAIR: JSON.stringify(Array.from({ length: 64 }, (_, index) => index)),
       SOLANA_KEYPAIR_PATH: '/tmp/payer.json',
     });

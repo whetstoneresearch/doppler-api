@@ -9,11 +9,30 @@ import type { CreateLaunchRequestInput } from '../../src/modules/launches/schema
 
 const USER = '0x1111111111111111111111111111111111111111';
 const RECIPIENT = '0x2222222222222222222222222222222222222222';
+const REHYPE_INITIALIZER = {
+  buybackDestination: RECIPIENT,
+  startFee: 100,
+  feeDistributionInfo: {
+    assetFeesToAssetBuybackWad: '1000000000000000000',
+    assetFeesToNumeraireBuybackWad: '0',
+    assetFeesToBeneficiaryWad: '0',
+    assetFeesToLpWad: '0',
+    numeraireFeesToAssetBuybackWad: '0',
+    numeraireFeesToNumeraireBuybackWad: '1000000000000000000',
+    numeraireFeesToBeneficiaryWad: '0',
+    numeraireFeesToLpWad: '0',
+  },
+} as const;
+
 const baseInput: CreateLaunchRequestInput = {
   userAddress: USER,
   tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://meta' },
   economics: { totalSupply: '1000' },
-  auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
+  auction: {
+    type: 'multicurve',
+    curveConfig: { type: 'preset', presets: ['low'] },
+    initializer: REHYPE_INITIALIZER,
+  },
 };
 
 describe('sale number and vesting allocation mapping', () => {

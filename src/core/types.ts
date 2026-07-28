@@ -3,7 +3,7 @@ export type HexAddress = `0x${string}`;
 export type HexHash = `0x${string}`;
 export type SolanaNetwork = 'solanaDevnet' | 'solanaMainnetBeta';
 
-export type GovernanceMode = 'noOp' | 'default' | 'launchpad';
+export type GovernanceMode = 'noOp' | 'default' | 'custom';
 export type MigrationType = 'noOp' | 'uniswapV2' | 'uniswapV4';
 export type AuctionType = 'multicurve' | 'static' | 'dynamic';
 
@@ -13,7 +13,7 @@ export interface TokenMetadata {
   tokenURI: string;
   maxBalanceLimit?: string;
   balanceLimitEnd?: number;
-  controller?: HexAddress;
+  balanceController?: HexAddress;
   excludedFromBalanceLimit?: HexAddress[];
 }
 
@@ -122,38 +122,27 @@ export interface StaticRangeCurveConfig {
 
 export type StaticCurveConfig = StaticPresetCurveConfig | StaticRangeCurveConfig;
 
-export type MulticurveInitializerConfig =
+export type MulticurveInitializerConfig = {
+  startFee: number;
+  endFee?: number;
+  durationSeconds?: number;
+  startingTime?: number;
+  feeDistributionInfo: RehypeFeeDistributionInfoInput;
+} & (
   | {
-      type: 'standard';
+      buybackDestination: HexAddress;
+      rehypeFeeBeneficiaries?: never;
     }
   | {
-      type: 'rehype';
-      config: {
-        startFee: number;
-        endFee?: number;
-        durationSeconds?: number;
-        startingTime?: number;
-        feeDistributionInfo: RehypeFeeDistributionInfoInput;
-        graduationCalldata?: `0x${string}`;
-        graduationMarketCap?: number;
-        numerairePrice?: number;
-        farTick?: number;
-      } & (
-        | {
-            buybackDestination: HexAddress;
-            rehypeFeeBeneficiaries?: never;
-          }
-        | {
-            buybackDestination?: never;
-            rehypeFeeBeneficiaries: [RehypeFeeBeneficiaryInput, ...RehypeFeeBeneficiaryInput[]];
-          }
-      );
-    };
+      buybackDestination?: never;
+      rehypeFeeBeneficiaries: [RehypeFeeBeneficiaryInput, ...RehypeFeeBeneficiaryInput[]];
+    }
+);
 
 export interface MulticurveAuctionConfig {
   type: 'multicurve';
   curveConfig: CurveConfig;
-  initializer?: MulticurveInitializerConfig;
+  initializer: MulticurveInitializerConfig;
 }
 
 export interface StaticAuctionConfig {
@@ -228,17 +217,7 @@ export interface EffectiveLaunchConfig {
   numeraireAddress: HexAddress;
   numerairePriceUsd: number;
   poolFeeBeneficiariesSource: 'default' | 'request' | 'none';
-  initializer?:
-    | { type: 'standard' }
-    | { type: 'scheduled'; startTime: number }
-    | {
-        type: 'decay';
-        startTime: number;
-        startFee: number;
-        endFee: number;
-        durationSeconds: number;
-      }
-    | { type: 'rehype' };
+  initializer?: MulticurveInitializerConfig;
 }
 
 export interface CreateLaunchResponse {
@@ -351,7 +330,7 @@ export interface SolanaLaunchReadResponse {
 export interface ChainCapability {
   chainId: number;
   auctionTypes: AuctionType[];
-  multicurveInitializers?: Array<'standard' | 'rehype'>;
+  multicurveInitializers?: Array<'rehype'>;
   migrationModes: MigrationType[];
   governanceModes: GovernanceMode[];
   governanceEnabled: boolean;

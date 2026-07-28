@@ -4,11 +4,30 @@ import { WAD } from '@whetstone-research/doppler-sdk/evm';
 import { normalizeFeeBeneficiaries } from '../../src/modules/auctions/multicurve/mapper';
 import type { CreateLaunchRequestInput } from '../../src/modules/launches/schema';
 
+const REHYPE_INITIALIZER = {
+  buybackDestination: '0x2222222222222222222222222222222222222222',
+  startFee: 100,
+  feeDistributionInfo: {
+    assetFeesToAssetBuybackWad: '1000000000000000000',
+    assetFeesToNumeraireBuybackWad: '0',
+    assetFeesToBeneficiaryWad: '0',
+    assetFeesToLpWad: '0',
+    numeraireFeesToAssetBuybackWad: '0',
+    numeraireFeesToNumeraireBuybackWad: '1000000000000000000',
+    numeraireFeesToBeneficiaryWad: '0',
+    numeraireFeesToLpWad: '0',
+  },
+} as const;
+
 const baseInput: CreateLaunchRequestInput = {
   userAddress: '0x1111111111111111111111111111111111111111',
   tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://meta' },
   economics: { totalSupply: '1000000000000000000' },
-  auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
+  auction: {
+    type: 'multicurve',
+    curveConfig: { type: 'preset', presets: ['low'] },
+    initializer: REHYPE_INITIALIZER,
+  },
 };
 
 describe('fee beneficiary defaults', () => {

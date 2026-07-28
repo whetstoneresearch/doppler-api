@@ -145,39 +145,34 @@ export const registerMulticurveLiveScenarios = () => {
     'MEDIUM Rehype Initializer (Three Fee Beneficiaries, 80/20)',
     groups.multicurveRehype,
     async () => {
-      const startFee = 500 + Math.floor(Math.random() * 50_001);
-
       await runMulticurveLaunchAndVerify('medium', {
         configLabel: 'MEDIUM Rehype Initializer (three fee beneficiaries)',
         salePercent: 80,
         initializer: {
-          type: 'rehype',
-          config: {
-            rehypeFeeBeneficiaries: [
-              {
-                address: '0x1111111111111111111111111111111111111111',
-                sharesWad: '200000000000000000',
-              },
-              {
-                address: '0x2222222222222222222222222222222222222222',
-                sharesWad: '300000000000000000',
-              },
-              {
-                address: '0x3333333333333333333333333333333333333333',
-                sharesWad: '500000000000000000',
-              },
-            ],
-            startFee,
-            feeDistributionInfo: {
-              assetFeesToAssetBuybackWad: '0',
-              assetFeesToNumeraireBuybackWad: '0',
-              assetFeesToBeneficiaryWad: WAD.toString(),
-              assetFeesToLpWad: '0',
-              numeraireFeesToAssetBuybackWad: '0',
-              numeraireFeesToNumeraireBuybackWad: '0',
-              numeraireFeesToBeneficiaryWad: WAD.toString(),
-              numeraireFeesToLpWad: '0',
+          rehypeFeeBeneficiaries: [
+            {
+              address: '0x1111111111111111111111111111111111111111',
+              sharesWad: '200000000000000000',
             },
+            {
+              address: '0x2222222222222222222222222222222222222222',
+              sharesWad: '300000000000000000',
+            },
+            {
+              address: '0x3333333333333333333333333333333333333333',
+              sharesWad: '500000000000000000',
+            },
+          ],
+          startFee: 20_000,
+          feeDistributionInfo: {
+            assetFeesToAssetBuybackWad: '0',
+            assetFeesToNumeraireBuybackWad: '0',
+            assetFeesToBeneficiaryWad: WAD.toString(),
+            assetFeesToLpWad: '0',
+            numeraireFeesToAssetBuybackWad: '0',
+            numeraireFeesToNumeraireBuybackWad: '0',
+            numeraireFeesToBeneficiaryWad: WAD.toString(),
+            numeraireFeesToLpWad: '0',
           },
         },
       });

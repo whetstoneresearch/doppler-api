@@ -65,7 +65,7 @@ describe('GET /v1/capabilities', () => {
           defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
           auctionTypes: ['static', 'multicurve', 'dynamic'],
           migrationModes: ['uniswapV2', 'uniswapV4'],
-          governanceModes: ['noOp', 'default', 'launchpad'],
+          governanceModes: ['noOp', 'default', 'custom'],
           governanceEnabled: true,
         },
         8453: {
@@ -74,7 +74,7 @@ describe('GET /v1/capabilities', () => {
           defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
           auctionTypes: ['static', 'multicurve', 'dynamic'],
           migrationModes: ['uniswapV2', 'uniswapV4'],
-          governanceModes: ['noOp', 'default', 'launchpad'],
+          governanceModes: ['noOp', 'default', 'custom'],
           governanceEnabled: true,
         },
       },
@@ -171,15 +171,15 @@ describe('GET /v1/capabilities', () => {
     expect(body.pricing.provider).toBe('coingecko');
     const byChain = new Map(body.chains.map((chain) => [chain.chainId, chain]));
     expect(byChain.get(84532)?.governanceEnabled).toBe(true);
-    expect(byChain.get(84532)?.governanceModes).toEqual(['noOp', 'default', 'launchpad']);
+    expect(byChain.get(84532)?.governanceModes).toEqual(['noOp', 'default', 'custom']);
     expect(byChain.get(84532)?.auctionTypes).toEqual(['static', 'multicurve', 'dynamic']);
     expect(byChain.get(84532)?.migrationModes).toEqual(['uniswapV2', 'uniswapV4']);
-    expect(byChain.get(84532)?.multicurveInitializers).toEqual(['standard', 'rehype']);
+    expect(byChain.get(84532)?.multicurveInitializers).toEqual(['rehype']);
     expect(byChain.get(8453)?.governanceEnabled).toBe(true);
-    expect(byChain.get(8453)?.governanceModes).toEqual(['noOp', 'default', 'launchpad']);
+    expect(byChain.get(8453)?.governanceModes).toEqual(['noOp', 'default', 'custom']);
     expect(byChain.get(8453)?.auctionTypes).toEqual(['static', 'multicurve', 'dynamic']);
     expect(byChain.get(8453)?.migrationModes).toEqual(['uniswapV2', 'uniswapV4']);
-    expect(byChain.get(8453)?.multicurveInitializers).toEqual(['standard', 'rehype']);
+    expect(byChain.get(8453)?.multicurveInitializers).toEqual(['rehype']);
     expect(byChain.get(8453)).not.toHaveProperty('topUps');
     expect(JSON.stringify(body)).not.toContain('http://localhost:8545');
     expect(body.solana).toEqual({

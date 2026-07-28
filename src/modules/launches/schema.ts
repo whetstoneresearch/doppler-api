@@ -97,7 +97,7 @@ const tokenMetadataSchema = z
     tokenURI: z.string().min(1),
     maxBalanceLimit: bigintStringSchema.optional(),
     balanceLimitEnd: z.number().int().nonnegative().max(UINT48_MAX).safe().optional(),
-    controller: nonZeroAddressSchema.optional(),
+    balanceController: nonZeroAddressSchema.optional(),
     excludedFromBalanceLimit: excludedFromBalanceLimitSchema.optional(),
   })
   .strict()

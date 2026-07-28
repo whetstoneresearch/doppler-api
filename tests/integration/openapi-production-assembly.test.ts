@@ -86,7 +86,7 @@ const createHarness = (createSimulationError?: Error) => {
       defaultNumeraireAddress: addresses.weth,
       auctionTypes: ['static', 'multicurve', 'dynamic'],
       migrationModes: ['noOp', 'uniswapV2', 'uniswapV4'],
-      governanceModes: ['noOp', 'default', 'launchpad'],
+      governanceModes: ['noOp', 'default', 'custom'],
       governanceEnabled: true,
     },
     addresses,
@@ -156,12 +156,12 @@ const getSubmittedCreateParams = (
 
 describe('OpenAPI examples through production SDK assembly', () => {
   it.each([
-    ['CanonicalStaticCreateLaunchRequest', 'static'],
-    ['CanonicalMulticurveCreateLaunchRequest', 'multicurve'],
-    ['CanonicalRehypeCreateLaunchRequest', 'rehype'],
-    ['CanonicalUniswapV2DynamicCreateLaunchRequest', 'uniswapV2'],
-    ['CanonicalUniswapV4DynamicCreateLaunchRequest', 'uniswapV4'],
-    ['CanonicalRehypeUniswapV4DynamicCreateLaunchRequest', 'rehypeUniswapV4'],
+    ['StaticPresetCreateLaunchExample', 'static'],
+    ['MulticurveBuybackCreateLaunchExample', 'multicurveBuyback'],
+    ['MulticurveBeneficiaryRoutingCreateLaunchExample', 'multicurveBeneficiaries'],
+    ['DynamicUniswapV2CreateLaunchExample', 'uniswapV2'],
+    ['DynamicUniswapV4CreateLaunchExample', 'uniswapV4'],
+    ['DynamicRehypeUniswapV4CreateLaunchExample', 'rehypeUniswapV4'],
   ] as const)('assembles and submits %s', async (exampleName, expectedMode) => {
     const harness = createHarness();
     const input = createLaunchRequestSchema.parse(readOpenApiExample(exampleName));
@@ -177,11 +177,7 @@ describe('OpenAPI examples through production SDK assembly', () => {
     if (expectedMode === 'static') {
       expect(createParams.poolInitializer).toBe(harness.addresses.lockableV3Initializer);
       expect(createParams.liquidityMigrator).toBe(harness.addresses.noOpMigrator);
-    } else if (expectedMode === 'multicurve') {
-      expect(createParams.poolInitializer).toBe(harness.addresses.dopplerHookInitializer);
-      expect(createParams.liquidityMigrator).toBe(harness.addresses.noOpMigrator);
-      expect(decodedToken.kind === 'dopplerERC20V1' && decodedToken.scheduleIds).toEqual([0n, 1n]);
-    } else if (expectedMode === 'rehype') {
+    } else if (expectedMode === 'multicurveBuyback' || expectedMode === 'multicurveBeneficiaries') {
       expect(createParams.poolInitializer).toBe(harness.addresses.dopplerHookInitializer);
       expect(createParams.liquidityMigrator).toBe(harness.addresses.noOpMigrator);
       const decodedPool = decodeDopplerHookInitializerData(createParams.poolInitializerData);
@@ -189,34 +185,44 @@ describe('OpenAPI examples through production SDK assembly', () => {
         decodedPool.onInitializationDopplerHookCalldata,
       );
 
-      expect(decodedPool.beneficiaries).toContainEqual({
-        beneficiary: OWNER,
-        shares: 50_000_000_000_000_000n,
-      });
-      expect(
-        decodedPool.beneficiaries.reduce((total, beneficiary) => total + beneficiary.shares, 0n),
-      ).toBe(1_000_000_000_000_000_000n);
-      expect(decodedRehype.buybackDst).toBe(zeroAddress);
-      expect(decodedRehype.feeRoutingMode).toBe(1);
-      expect(decodedRehype.feeBeneficiaries).toEqual([
-        {
-          beneficiary: '0x3333333333333333333333333333333333333333',
-          shares: 200_000_000_000_000_000n,
-        },
-        {
-          beneficiary: '0x4444444444444444444444444444444444444444',
-          shares: 300_000_000_000_000_000n,
-        },
-        {
-          beneficiary: '0x5555555555555555555555555555555555555555',
-          shares: 500_000_000_000_000_000n,
-        },
-      ]);
-      expect(
-        decodedRehype.feeBeneficiaries.some(
-          (beneficiary) => beneficiary.beneficiary.toLowerCase() === OWNER.toLowerCase(),
-        ),
-      ).toBe(false);
+      if (expectedMode === 'multicurveBuyback') {
+        expect(decodedToken.kind === 'dopplerERC20V1' && decodedToken.scheduleIds).toEqual([
+          0n,
+          1n,
+        ]);
+        expect(decodedRehype.buybackDst).toBe('0x2222222222222222222222222222222222222222');
+        expect(decodedRehype.feeRoutingMode).toBe(0);
+        expect(decodedRehype.feeBeneficiaries).toEqual([]);
+      } else {
+        expect(decodedPool.beneficiaries).toContainEqual({
+          beneficiary: OWNER,
+          shares: 50_000_000_000_000_000n,
+        });
+        expect(
+          decodedPool.beneficiaries.reduce((total, beneficiary) => total + beneficiary.shares, 0n),
+        ).toBe(1_000_000_000_000_000_000n);
+        expect(decodedRehype.buybackDst).toBe(zeroAddress);
+        expect(decodedRehype.feeRoutingMode).toBe(1);
+        expect(decodedRehype.feeBeneficiaries).toEqual([
+          {
+            beneficiary: '0x3333333333333333333333333333333333333333',
+            shares: 200_000_000_000_000_000n,
+          },
+          {
+            beneficiary: '0x4444444444444444444444444444444444444444',
+            shares: 300_000_000_000_000_000n,
+          },
+          {
+            beneficiary: '0x5555555555555555555555555555555555555555',
+            shares: 500_000_000_000_000_000n,
+          },
+        ]);
+        expect(
+          decodedRehype.feeBeneficiaries.some(
+            (beneficiary) => beneficiary.beneficiary.toLowerCase() === OWNER.toLowerCase(),
+          ),
+        ).toBe(false);
+      }
     } else if (expectedMode === 'uniswapV2') {
       expect(createParams.poolInitializer).toBe(harness.addresses.v4Initializer);
       expect(createParams.liquidityMigrator).toBe(harness.addresses.v2MigratorSplit);
@@ -268,7 +274,7 @@ describe('OpenAPI examples through production SDK assembly', () => {
     });
     const harness = createHarness(deploymentFailed);
     const input = createLaunchRequestSchema.parse(
-      readOpenApiExample('CanonicalMulticurveCreateLaunchRequest'),
+      readOpenApiExample('MulticurveBuybackCreateLaunchExample'),
     );
 
     await expect(harness.launchService.createLaunch(input)).rejects.toMatchObject({
@@ -289,7 +295,7 @@ describe('OpenAPI examples through production SDK assembly', () => {
     try {
       const harness = createHarness();
       const documented = createLaunchRequestSchema.parse(
-        readOpenApiExample('CanonicalStaticCreateLaunchRequest'),
+        readOpenApiExample('StaticPresetCreateLaunchExample'),
       );
       const raw = {
         ...documented,
@@ -325,7 +331,7 @@ describe('OpenAPI examples through production SDK assembly', () => {
     try {
       const harness = createHarness();
       const documented = createLaunchRequestSchema.parse(
-        readOpenApiExample('CanonicalStaticCreateLaunchRequest'),
+        readOpenApiExample('StaticPresetCreateLaunchExample'),
       );
       const input = createLaunchRequestSchema.parse({
         ...documented,

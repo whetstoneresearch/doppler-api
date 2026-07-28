@@ -5,16 +5,12 @@ import type { HexAddress } from '../../../core/types';
 
 const WAD = 10n ** 18n;
 const UINT32_MAX = 4_294_967_295;
-const INT24_MIN = -8_388_608;
-const INT24_MAX = 8_388_607;
 const wadString = z.string().regex(/^\d+$/, 'must be a non-negative integer string');
 const addressString = z
   .string()
   .regex(/^0x[a-fA-F0-9]{40}$/, 'must be a valid EVM address')
   .refine((value: string) => !/^0x0{40}$/i.test(value), 'must be a non-zero EVM address')
   .transform((value: string): HexAddress => `0x${value.slice(2)}`);
-
-const standardInitializerSchema = z.object({ type: z.literal('standard') }).strict();
 
 const rehypeFeeBeneficiarySchema = z
   .object({
@@ -111,17 +107,10 @@ const rehypeConfigCommonSchema = z
     durationSeconds: z.number().int().min(0).max(UINT32_MAX).optional(),
     startingTime: z.number().int().min(0).max(UINT32_MAX).optional(),
     feeDistributionInfo: rehypeFeeDistributionInfoSchema,
-    graduationCalldata: z
-      .string()
-      .regex(/^0x[0-9a-fA-F]*$/, 'must be hex bytes')
-      .optional(),
-    graduationMarketCap: z.number().positive().optional(),
-    numerairePrice: z.number().positive().optional(),
-    farTick: z.number().int().min(INT24_MIN).max(INT24_MAX).safe().optional(),
   })
   .strict();
 
-const rehypeConfigSchema = z
+const rehypeInitializerSchema = z
   .union([
     rehypeConfigCommonSchema.extend({
       buybackDestination: addressString,
@@ -146,21 +135,7 @@ const rehypeConfigSchema = z
         message: 'durationSeconds must be greater than 0 when startFee exceeds endFee',
       });
     }
-    if (value.graduationMarketCap !== undefined && value.farTick !== undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['farTick'],
-        message: 'farTick and graduationMarketCap are mutually exclusive',
-      });
-    }
   });
-
-const rehypeInitializerSchema = z
-  .object({
-    type: z.literal('rehype'),
-    config: rehypeConfigSchema,
-  })
-  .strict();
 
 export const presetCurveConfigSchema = z
   .object({
@@ -239,9 +214,7 @@ export const multicurveAuctionSchema = z
   .object({
     type: z.literal('multicurve'),
     curveConfig: z.union([presetCurveConfigSchema, rangesCurveConfigSchema]),
-    initializer: z
-      .discriminatedUnion('type', [standardInitializerSchema, rehypeInitializerSchema])
-      .optional(),
+    initializer: rehypeInitializerSchema,
   })
   .strict();
 

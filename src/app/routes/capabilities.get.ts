@@ -5,7 +5,7 @@ import type { ChainRegistry } from '../../infra/chain/registry';
 import { SOLANA_CONSTANTS } from '../../modules/launches/solana';
 import type { PricingService } from '../../modules/pricing/service';
 
-const MULTICURVE_INITIALIZERS = ['standard', 'rehype'] as const;
+const MULTICURVE_INITIALIZERS = ['rehype'] as const;
 
 export const registerCapabilitiesRoute = async (
   fastify: FastifyInstance<any, any, any, any>,

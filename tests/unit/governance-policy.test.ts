@@ -12,7 +12,7 @@ const governedChain: ChainRuntimeConfig = {
   defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
   auctionTypes: ['multicurve'],
   migrationModes: ['noOp'],
-  governanceModes: ['noOp', 'default', 'launchpad'],
+  governanceModes: ['noOp', 'default', 'custom'],
   governanceEnabled: true,
 };
 
@@ -28,7 +28,7 @@ describe('governance policy', () => {
   ];
 
   it.each(resolutionCases)(
-    'resolves $input to the exact SDK governance object',
+    'resolves public governance $input to the exact SDK governance object',
     ({ input, expected }) => {
       expect(resolveGovernance(input, governedChain)).toEqual(expected);
     },
@@ -38,8 +38,8 @@ describe('governance policy', () => {
     input: boolean | HexAddress;
     modes: GovernanceMode[];
   }[] = [
-    { input: false, modes: ['default', 'launchpad'] },
-    { input: true, modes: ['noOp', 'launchpad'] },
+    { input: false, modes: ['default', 'custom'] },
+    { input: true, modes: ['noOp', 'custom'] },
     { input: MULTISIG, modes: ['noOp', 'default'] },
   ];
 

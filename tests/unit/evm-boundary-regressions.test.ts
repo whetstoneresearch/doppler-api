@@ -44,14 +44,11 @@ describe('canonical EVM boundary regressions', () => {
         type: 'multicurve',
         curveConfig: { type: 'preset', presets: ['medium'] },
         initializer: {
-          type: 'rehype',
-          config: {
-            buybackDestination: RECIPIENT,
-            startFee: 30_000,
-            endFee: 10_000,
-            durationSeconds: 86_400,
-            feeDistributionInfo,
-          },
+          buybackDestination: RECIPIENT,
+          startFee: 30_000,
+          endFee: 10_000,
+          durationSeconds: 86_400,
+          feeDistributionInfo,
         },
       },
     };
@@ -63,13 +60,10 @@ describe('canonical EVM boundary regressions', () => {
         auction: {
           ...request.auction,
           initializer: {
-            type: 'rehype',
-            config: {
-              buybackDestination: RECIPIENT,
-              startFee: 30_000,
-              endFee: 10_000,
-              durationSeconds: 86_400,
-            },
+            buybackDestination: RECIPIENT,
+            startFee: 30_000,
+            endFee: 10_000,
+            durationSeconds: 86_400,
           },
         },
       }).success,
@@ -83,16 +77,13 @@ describe('canonical EVM boundary regressions', () => {
         type: 'multicurve',
         curveConfig: { type: 'preset', presets: ['medium'] },
         initializer: {
-          type: 'rehype',
-          config: {
-            rehypeFeeBeneficiaries: [
-              { address: RECIPIENT, sharesWad: '200000000000000000' },
-              { address: RECIPIENT_TWO, sharesWad: '300000000000000000' },
-              { address: RECIPIENT_THREE, sharesWad: '500000000000000000' },
-            ],
-            startFee: 30_000,
-            feeDistributionInfo,
-          },
+          rehypeFeeBeneficiaries: [
+            { address: RECIPIENT, sharesWad: '200000000000000000' },
+            { address: RECIPIENT_TWO, sharesWad: '300000000000000000' },
+            { address: RECIPIENT_THREE, sharesWad: '500000000000000000' },
+          ],
+          startFee: 30_000,
+          feeDistributionInfo,
         },
       },
     };
@@ -105,10 +96,7 @@ describe('canonical EVM boundary regressions', () => {
           ...request.auction,
           initializer: {
             ...request.auction.initializer,
-            config: {
-              ...request.auction.initializer.config,
-              buybackDestination: USER,
-            },
+            buybackDestination: USER,
           },
         },
       }).success,
@@ -120,13 +108,10 @@ describe('canonical EVM boundary regressions', () => {
           ...request.auction,
           initializer: {
             ...request.auction.initializer,
-            config: {
-              ...request.auction.initializer.config,
-              rehypeFeeBeneficiaries: [
-                { address: RECIPIENT, sharesWad: '500000000000000000' },
-                { address: RECIPIENT, sharesWad: '500000000000000000' },
-              ],
-            },
+            rehypeFeeBeneficiaries: [
+              { address: RECIPIENT, sharesWad: '500000000000000000' },
+              { address: RECIPIENT, sharesWad: '500000000000000000' },
+            ],
           },
         },
       }).success,
@@ -138,70 +123,37 @@ describe('canonical EVM boundary regressions', () => {
           ...request.auction,
           initializer: {
             ...request.auction.initializer,
-            config: {
-              ...request.auction.initializer.config,
-              rehypeFeeBeneficiaries: [
-                { address: RECIPIENT, sharesWad: '200000000000000000' },
-                { address: RECIPIENT_TWO, sharesWad: '300000000000000000' },
-              ],
-            },
+            rehypeFeeBeneficiaries: [
+              { address: RECIPIENT, sharesWad: '200000000000000000' },
+              { address: RECIPIENT_TWO, sharesWad: '300000000000000000' },
+            ],
           },
         },
       }).success,
     ).toBe(false);
   });
 
-  it('rejects mutually exclusive and out-of-int24 Rehype graduation controls', () => {
-    const rehypeRequest = {
-      ...baseRequest,
-      auction: {
-        type: 'multicurve',
-        curveConfig: { type: 'preset', presets: ['medium'] },
-        initializer: {
-          type: 'rehype',
-          config: {
+  it.each([
+    ['graduationCalldata', '0x'],
+    ['graduationMarketCap', 1_000_000],
+    ['numerairePrice', 3_000],
+    ['farTick', 100],
+  ])('rejects removed Rehype graduation field %s', (field, value) => {
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...baseRequest,
+        auction: {
+          type: 'multicurve',
+          curveConfig: { type: 'preset', presets: ['medium'] },
+          initializer: {
             buybackDestination: RECIPIENT,
             startFee: 30_000,
             feeDistributionInfo,
-          },
-        },
-      },
-    };
-
-    expect(
-      createLaunchRequestSchema.safeParse({
-        ...rehypeRequest,
-        auction: {
-          ...rehypeRequest.auction,
-          initializer: {
-            ...rehypeRequest.auction.initializer,
-            config: {
-              ...rehypeRequest.auction.initializer.config,
-              graduationMarketCap: 1_000_000,
-              farTick: 100,
-            },
+            [field]: value,
           },
         },
       }).success,
     ).toBe(false);
-
-    for (const farTick of [-8_388_609, 8_388_608]) {
-      expect(
-        createLaunchRequestSchema.safeParse({
-          ...rehypeRequest,
-          auction: {
-            ...rehypeRequest.auction,
-            initializer: {
-              ...rehypeRequest.auction.initializer,
-              config: {
-                ...rehypeRequest.auction.initializer.config,
-                farTick,
-              },
-            },
-          },
-        }).success,
-      ).toBe(false);
-    }
   });
 
   it('accepts multiple independent vesting schedules for the same recipient', () => {
@@ -394,6 +346,11 @@ describe('canonical EVM boundary regressions', () => {
             presets: ['medium'],
             fee: 0,
           },
+          initializer: {
+            buybackDestination: RECIPIENT,
+            startFee: 0,
+            feeDistributionInfo,
+          },
         },
       }).success,
     ).toBe(true);
@@ -420,12 +377,9 @@ describe('canonical EVM boundary regressions', () => {
           type: 'multicurve',
           curveConfig: { type: 'preset', presets: ['medium'] },
           initializer: {
-            type: 'rehype',
-            config: {
-              feeBeneficiaries: [{ address: RECIPIENT, sharesWad: WAD }],
-              startFee: 30_000,
-              feeDistributionInfo,
-            },
+            feeBeneficiaries: [{ address: RECIPIENT, sharesWad: WAD }],
+            startFee: 30_000,
+            feeDistributionInfo,
           },
         },
       }).success,

@@ -62,8 +62,6 @@ const requireModuleAddress = (address: HexAddress | undefined, moduleName: strin
   return address;
 };
 
-const normalizeHexData = (value: string): `0x${string}` => `0x${value.slice(2)}`;
-
 export const createMulticurveLaunch = async ({
   input,
   chain,
@@ -130,9 +128,9 @@ export const createMulticurveLaunch = async ({
       ...(input.tokenMetadata.balanceLimitEnd === undefined
         ? {}
         : { balanceLimitEnd: input.tokenMetadata.balanceLimitEnd }),
-      ...(input.tokenMetadata.controller === undefined
+      ...(input.tokenMetadata.balanceController === undefined
         ? {}
-        : { controller: input.tokenMetadata.controller }),
+        : { controller: input.tokenMetadata.balanceController }),
       ...(input.tokenMetadata.excludedFromBalanceLimit === undefined
         ? {}
         : { excludedFromBalanceLimit: input.tokenMetadata.excludedFromBalanceLimit }),
@@ -197,87 +195,72 @@ export const createMulticurveLaunch = async ({
     });
   }
 
-  const requestedInitializer = input.auction.initializer ?? { type: 'standard' as const };
-  if (requestedInitializer.type === 'rehype') {
-    const config = requestedInitializer.config;
-    const rehypeDestination = (() => {
-      if ('rehypeFeeBeneficiaries' in config) {
-        const [firstBeneficiary, ...remainingBeneficiaries] = config.rehypeFeeBeneficiaries;
-        const mapBeneficiary = (beneficiary: typeof firstBeneficiary) => ({
-          beneficiary: beneficiary.address,
-          shares: parsePositiveBigInt(
-            beneficiary.sharesWad,
-            `auction.initializer.config.rehypeFeeBeneficiaries[${beneficiary.address}].sharesWad`,
-          ),
-        });
-        const feeBeneficiaries: [BeneficiaryData, ...BeneficiaryData[]] = [
-          mapBeneficiary(firstBeneficiary),
-          ...remainingBeneficiaries.map((beneficiary) => ({
-            beneficiary: beneficiary.address,
-            shares: parsePositiveBigInt(
-              beneficiary.sharesWad,
-              `auction.initializer.config.rehypeFeeBeneficiaries[${beneficiary.address}].sharesWad`,
-            ),
-          })),
-        ];
-        return { feeBeneficiaries };
-      }
-      return { buybackDestination: config.buybackDestination };
-    })();
-    builder.withRehypeDopplerHookInitializer({
-      hookAddress: requireModuleAddress(
-        chain.addresses.rehypeDopplerHookInitializer,
-        'rehypeDopplerHookInitializer',
+  const initializer = input.auction.initializer;
+  const rehypeDestination = (() => {
+    if ('rehypeFeeBeneficiaries' in initializer) {
+      const [firstBeneficiary, ...remainingBeneficiaries] = initializer.rehypeFeeBeneficiaries;
+      const mapBeneficiary = (beneficiary: typeof firstBeneficiary) => ({
+        beneficiary: beneficiary.address,
+        shares: parsePositiveBigInt(
+          beneficiary.sharesWad,
+          `auction.initializer.rehypeFeeBeneficiaries[${beneficiary.address}].sharesWad`,
+        ),
+      });
+      const feeBeneficiaries: [BeneficiaryData, ...BeneficiaryData[]] = [
+        mapBeneficiary(firstBeneficiary),
+        ...remainingBeneficiaries.map(mapBeneficiary),
+      ];
+      return { feeBeneficiaries };
+    }
+    return { buybackDestination: initializer.buybackDestination };
+  })();
+  builder.withRehypeDopplerHookInitializer({
+    hookAddress: requireModuleAddress(
+      chain.addresses.rehypeDopplerHookInitializer,
+      'rehypeDopplerHookInitializer',
+    ),
+    ...rehypeDestination,
+    startFee: initializer.startFee,
+    ...(initializer.endFee === undefined ? {} : { endFee: initializer.endFee }),
+    ...(initializer.durationSeconds === undefined
+      ? {}
+      : { durationSeconds: initializer.durationSeconds }),
+    ...(initializer.startingTime === undefined ? {} : { startingTime: initializer.startingTime }),
+    feeDistributionInfo: {
+      assetFeesToAssetBuybackWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.assetFeesToAssetBuybackWad,
+        'auction.initializer.feeDistributionInfo.assetFeesToAssetBuybackWad',
       ),
-      ...rehypeDestination,
-      startFee: config.startFee,
-      ...(config.endFee === undefined ? {} : { endFee: config.endFee }),
-      ...(config.durationSeconds === undefined ? {} : { durationSeconds: config.durationSeconds }),
-      ...(config.startingTime === undefined ? {} : { startingTime: config.startingTime }),
-      feeDistributionInfo: {
-        assetFeesToAssetBuybackWad: parseNonNegativeBigInt(
-          config.feeDistributionInfo.assetFeesToAssetBuybackWad,
-          'auction.initializer.config.feeDistributionInfo.assetFeesToAssetBuybackWad',
-        ),
-        assetFeesToNumeraireBuybackWad: parseNonNegativeBigInt(
-          config.feeDistributionInfo.assetFeesToNumeraireBuybackWad,
-          'auction.initializer.config.feeDistributionInfo.assetFeesToNumeraireBuybackWad',
-        ),
-        assetFeesToBeneficiaryWad: parseNonNegativeBigInt(
-          config.feeDistributionInfo.assetFeesToBeneficiaryWad,
-          'auction.initializer.config.feeDistributionInfo.assetFeesToBeneficiaryWad',
-        ),
-        assetFeesToLpWad: parseNonNegativeBigInt(
-          config.feeDistributionInfo.assetFeesToLpWad,
-          'auction.initializer.config.feeDistributionInfo.assetFeesToLpWad',
-        ),
-        numeraireFeesToAssetBuybackWad: parseNonNegativeBigInt(
-          config.feeDistributionInfo.numeraireFeesToAssetBuybackWad,
-          'auction.initializer.config.feeDistributionInfo.numeraireFeesToAssetBuybackWad',
-        ),
-        numeraireFeesToNumeraireBuybackWad: parseNonNegativeBigInt(
-          config.feeDistributionInfo.numeraireFeesToNumeraireBuybackWad,
-          'auction.initializer.config.feeDistributionInfo.numeraireFeesToNumeraireBuybackWad',
-        ),
-        numeraireFeesToBeneficiaryWad: parseNonNegativeBigInt(
-          config.feeDistributionInfo.numeraireFeesToBeneficiaryWad,
-          'auction.initializer.config.feeDistributionInfo.numeraireFeesToBeneficiaryWad',
-        ),
-        numeraireFeesToLpWad: parseNonNegativeBigInt(
-          config.feeDistributionInfo.numeraireFeesToLpWad,
-          'auction.initializer.config.feeDistributionInfo.numeraireFeesToLpWad',
-        ),
-      },
-      ...(config.graduationCalldata === undefined
-        ? {}
-        : { graduationCalldata: normalizeHexData(config.graduationCalldata) }),
-      ...(config.graduationMarketCap === undefined
-        ? {}
-        : { graduationMarketCap: config.graduationMarketCap }),
-      ...(config.numerairePrice === undefined ? {} : { numerairePrice: config.numerairePrice }),
-      ...(config.farTick === undefined ? {} : { farTick: config.farTick }),
-    });
-  }
+      assetFeesToNumeraireBuybackWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.assetFeesToNumeraireBuybackWad,
+        'auction.initializer.feeDistributionInfo.assetFeesToNumeraireBuybackWad',
+      ),
+      assetFeesToBeneficiaryWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.assetFeesToBeneficiaryWad,
+        'auction.initializer.feeDistributionInfo.assetFeesToBeneficiaryWad',
+      ),
+      assetFeesToLpWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.assetFeesToLpWad,
+        'auction.initializer.feeDistributionInfo.assetFeesToLpWad',
+      ),
+      numeraireFeesToAssetBuybackWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.numeraireFeesToAssetBuybackWad,
+        'auction.initializer.feeDistributionInfo.numeraireFeesToAssetBuybackWad',
+      ),
+      numeraireFeesToNumeraireBuybackWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.numeraireFeesToNumeraireBuybackWad,
+        'auction.initializer.feeDistributionInfo.numeraireFeesToNumeraireBuybackWad',
+      ),
+      numeraireFeesToBeneficiaryWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.numeraireFeesToBeneficiaryWad,
+        'auction.initializer.feeDistributionInfo.numeraireFeesToBeneficiaryWad',
+      ),
+      numeraireFeesToLpWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.numeraireFeesToLpWad,
+        'auction.initializer.feeDistributionInfo.numeraireFeesToLpWad',
+      ),
+    },
+  });
   builder.withDopplerHookInitializer(
     requireModuleAddress(chain.addresses.dopplerHookInitializer, 'dopplerHookInitializer'),
   );
@@ -287,11 +270,6 @@ export const createMulticurveLaunch = async ({
     .withMigration(migration)
     .withUserAddress(input.userAddress as HexAddress)
     .build();
-
-  const effectiveInitializer =
-    requestedInitializer.type === 'standard'
-      ? ({ type: 'standard' } as const)
-      : ({ type: 'rehype' } as const);
 
   const simulation = await sdk.factory.simulateCreateMulticurve(params);
 
@@ -338,7 +316,7 @@ export const createMulticurveLaunch = async ({
       numeraireAddress,
       numerairePriceUsd,
       poolFeeBeneficiariesSource: source,
-      initializer: effectiveInitializer,
+      initializer,
     },
   };
 };

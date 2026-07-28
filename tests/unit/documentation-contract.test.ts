@@ -23,13 +23,13 @@ const namedRpcEnvironments = [
 ] as const;
 
 const canonicalExampleNames = [
-  'CanonicalStaticCreateLaunchRequest',
-  'CanonicalMulticurveCreateLaunchRequest',
-  'CanonicalRehypeCreateLaunchRequest',
-  'CanonicalUniswapV2DynamicCreateLaunchRequest',
-  'CanonicalUniswapV4DynamicCreateLaunchRequest',
-  'CanonicalRehypeUniswapV4DynamicCreateLaunchRequest',
-  'GenericSolanaCreateLaunchRequest',
+  'StaticPresetCreateLaunchExample',
+  'MulticurveBuybackCreateLaunchExample',
+  'MulticurveBeneficiaryRoutingCreateLaunchExample',
+  'DynamicUniswapV2CreateLaunchExample',
+  'DynamicUniswapV4CreateLaunchExample',
+  'DynamicRehypeUniswapV4CreateLaunchExample',
+  'SharedRouteSolanaCreateLaunchRequest',
 ] as const;
 
 function readOpenApiSchemaBlock(name: string): string {
@@ -163,8 +163,7 @@ describe('documentation contract', () => {
         allowSell: true,
         cosignerGate: {
           type: 'cosigner',
-          cosigner: '11111111111111111111111111111111',
-          expiry: { mode: 'slot', value: '1' },
+          expiry: { mode: 'unixTimestamp', value: '1' },
         },
         dynamicFee: { startingTime: '0', startFeeBps: 100, endFeeBps: 50, durationSeconds: '1' },
       },
@@ -183,7 +182,7 @@ describe('documentation contract', () => {
       }).success,
     ).toBe(true);
 
-    expect(documentedRequiredFields('GenericSolanaCreateLaunchRequest')).toEqual([
+    expect(documentedRequiredFields('SharedRouteSolanaCreateLaunchRequest')).toEqual([
       'network',
       'tokenMetadata',
       'economics',
@@ -194,7 +193,7 @@ describe('documentation contract', () => {
       'economics',
       'auction',
     ]);
-    expect(documentedTopLevelProperties('GenericSolanaCreateLaunchRequest')).toEqual(
+    expect(documentedTopLevelProperties('SharedRouteSolanaCreateLaunchRequest')).toEqual(
       expect.arrayContaining([
         'network',
         'tokenMetadata',
@@ -308,7 +307,7 @@ describe('documentation contract', () => {
     }
 
     expect(document).toContain(
-      '  /v1/launches:\n    post:\n      summary: Create an EVM or generic Solana launch',
+      '  /v1/launches:\n    post:\n      summary: Create an EVM launch through the shared route, or create a Solana launch',
     );
     expect(document).toMatch(
       /\/v1\/launches:[\s\S]*?'200':\n\s+\$ref: '#\/components\/responses\/CreateResponse'/,
@@ -338,6 +337,10 @@ describe('documentation contract', () => {
     expect(readOpenApiSchemaBlock('MaxShareWadString')).toContain(
       "pattern: '^(?:[1-9]\\d{0,17}|1000000000000000000)$'",
     );
+    const vestingAllocation = readOpenApiSchemaBlock('VestingAllocation');
+    expect(vestingAllocation).toContain("$ref: '#/components/schemas/PositiveIntegerString'");
+    expect(vestingAllocation.match(/maximum: 4294967295/g)).toHaveLength(2);
+    expect(vestingAllocation).toContain('Must not exceed durationSeconds.');
     expect(readOpenApiSchemaBlock('StaticCurveConfig')).toContain('maximum: 65535');
     expect(readOpenApiSchemaBlock('DynamicCurveConfig')).toContain('maximum: 8388607');
     expect(readOpenApiSchemaBlock('DynamicCurveConfig')).toContain('maximum: 15');
