@@ -11,7 +11,10 @@ import type {
 import type { PricingService } from '../../pricing/service';
 import type { CreateMulticurveLaunchRequestInput } from '../../launches/schema';
 import type { ChainContext } from '../../../infra/chain/registry';
-import type { DopplerSdkRegistry } from '../../../infra/doppler/sdk-client';
+import {
+  type DopplerSdkRegistry,
+  withCreateSimulationErrorTranslation,
+} from '../../../infra/doppler/sdk-client';
 import type { TxSubmitter } from '../../../infra/tx/submitter';
 import { resolveGovernance } from '../../governance/policy';
 import { resolveMigration } from '../../migration/policy';
@@ -292,13 +295,17 @@ export const createMulticurveLaunch = async ({
 
   const simulation = await sdk.factory.simulateCreateMulticurve(params);
 
-  const { request } = await chain.publicClient.simulateContract({
+  const simulationRequest = {
     address: chain.addresses.airlock,
     abi: airlockAbi,
     functionName: 'create',
     args: [{ ...simulation.createParams }],
     account: chain.walletClient.account,
-  });
+    blockTag: 'pending',
+  } as const;
+  const { request } = await withCreateSimulationErrorTranslation(chain, simulationRequest, () =>
+    chain.publicClient.simulateContract(simulationRequest),
+  );
   const gasEstimate = typeof request.gas === 'bigint' ? request.gas : simulation.gasEstimate;
 
   const txHash = (await txSubmitter.submitCreateTx({

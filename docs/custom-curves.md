@@ -36,10 +36,18 @@ Set `auction.type` to `"multicurve"` and choose one curve configuration:
 
 Both configurations accept an integer `fee` from `0` through `100000` and a
 positive integer `tickSpacing`. Multicurve requests do not accept `migration`.
+For presets, omitting `tickSpacing` selects the largest spacing no greater than
+the fee-tier default that divides every selected preset boundary. For manual
+ranges, a standard fee tier uses the SDK default; a custom fee derives a
+spacing unless one is supplied.
 
 Omit `initializer` or set it to `{ "type": "standard" }` for the standard
 initializer. To use Rehype, set `initializer.type` to `"rehype"` and provide
 `initializer.config`.
+
+Both modes are created through the canonical `DopplerHookInitializer`.
+`rehype` supplies Rehype hook configuration to that initializer rather than
+selecting a separate initializer contract.
 
 ### Rehype configuration
 

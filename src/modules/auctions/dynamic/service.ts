@@ -4,7 +4,10 @@ import { parseUnits } from 'viem';
 import { AppError } from '../../../core/errors';
 import type { CreateLaunchResponse, HexHash } from '../../../core/types';
 import type { ChainContext } from '../../../infra/chain/registry';
-import type { DopplerSdkRegistry } from '../../../infra/doppler/sdk-client';
+import {
+  type DopplerSdkRegistry,
+  withCreateSimulationErrorTranslation,
+} from '../../../infra/doppler/sdk-client';
 import type { CreateDynamicLaunchRequestInput } from '../../launches/schema';
 import { buildLaunchId } from '../../launches/mapper';
 import { resolveGovernance } from '../../governance/policy';
@@ -17,7 +20,7 @@ import {
 } from '../multicurve/mapper';
 
 type DynamicChainContext = Pick<ChainContext, 'chainId' | 'config' | 'addresses'> & {
-  publicClient: Pick<ChainContext['publicClient'], 'simulateContract'>;
+  publicClient: Pick<ChainContext['publicClient'], 'getBytecode' | 'simulateContract'>;
   walletClient: Pick<ChainContext['walletClient'], 'account'>;
 };
 
@@ -234,13 +237,17 @@ export const createDynamicLaunch = async ({
 
   const simulation = await sdk.factory.simulateCreateDynamicAuction(params);
 
-  const { request } = await chain.publicClient.simulateContract({
+  const simulationRequest = {
     address: chain.addresses.airlock,
     abi: airlockAbi,
     functionName: 'create',
     args: [{ ...simulation.createParams }],
     account: chain.walletClient.account,
-  });
+    blockTag: 'pending',
+  } as const;
+  const { request } = await withCreateSimulationErrorTranslation(chain, simulationRequest, () =>
+    chain.publicClient.simulateContract(simulationRequest),
+  );
 
   const txHash = await txSubmitter.submitCreateTx({
     chain,

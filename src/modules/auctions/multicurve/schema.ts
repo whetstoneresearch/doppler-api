@@ -19,7 +19,10 @@ const standardInitializerSchema = z.object({ type: z.literal('standard') }).stri
 const rehypeFeeBeneficiarySchema = z
   .object({
     address: addressString,
-    sharesWad: wadString.refine((value) => BigInt(value) > 0n, 'must be a positive integer string'),
+    sharesWad: wadString.refine(
+      (value) => !/^\d+$/.test(value) || BigInt(value) > 0n,
+      'must be a positive integer string',
+    ),
   })
   .strict();
 
@@ -30,6 +33,7 @@ const rehypeFeeBeneficiariesSchema = z
   .superRefine((value, ctx) => {
     const seen = new Set<string>();
     let totalShares = 0n;
+    let hasInvalidShares = false;
     value.forEach((entry, index) => {
       const normalized = entry.address.toLowerCase();
       if (seen.has(normalized)) {
@@ -40,10 +44,14 @@ const rehypeFeeBeneficiariesSchema = z
         });
       }
       seen.add(normalized);
-      totalShares += BigInt(entry.sharesWad);
+      if (/^\d+$/.test(entry.sharesWad)) {
+        totalShares += BigInt(entry.sharesWad);
+      } else {
+        hasInvalidShares = true;
+      }
     });
 
-    if (totalShares !== WAD) {
+    if (!hasInvalidShares && totalShares !== WAD) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: [],

@@ -109,6 +109,7 @@ const createFixture = () => {
       rehypeDopplerHookMigrator: REHYPE_DOPPLER_HOOK_MIGRATOR,
     } satisfies ReturnType<typeof getAddresses>,
     publicClient: {
+      getBytecode: vi.fn().mockResolvedValue(undefined),
       simulateContract: vi.fn().mockResolvedValue({ request: { to: '0xairlock' } }),
     },
     walletClient: {
@@ -167,6 +168,7 @@ describe('dynamic launch service', () => {
       expect.objectContaining({
         address: '0x0000000000000000000000000000000000000001',
         functionName: 'create',
+        blockTag: 'pending',
         args: [{ salt: '0x03' }],
       }),
     );

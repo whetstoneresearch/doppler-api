@@ -101,9 +101,15 @@ vesting schedules. EVM pool-fee routing uses `poolFeeBeneficiaries`; dynamic
 `uniswapV2` instead supports its singular proceeds `feeBeneficiary`.
 Rehype's `initializer.config.rehypeFeeBeneficiaries` is a separate hook-fee
 routing list.
+Both multicurve initializer modes are submitted through the canonical
+`DopplerHookInitializer`; `rehype` changes the hook configuration, not the
+initializer contract.
 Dynamic `uniswapV4` migrations use a fixed LP fee. Optional
 `migration.rehype` selects `RehypeDopplerHookMigrator` with a separate static
 hook fee and eight-field distribution matrix.
+
+EVM integer-string and WAD fields accept decimal digits only. Malformed values
+are rejected as `422 INVALID_REQUEST`.
 
 For exact defaults, validation rules, fee distribution, curve constraints, and
 allocation behavior, see:
@@ -144,6 +150,8 @@ retrying. The same error is returned with the completed launch or transaction
 identifiers when the API cannot durably save a completed response. A lost
 distributed nonce lock returns `503 NONCE_LOCK_LOST`; retry the identical
 request with the same idempotency key.
+Create simulations and token-collision checks use pending chain state so a
+token deployed by an unmined transaction is not submitted again.
 
 Operational references:
 
@@ -158,6 +166,10 @@ npm run lint
 npm run typecheck
 npm test
 ```
+
+`npm run test:all` runs unit, integration, and the onchain live suite. It
+enables live execution and requires the RPC and signer environment described
+in `.env.example`.
 
 See [`docs/contributing.md`](docs/contributing.md) for the contributor workflow
 and [`docs/README.md`](docs/README.md) for the documentation index.

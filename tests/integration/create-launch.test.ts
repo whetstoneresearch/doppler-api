@@ -378,6 +378,76 @@ describe('POST /v1/launches', () => {
     expect(response.json().error.code).toBe('INVALID_REQUEST');
   });
 
+  it('returns 422 for malformed WAD strings without throwing', async () => {
+    app = await buildTestServer();
+    const basePayload = {
+      userAddress: '0x1111111111111111111111111111111111111111',
+      tokenMetadata: { name: 'Malformed WAD', symbol: 'MWAD', tokenURI: 'ipfs://token' },
+      economics: { totalSupply: '1000' },
+    };
+    const feeDistributionInfo = {
+      assetFeesToAssetBuybackWad: '1000000000000000000',
+      assetFeesToNumeraireBuybackWad: '0',
+      assetFeesToBeneficiaryWad: '0',
+      assetFeesToLpWad: '0',
+      numeraireFeesToAssetBuybackWad: '1000000000000000000',
+      numeraireFeesToNumeraireBuybackWad: '0',
+      numeraireFeesToBeneficiaryWad: '0',
+      numeraireFeesToLpWad: '0',
+    };
+    const requests = [
+      {
+        url: '/v1/launches/static',
+        payload: {
+          ...basePayload,
+          auction: {
+            type: 'static',
+            curveConfig: {
+              type: 'preset',
+              preset: 'low',
+              maxShareToBeSoldWad: 'not-an-integer',
+            },
+          },
+        },
+      },
+      {
+        url: '/v1/launches/multicurve',
+        payload: {
+          ...basePayload,
+          auction: {
+            type: 'multicurve',
+            curveConfig: { type: 'preset' },
+            initializer: {
+              type: 'rehype',
+              config: {
+                rehypeFeeBeneficiaries: [
+                  {
+                    address: '0x2222222222222222222222222222222222222222',
+                    sharesWad: 'not-an-integer',
+                  },
+                ],
+                startFee: 1,
+                feeDistributionInfo,
+              },
+            },
+          },
+        },
+      },
+    ];
+
+    for (const { url, payload } of requests) {
+      const response = await app.inject({
+        method: 'POST',
+        url,
+        headers: { 'x-api-key': 'test-key' },
+        payload,
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(response.json().error.code).toBe('INVALID_REQUEST');
+    }
+  });
+
   it('retains the replay header on a canonical alias request', async () => {
     app = await buildTestServer();
     const payload = {

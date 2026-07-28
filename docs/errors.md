@@ -72,12 +72,15 @@ accepted only for dynamic launches.
 Rehype requests must provide exactly one of `buybackDestination` or
 `rehypeFeeBeneficiaries`. Rehype beneficiaries must be unique, positive, and sum
 to `1e18`; the Airlock owner is not added automatically.
+Malformed EVM integer-string and WAD fields are schema failures and return
+`422 INVALID_REQUEST`; they are never reported as internal server errors.
 
 `TOKEN_ADDRESS_COLLISION` is returned only when an Airlock
 `DeploymentFailed()` simulation identifies the predicted DopplerERC20V1 address
-and that address already has bytecode. Retry the create request so the SDK
-generates a different salt. Other simulation failures retain their original
-error.
+and that address already has bytecode in pending chain state. Create simulation
+also uses pending state, preventing an unmined deployment from being submitted
+again. Retry the create request so the SDK generates a different salt. Other
+simulation failures retain their original error.
 
 ### Solana launch creation and lookup
 

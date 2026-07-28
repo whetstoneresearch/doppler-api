@@ -1,11 +1,5 @@
 import { DopplerSDK } from '@whetstone-research/doppler-sdk/evm';
-import {
-  BaseError,
-  ContractFunctionRevertedError,
-  getCreate2Address,
-  keccak256,
-  type Hex,
-} from 'viem';
+import { getCreate2Address, keccak256, type Hex } from 'viem';
 import { z } from 'zod';
 
 import { AppError } from '../../core/errors';
@@ -35,18 +29,40 @@ const createSimulationSchema = z
   })
   .passthrough();
 
+const errorCauseSchema = z
+  .object({
+    cause: z.unknown().optional(),
+    raw: z.unknown().optional(),
+    data: z.unknown().optional(),
+    signature: z.unknown().optional(),
+    message: z.unknown().optional(),
+  })
+  .passthrough();
+
 const isDeploymentFailed = (error: unknown): boolean => {
-  if (!(error instanceof BaseError)) {
-    return false;
+  const seen = new Set<object>();
+  let current = error;
+
+  while (typeof current === 'object' && current !== null && !seen.has(current)) {
+    seen.add(current);
+    const parsed = errorCauseSchema.safeParse(current);
+    if (!parsed.success) {
+      return false;
+    }
+    const { raw, data, signature, message, cause } = parsed.data;
+    const selectors = [raw, data, signature].filter(
+      (value): value is string => typeof value === 'string',
+    );
+    if (
+      selectors.some((value) => value.slice(0, 10).toLowerCase() === DEPLOYMENT_FAILED_SELECTOR) ||
+      (typeof message === 'string' && message.toLowerCase().includes(DEPLOYMENT_FAILED_SELECTOR))
+    ) {
+      return true;
+    }
+    current = cause;
   }
 
-  return (
-    error.walk(
-      (cause) =>
-        cause instanceof ContractFunctionRevertedError &&
-        cause.raw?.slice(0, 10).toLowerCase() === DEPLOYMENT_FAILED_SELECTOR,
-    ) !== null
-  );
+  return false;
 };
 
 export const translateCreateSimulationError = async (args: {
@@ -93,25 +109,56 @@ export const translateCreateSimulationError = async (args: {
   );
 };
 
+export const withCreateSimulationErrorTranslation = async <T>(
+  context: Pick<ChainContext, 'chainId' | 'addresses'> & {
+    publicClient: Pick<ChainContext['publicClient'], 'getBytecode'>;
+  },
+  request: unknown,
+  simulate: () => Promise<T>,
+): Promise<T> => {
+  try {
+    return await simulate();
+  } catch (error) {
+    return translateCreateSimulationError({
+      error,
+      request,
+      chainId: context.chainId,
+      tokenImplementation: context.addresses.dopplerERC20V1Implementation,
+      getBytecode: async (address) =>
+        context.publicClient.getBytecode({ address, blockTag: 'pending' }),
+    });
+  }
+};
+
 const createCollisionAwarePublicClient = (context: ChainContext): ChainContext['publicClient'] =>
   new Proxy(context.publicClient, {
     get(target, property, receiver) {
+      if (property === 'getBytecode') {
+        return async (parameters: Parameters<ChainContext['publicClient']['getBytecode']>[0]) => {
+          const pendingParameters =
+            'blockNumber' in parameters || parameters.blockTag !== undefined
+              ? parameters
+              : ({ ...parameters, blockTag: 'pending' } as Parameters<
+                  ChainContext['publicClient']['getBytecode']
+                >[0]);
+          return target.getBytecode(pendingParameters);
+        };
+      }
+
       if (property !== 'simulateContract') {
         return Reflect.get(target, property, receiver);
       }
 
       return async (request: Parameters<ChainContext['publicClient']['simulateContract']>[0]) => {
-        try {
-          return await target.simulateContract(request);
-        } catch (error) {
-          return translateCreateSimulationError({
-            error,
-            request,
-            chainId: context.chainId,
-            tokenImplementation: context.addresses.dopplerERC20V1Implementation,
-            getBytecode: async (address) => target.getBytecode({ address }),
-          });
-        }
+        const pendingRequest = createSimulationSchema.safeParse(request).success
+          ? // Viem's generic transaction union rejects a valid blockTag when spread from its own parameter type.
+            ({ ...request, blockTag: 'pending' } as unknown as Parameters<
+              ChainContext['publicClient']['simulateContract']
+            >[0])
+          : request;
+        return withCreateSimulationErrorTranslation(context, pendingRequest, () =>
+          target.simulateContract(pendingRequest),
+        );
       };
     },
   });

@@ -476,6 +476,9 @@ components:
             tickSpacing:
               type: integer
               minimum: 1
+              description: >-
+                When omitted for presets, the API selects the largest spacing no greater
+                than the fee-tier default that divides every selected preset boundary.
           required: [type]
         - type: object
           additionalProperties: false
@@ -489,6 +492,9 @@ components:
             tickSpacing:
               type: integer
               minimum: 1
+              description: >-
+                Standard fee tiers use the SDK default when omitted; custom fees derive
+                a spacing unless one is supplied.
             curves:
               type: array
               minItems: 1

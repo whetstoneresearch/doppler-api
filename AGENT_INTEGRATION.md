@@ -24,6 +24,9 @@ Use exactly one family shape:
   initializer. For Rehype, each currency-side set of four WAD shares must sum
   to `1e18`. Choose exactly one route: `buybackDestination`, or 1 to 10 unique
   `rehypeFeeBeneficiaries` whose positive `sharesWad` values sum to `1e18`.
+  Both modes use the canonical `DopplerHookInitializer` contract. The `rehype`
+  mode supplies Rehype hook configuration to that initializer; it does not
+  select a separate initializer contract.
 - `dynamic`: include exactly one `migration` with type `uniswapV2` or
   `uniswapV4`.
 
@@ -76,9 +79,15 @@ fee is reserved separately before the remaining hook fee is routed.
 multiple entries. Static accepts presets or a manual range. Multicurve
 accepts presets or contiguous ranges and preserves final `marketCapEndUsd:
 "max"`. Multicurve fees may be `0`.
+When multicurve `tickSpacing` is omitted, the API chooses the largest spacing
+at or below the fee-tier default that divides every selected preset boundary.
+For manual ranges with a standard fee tier, the SDK default applies; custom
+fees derive a spacing unless the request supplies one.
 
 Static custom fees are limited to `100`, `500`, `3000`, or `10000`;
 `numPositions` is at most 65,535 and `maxShareToBeSoldWad` is at most `1e18`.
+Integer-string and WAD fields must contain decimal digits only. Treat malformed
+values as client validation errors; the API returns `422 INVALID_REQUEST`.
 For a dynamic range, `marketCapMinUsd` must be less than
 `marketCapStartUsd`; `epochLengthSeconds` must divide the effective duration;
 `gamma` is at most 8,388,607 and must be divisible by the effective tick
@@ -124,3 +133,5 @@ be retried with the same key after correction. `503 NONCE_LOCK_LOST` occurs
 before broadcast and is safe to retry with the same key.
 A confirmed pre-broadcast token address collision returns
 `409 TOKEN_ADDRESS_COLLISION`; retry the launch to use a different salt.
+Simulation and collision detection read pending chain state, so an unmined
+deployment at the predicted token address is treated as a collision.

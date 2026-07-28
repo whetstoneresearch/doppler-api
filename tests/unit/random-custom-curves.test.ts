@@ -23,6 +23,7 @@ describe('random custom curve plan', () => {
         expect(curve.marketCapStartUsd).toBeGreaterThan(1);
         expect(curve.marketCapStartUsd).toBeLessThan(1_000_000);
         expect(curve.marketCapEndUsd).toBeGreaterThan(curve.marketCapStartUsd);
+        expect(curve.marketCapEndUsd / curve.marketCapStartUsd).toBeGreaterThanOrEqual(5);
         expect(curve.numPositions).toBeGreaterThan(0);
         expect(BigInt(curve.sharesWad)).toBeGreaterThan(0n);
 

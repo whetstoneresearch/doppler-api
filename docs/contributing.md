@@ -32,6 +32,10 @@ npm run check
 
 `npm run check` runs formatting, lint, type-checking, and tests.
 
+`npm run test:all` enables and runs the onchain live suite in addition to unit
+and integration tests. Configure the live RPC and signer variables from
+`.env.example` before running it.
+
 ## Git hooks
 
 The `prepare` script installs Lefthook during dependency installation. To

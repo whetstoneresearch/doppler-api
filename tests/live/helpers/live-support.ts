@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { airlockAbi, v4MulticurveInitializerAbi } from '@whetstone-research/doppler-sdk/evm';
+import { airlockAbi, dopplerHookInitializerAbi } from '@whetstone-research/doppler-sdk/evm';
 import { decodeAbiParameters, decodeFunctionData, parseEther, zeroAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { randomBytes } from 'node:crypto';
@@ -7,8 +7,11 @@ import { randomBytes } from 'node:crypto';
 import { buildServices } from '../../../src/app/server';
 import { loadConfig } from '../../../src/core/config';
 import type { MigrationConfigInput, MulticurveInitializerConfig } from '../../../src/core/types';
+import { AppError } from '../../../src/core/errors';
+import type { ChainContext } from '../../../src/infra/chain/registry';
 import { decodeCreateEvent } from '../../../src/infra/chain/receipt-decoder';
 import type { CreateLaunchRequestInput } from '../../../src/modules/launches/schema';
+import type { LaunchService } from '../../../src/modules/launches/service';
 import { buildRandomCustomCurvePlan } from '../../fixtures/random-custom-curves';
 import {
   decodeDopplerHookMigratorData,
@@ -106,6 +109,34 @@ const liveIt = (
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const createLaunchWithCollisionRetry = async (args: {
+  launchService: Pick<LaunchService, 'createLaunch'>;
+  publicClient: Pick<ChainContext['publicClient'], 'getBlockNumber'>;
+  payload: CreateLaunchRequestInput;
+}) => {
+  let lastCollision: AppError | undefined;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await args.launchService.createLaunch(args.payload);
+    } catch (error) {
+      if (!(error instanceof AppError) || error.code !== 'TOKEN_ADDRESS_COLLISION') {
+        throw error;
+      }
+      lastCollision = error;
+      const collisionBlock = await args.publicClient.getBlockNumber();
+      for (let poll = 0; poll < 20; poll += 1) {
+        await sleep(500);
+        if ((await args.publicClient.getBlockNumber()) > collisionBlock) {
+          break;
+        }
+      }
+    }
+  }
+
+  throw lastCollision;
+};
+
 const getBaseScanUrl = (chainId: number): string | null => {
   if (chainId === 8453) return 'https://basescan.org';
   if (chainId === 84532) return 'https://sepolia.basescan.org';
@@ -118,7 +149,7 @@ const feeConfigByPreset: Record<
 > = {
   low: { fee: 30000, expectedTickSpacing: 200, feePercent: '3.00%' },
   medium: { fee: 20000, expectedTickSpacing: 100, feePercent: '2.00%' },
-  high: { fee: 10000, expectedTickSpacing: 200, feePercent: '1.00%' },
+  high: { fee: 10000, expectedTickSpacing: 100, feePercent: '1.00%' },
 };
 
 interface MulticurveLiveOverrides {
@@ -474,8 +505,8 @@ const formatDecodedVestingData = (decoded: DecodedStandardTokenFactoryData | nul
   return `${firstSchedule?.duration.toString() ?? '0'} / ${firstSchedule?.cliff.toString() ?? '0'} / ${firstRecipient} / ${firstAmount}`;
 };
 
-const readMulticurveStateWithRetry = async (args: {
-  publicClient: { readContract: (...params: any[]) => Promise<unknown> };
+const readDopplerHookInitializerStateWithRetry = async (args: {
+  publicClient: Pick<ChainContext['publicClient'], 'readContract'>;
   tokenAddress: `0x${string}`;
   poolInitializer: `0x${string}`;
   maxAttempts?: number;
@@ -487,17 +518,17 @@ const readMulticurveStateWithRetry = async (args: {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     verboseLog(
-      `[live] pool state lookup attempt ${attempt}/${maxAttempts} via initializer ${args.poolInitializer}`,
+      `[live] DopplerHookInitializer state lookup attempt ${attempt}/${maxAttempts} via ${args.poolInitializer}`,
     );
     try {
       const stateData = (await args.publicClient.readContract({
         address: args.poolInitializer,
-        abi: v4MulticurveInitializerAbi,
+        abi: dopplerHookInitializerAbi,
         functionName: 'getState',
         args: [args.tokenAddress],
-      } as const)) as readonly [unknown, unknown, unknown, unknown];
+      } as const)) as readonly [unknown, unknown, unknown, unknown, unknown, unknown, unknown];
 
-      const [numeraireRaw, , poolKeyRaw] = stateData;
+      const [numeraireRaw, , , , , poolKeyRaw] = stateData;
       const poolKeyStruct = poolKeyRaw as {
         currency0?: `0x${string}`;
         currency1?: `0x${string}`;
@@ -527,7 +558,7 @@ const readMulticurveStateWithRetry = async (args: {
   }
 
   throw new Error(
-    `Pool state not available for token ${args.tokenAddress} via initializer ${args.poolInitializer} after ${maxAttempts} attempts. Last reason: ${lastReason}`,
+    `DopplerHookInitializer state not available for token ${args.tokenAddress} via ${args.poolInitializer} after ${maxAttempts} attempts. Last reason: ${lastReason}`,
   );
 };
 
@@ -721,7 +752,11 @@ const runMulticurveLaunchAndVerify = async (
       );
     }
 
-    const createResponse = await services.launchService.createLaunch(createPayload);
+    const createResponse = await createLaunchWithCollisionRetry({
+      launchService: services.launchService,
+      publicClient: chain.publicClient,
+      payload: createPayload,
+    });
     expect(createResponse.txHash).toMatch(/^0x[a-fA-F0-9]{64}$/);
     submittedTxHash = createResponse.txHash;
     summary.txHash = createResponse.txHash;
@@ -907,34 +942,20 @@ const runMulticurveLaunchAndVerify = async (
     expect(status.result?.tokenAddress.toLowerCase()).toBe(createdEvent.tokenAddress.toLowerCase());
 
     const requestedNumeraire = createArg.numeraire.toLowerCase();
-    let poolState: {
-      currency0: `0x${string}`;
-      currency1: `0x${string}`;
-      numeraire: `0x${string}`;
-      fee: number;
-      tickSpacing: number;
-      hooks: `0x${string}`;
-    } | null = null;
-    let poolNumeraire: string | null = null;
-    let isNativeAlias = false;
+    const poolState = await readDopplerHookInitializerStateWithRetry({
+      publicClient: chain.publicClient,
+      tokenAddress: createdEvent.tokenAddress,
+      poolInitializer: createArg.poolInitializer,
+    });
+    const poolNumeraire = poolState.numeraire.toLowerCase();
+    const configuredWeth = (chain.addresses.weth as `0x${string}` | undefined)?.toLowerCase();
+    const isNativeAlias =
+      poolNumeraire === zeroAddress && !!configuredWeth && requestedNumeraire === configuredWeth;
 
-    // DopplerHookInitializer state decoding does not share the v4Multicurve ABI shape.
-    if (requestedInitializer.type !== 'rehype') {
-      poolState = await readMulticurveStateWithRetry({
-        publicClient: chain.publicClient,
-        tokenAddress: createdEvent.tokenAddress,
-        poolInitializer: createArg.poolInitializer,
-      });
-      poolNumeraire = poolState.numeraire.toLowerCase();
-      const configuredWeth = (chain.addresses.weth as `0x${string}` | undefined)?.toLowerCase();
-      isNativeAlias =
-        poolNumeraire === zeroAddress && !!configuredWeth && requestedNumeraire === configuredWeth;
-
-      expect(poolNumeraire === requestedNumeraire || isNativeAlias).toBe(true);
-      expect(Number.isInteger(poolState.tickSpacing)).toBe(true);
-      expect(poolState.tickSpacing).toBeGreaterThanOrEqual(0);
-      expect(poolState.fee).toBeGreaterThanOrEqual(0);
-    }
+    expect(poolNumeraire === requestedNumeraire || isNativeAlias).toBe(true);
+    expect(Number.isInteger(poolState.tickSpacing)).toBe(true);
+    expect(poolState.tickSpacing).toBeGreaterThanOrEqual(0);
+    expect(poolState.fee).toBeGreaterThanOrEqual(0);
 
     const tokenUrl = explorerBase ? `${explorerBase}/token/${createdEvent.tokenAddress}` : null;
     const poolOrHookAddress = status.result?.poolOrHookAddress ?? createdEvent.poolOrHookAddress;
@@ -955,25 +976,11 @@ const runMulticurveLaunchAndVerify = async (
             ? formatDecodedVestingData(decodedTokenFactoryData)
             : 'n/a (no allocations)',
         ],
-        [
-          'Numeraire requested -> pool',
-          requestedInitializer.type === 'rehype'
-            ? `${requestedNumeraire} -> n/a (rehype initializer)`
-            : `${requestedNumeraire} -> ${poolNumeraire}`,
-        ],
-        [
-          'Numeraire Match',
-          requestedInitializer.type === 'rehype'
-            ? 'n/a (rehype initializer)'
-            : poolNumeraire === requestedNumeraire || isNativeAlias
-              ? 'yes'
-              : 'no',
-        ],
+        ['Numeraire requested -> pool', `${requestedNumeraire} -> ${poolNumeraire}`],
+        ['Numeraire Match', poolNumeraire === requestedNumeraire || isNativeAlias ? 'yes' : 'no'],
         [
           'TickSpacing / Fee (pool vs decoded)',
-          requestedInitializer.type === 'rehype'
-            ? `n/a (${decodedPoolConfig.tickSpacing} / ${decodedPoolConfig.fee})`
-            : `${poolState!.tickSpacing} / ${poolState!.fee} (${decodedPoolConfig.tickSpacing} / ${decodedPoolConfig.fee})`,
+          `${poolState.tickSpacing} / ${poolState.fee} (${decodedPoolConfig.tickSpacing} / ${decodedPoolConfig.fee})`,
         ],
         ['BaseScan Token', tokenUrl],
         ['BaseScan Pool/Hook', poolOrHookUrl],
@@ -1161,7 +1168,11 @@ const runStaticLaunchAndVerify = async (args?: {
       );
     }
 
-    const createResponse = await services.launchService.createLaunch(createPayload);
+    const createResponse = await createLaunchWithCollisionRetry({
+      launchService: services.launchService,
+      publicClient: chain.publicClient,
+      payload: createPayload,
+    });
     expect(createResponse.txHash).toMatch(/^0x[a-fA-F0-9]{64}$/);
     submittedTxHash = createResponse.txHash;
     summary.txHash = createResponse.txHash;
@@ -1490,7 +1501,11 @@ const runDynamicLaunchAndVerify = async (args?: {
       );
     }
 
-    const createResponse = await services.launchService.createLaunch(createPayload);
+    const createResponse = await createLaunchWithCollisionRetry({
+      launchService: services.launchService,
+      publicClient: chain.publicClient,
+      payload: createPayload,
+    });
     expect(createResponse.txHash).toMatch(/^0x[a-fA-F0-9]{64}$/);
     submittedTxHash = createResponse.txHash;
     summary.txHash = createResponse.txHash;
@@ -1778,7 +1793,11 @@ const runCustomCurveLaunchAndVerify = async () => {
       );
     }
 
-    const createResponse = await services.launchService.createLaunch(createPayload);
+    const createResponse = await createLaunchWithCollisionRetry({
+      launchService: services.launchService,
+      publicClient: chain.publicClient,
+      payload: createPayload,
+    });
     expect(createResponse.txHash).toMatch(/^0x[a-fA-F0-9]{64}$/);
     submittedTxHash = createResponse.txHash;
     summary.txHash = createResponse.txHash;
@@ -1846,7 +1865,7 @@ const runCustomCurveLaunchAndVerify = async () => {
     expect(status.status).toBe('confirmed');
     expect(status.result?.tokenAddress.toLowerCase()).toBe(createdEvent.tokenAddress.toLowerCase());
 
-    const poolState = await readMulticurveStateWithRetry({
+    const poolState = await readDopplerHookInitializerStateWithRetry({
       publicClient: chain.publicClient,
       tokenAddress: createdEvent.tokenAddress,
       poolInitializer: createArg.poolInitializer,
@@ -1998,7 +2017,11 @@ const runCustomCurveWithRandomVestingAndAllocations = async () => {
       );
     }
 
-    const createResponse = await services.launchService.createLaunch(createPayload);
+    const createResponse = await createLaunchWithCollisionRetry({
+      launchService: services.launchService,
+      publicClient: chain.publicClient,
+      payload: createPayload,
+    });
     expect(createResponse.txHash).toMatch(/^0x[a-fA-F0-9]{64}$/);
     submittedTxHash = createResponse.txHash;
     summary.txHash = createResponse.txHash;
@@ -2073,7 +2096,7 @@ const runCustomCurveWithRandomVestingAndAllocations = async () => {
     expect(status.status).toBe('confirmed');
     expect(status.result?.tokenAddress.toLowerCase()).toBe(createdEvent.tokenAddress.toLowerCase());
 
-    const poolState = await readMulticurveStateWithRetry({
+    const poolState = await readDopplerHookInitializerStateWithRetry({
       publicClient: chain.publicClient,
       tokenAddress: createdEvent.tokenAddress,
       poolInitializer: createArg.poolInitializer,

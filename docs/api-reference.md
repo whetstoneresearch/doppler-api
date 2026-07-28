@@ -50,6 +50,11 @@ Deterministic request validation runs before dependency readiness checks.
 Static fees are limited to `100`, `500`, `3000`, or `10000`;
 `numPositions` is at most 65,535 and `maxShareToBeSoldWad` is at most `1e18`.
 Multicurve pool fees may be `0`.
+When multicurve preset `tickSpacing` is omitted, the API selects the largest
+spacing no greater than the fee-tier default that divides all selected preset
+boundaries. This keeps the encoded curves valid, including the `high` preset.
+Both `standard` and `rehype` modes use the canonical
+`DopplerHookInitializer`; Rehype changes its hook configuration.
 
 Dynamic ranges require descending market caps, duration evenly divisible by
 epoch length, `gamma` no greater than 8,388,607 and aligned to tick spacing,

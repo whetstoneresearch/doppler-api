@@ -10,7 +10,10 @@ import type {
 import type { PricingService } from '../../pricing/service';
 import type { CreateStaticLaunchRequestInput } from '../../launches/schema';
 import type { ChainContext } from '../../../infra/chain/registry';
-import type { DopplerSdkRegistry } from '../../../infra/doppler/sdk-client';
+import {
+  type DopplerSdkRegistry,
+  withCreateSimulationErrorTranslation,
+} from '../../../infra/doppler/sdk-client';
 import type { TxSubmitter } from '../../../infra/tx/submitter';
 import { resolveGovernance } from '../../governance/policy';
 import {
@@ -186,13 +189,17 @@ export const createStaticLaunch = async ({
 
   const simulation = await sdk.factory.simulateCreateStaticAuction(params);
 
-  const { request } = await chain.publicClient.simulateContract({
+  const simulationRequest = {
     address: chain.addresses.airlock,
     abi: airlockAbi,
     functionName: 'create',
     args: [{ ...simulation.createParams }],
     account: chain.walletClient.account,
-  });
+    blockTag: 'pending',
+  } as const;
+  const { request } = await withCreateSimulationErrorTranslation(chain, simulationRequest, () =>
+    chain.publicClient.simulateContract(simulationRequest),
+  );
 
   const txHash = (await txSubmitter.submitCreateTx({
     chain,

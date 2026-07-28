@@ -5,7 +5,10 @@ const UINT16_MAX = 65_535;
 const maxShareToBeSoldSchema = z
   .string()
   .regex(/^[1-9]\d*$/, 'must be a positive integer string')
-  .refine((value) => BigInt(value) <= WAD, `must be less than or equal to ${WAD.toString()}`);
+  .refine(
+    (value) => !/^[1-9]\d*$/.test(value) || BigInt(value) <= WAD,
+    `must be less than or equal to ${WAD.toString()}`,
+  );
 const staticFeeSchema = z.union([
   z.literal(100),
   z.literal(500),

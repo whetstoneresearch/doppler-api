@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Malformed EVM WAD strings now return `422 INVALID_REQUEST` instead of an internal server error.
+- Multicurve launches now use the canonical `DopplerHookInitializer`, and
+  omitted preset tick spacing is aligned to every selected curve boundary.
+- EVM create simulation and token-collision detection now use pending chain
+  state, preventing broadcasts that target an address deployed by an unmined
+  transaction.
+
+### Changed
+
+- `npm run test:all` now enables and executes the onchain live suite.
+
 ## [0.2.0] - 2026-07-27
 
 ### Added

@@ -1,6 +1,7 @@
 import {
   DEFAULT_MULTICURVE_LOWER_TICKS,
   DEFAULT_MULTICURVE_UPPER_TICKS,
+  FEE_TIERS,
   TICK_SPACINGS,
 } from '@whetstone-research/doppler-sdk/evm';
 
@@ -40,15 +41,8 @@ export const resolvePresetTickSpacing = ({
     return tickSpacing;
   }
 
-  if (fee === undefined) {
-    return undefined;
-  }
-
-  // Let the SDK handle built-in fee tiers.
-  if ((TICK_SPACINGS as Record<number, number>)[fee] !== undefined) {
-    return undefined;
-  }
-
+  const effectiveFee = fee ?? FEE_TIERS.LOW;
+  const sdkTickSpacing = (TICK_SPACINGS as Record<number, number>)[effectiveFee];
   const selectedPresets = presets?.length ? presets : (['low', 'medium', 'high'] as const);
   const presetTicks = selectedPresets.flatMap((preset) => {
     const idx = PRESET_INDEX[preset];
@@ -56,14 +50,15 @@ export const resolvePresetTickSpacing = ({
   });
 
   const ticksGcd = gcdMany(presetTicks);
+  const spacingLimit = sdkTickSpacing ?? deriveTickSpacingFromFee(effectiveFee);
   if (ticksGcd <= 0) {
-    return deriveTickSpacingFromFee(fee);
+    return sdkTickSpacing === spacingLimit ? undefined : spacingLimit;
   }
 
-  const candidate = Math.min(deriveTickSpacingFromFee(fee), ticksGcd);
+  const candidate = Math.min(spacingLimit, ticksGcd);
   for (let spacing = candidate; spacing >= 1; spacing -= 1) {
     if (ticksGcd % spacing === 0) {
-      return spacing;
+      return spacing === sdkTickSpacing ? undefined : spacing;
     }
   }
 

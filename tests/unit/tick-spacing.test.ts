@@ -6,6 +6,10 @@ import {
 } from '../../src/modules/auctions/multicurve/tick-spacing';
 
 describe('tick spacing resolution', () => {
+  it('leaves the omitted fee and all presets at the SDK low-tier default', () => {
+    expect(resolvePresetTickSpacing({})).toBeUndefined();
+  });
+
   it('derives preset tick spacing for low custom fee when omitted', () => {
     const spacing = resolvePresetTickSpacing({
       fee: 30000,
@@ -32,6 +36,24 @@ describe('tick spacing resolution', () => {
     });
 
     expect(spacing).toBe(200);
+  });
+
+  it('aligns the high preset when using the standard fee tier', () => {
+    const spacing = resolvePresetTickSpacing({
+      fee: 10_000,
+      presets: ['high'],
+    });
+
+    expect(spacing).toBe(100);
+  });
+
+  it('leaves an already-aligned standard fee tier to the SDK', () => {
+    const spacing = resolvePresetTickSpacing({
+      fee: 10_000,
+      presets: ['low'],
+    });
+
+    expect(spacing).toBeUndefined();
   });
 
   it('derives range tick spacing from custom fee when omitted', () => {

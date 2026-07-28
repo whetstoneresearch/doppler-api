@@ -78,7 +78,7 @@ export const registerDynamicLiveScenarios = () => {
         marketCapMinUsd: 50,
         minProceeds: '0.01',
         maxProceeds: '0.1',
-        durationSeconds: 24 * 60 * 60,
+        durationSeconds: 36 * 60 * 60,
       });
     },
     240_000,
@@ -97,7 +97,7 @@ export const registerDynamicLiveScenarios = () => {
         marketCapMinUsd: 50,
         minProceeds: '0.01',
         maxProceeds: '0.1',
-        durationSeconds: 24 * 60 * 60,
+        durationSeconds: 48 * 60 * 60,
       });
     },
     240_000,
@@ -132,7 +132,7 @@ export const registerDynamicLiveScenarios = () => {
         marketCapMinUsd: 50,
         minProceeds: '0.01',
         maxProceeds: '0.1',
-        durationSeconds: 24 * 60 * 60,
+        durationSeconds: 60 * 60 * 60,
       });
     },
     240_000,
