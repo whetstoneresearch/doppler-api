@@ -633,7 +633,14 @@ export class SolanaLaunchService {
 
     const readiness = await this.getReadiness();
     if (!readiness.ok) {
-      throw new AppError(503, 'SOLANA_NOT_READY', 'Solana devnet is not ready for launch creation');
+      const failedCheckNames = readiness.checks
+        .filter((check) => !check.ok)
+        .map((check) => check.name);
+      throw new AppError(
+        503,
+        'SOLANA_NOT_READY',
+        `Solana devnet is not ready for launch creation (failed checks: ${failedCheckNames.join(', ') || 'unknown'})`,
+      );
     }
 
     const payer = await this.getPayerSigner();

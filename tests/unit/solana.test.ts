@@ -792,6 +792,7 @@ describe('Solana launch helpers', () => {
     ).rejects.toMatchObject({
       statusCode: 503,
       code: 'SOLANA_NOT_READY',
+      message: 'Solana devnet is not ready for launch creation (failed checks: rpcReachable)',
     });
   });
 });

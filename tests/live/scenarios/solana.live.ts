@@ -27,6 +27,7 @@ import {
   printLiveTable,
   toShortError,
 } from '../helpers/live-support';
+import { parseTransientSolanaCreateFailure } from '../readiness-check';
 
 const SOLANA_LIVE_TIMEOUT_MS = 240_000;
 const SOLANA_ACCOUNT_COMMITMENT = { commitment: 'confirmed' as const };
@@ -71,27 +72,6 @@ const nextTokenMetadata = (prefix: string) => {
 const nextFeeBeneficiaries = async () => {
   const beneficiary = await generateKeyPairSigner();
   return [{ address: beneficiary.address, shareBps: SOLANA_CONSTANTS.feeBpsDenominator }];
-};
-
-const parseTransientSolanaCreateFailure = (response: {
-  statusCode: number;
-  body: string;
-  json: () => unknown;
-}): string | null => {
-  if (response.statusCode !== 502) {
-    return null;
-  }
-
-  try {
-    const body = response.json() as { error?: { code?: string; message?: string } };
-    if (body.error?.code !== 'SOLANA_SUBMISSION_FAILED') {
-      return null;
-    }
-
-    return body.error.message ?? response.body;
-  } catch {
-    return response.body;
-  }
 };
 
 const createLiveApp = async () => {
