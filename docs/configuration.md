@@ -136,13 +136,13 @@ When `SOLANA_ENABLED=true`, startup fails fast for static config errors:
 - `npm run test:live:solana:cpmm` runs the fixed and randomized CPMM reserve-split coverage.
 - `npm run test:live:solana:no-migration` runs launches that omit migration criteria and assert the system-program migrator path.
 - `npm run test:live:solana:random` runs randomized Solana parameter coverage.
-- `npm run test:live:solana:cosigner` runs CPMM hook cosigner-gating coverage.
+- `npm run test:live:solana:cosigner` runs Doppler launch hook v1 managed-cosigner coverage.
 - `npm run test:live:solana:failing` runs Solana route/policy failures without submitting launches.
 - Set `LIVE_TEST_VERBOSE=true` for full per-launch output instead of the concise summary mode.
 - Successful Solana live scenarios retry transient `SOLANA_NOT_READY` and `SOLANA_SUBMISSION_FAILED` create responses once after 10 seconds.
 - The Solana readiness gate estimates required payer balance in SOL; override it with `LIVE_TEST_MIN_BALANCE_SOL` or tune the per-launch estimate with `LIVE_TEST_ESTIMATED_TX_COST_SOL` and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL`.
 - Solana live create filters require `SOLANA_DEVNET_ALT_ADDRESS` so transactions that fit reuse a deployed lookup table. Oversized launch combinations create a launch-specific fallback table.
-- Solana live parity covers supported XYK/create behavior, including CPMM hook launches with cosigner gating. Governance, vesting/vault locks, and static/dynamic EVM auction engines are intentionally excluded from Solana because the Solana API profile does not support those features.
+- Solana live parity covers supported XYK/create behavior, including Doppler launch hook v1 launches with managed cosigner gating. Governance, vesting/vault locks, and static/dynamic EVM auction engines are intentionally excluded from Solana because the Solana API profile does not support those features.
 
 ## Multichain EVM configuration
 

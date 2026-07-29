@@ -19,7 +19,12 @@ import {
   signTransactionMessageWithSigners,
 } from '@solana/kit';
 import { TOKEN_PROGRAM_ADDRESS, findAssociatedTokenPda } from '@solana-program/token';
-import { cpmm, cpmmHook, cpmmMigrator, initializer } from '@whetstone-research/doppler-sdk/solana';
+import {
+  cpmm,
+  cpmmMigrator,
+  dopplerLaunchHookV1,
+  initializer,
+} from '@whetstone-research/doppler-sdk/solana';
 
 import type { AppConfig } from '../../core/config';
 import { AppError } from '../../core/errors';
@@ -547,6 +552,27 @@ export class SolanaLaunchService {
     };
   }
 
+  private async resolveManagedCosignerGate(
+    gate: CreateSolanaLaunchRequestInput['auction']['cosignerGate'],
+  ): Promise<dopplerLaunchHookV1.ResolvedManagedCosignerGate | undefined> {
+    if (!gate) {
+      return undefined;
+    }
+
+    const expiresAt = gate.expiry?.mode === 'unixTimestamp' ? BigInt(gate.expiry.value) : null;
+    try {
+      return await dopplerLaunchHookV1.resolveManagedCosignerGate(this.rpc, {
+        expiresAt,
+      });
+    } catch {
+      throw new AppError(
+        503,
+        'SOLANA_NOT_READY',
+        'Solana managed cosigner configuration is not ready',
+      );
+    }
+  }
+
   async getReadiness(): Promise<SolanaReadinessResult> {
     if (!this.config.solana.enabled) {
       return { enabled: false, ok: true, checks: [] };
@@ -649,9 +675,10 @@ export class SolanaLaunchService {
     const feeBeneficiaries = this.resolveFeeBeneficiaries(input, payer.address, initializerConfig);
     const launchSeed = deriveSolanaLaunchSeed(input.network, idempotencyKey);
     const namespace = payer.address;
+    const managedCosignerGate = await this.resolveManagedCosignerGate(input.auction.cosignerGate);
     const launchHookConfig = await buildSolanaLaunchHookConfig({
       dynamicFee: input.auction.dynamicFee,
-      cosignerGate: input.auction.cosignerGate,
+      managedCosignerGate,
       namespace,
     });
     const [launchAddress] = await initializer.getLaunchAddress(namespace, launchSeed);
@@ -974,7 +1001,7 @@ export const SOLANA_CONSTANTS = {
   wsolMintAddress: SOLANA_WSOL_MINT_ADDRESS,
   systemProgramAddress: SOLANA_SYSTEM_PROGRAM_ADDRESS,
   rentSysvarAddress: SOLANA_RENT_SYSVAR_ADDRESS,
-  cpmmHookProgramId: cpmmHook.CPMM_HOOK_PROGRAM_ID,
+  dopplerLaunchHookV1ProgramId: dopplerLaunchHookV1.DOPPLER_LAUNCH_HOOK_V1_PROGRAM_ID,
   cpmmMigratorProgramId: cpmmMigrator.CPMM_MIGRATOR_PROGRAM_ID,
   disabledHookRemainingAccountsHash: SOLANA_DISABLED_HOOK_REMAINING_ACCOUNTS_HASH,
   feeBpsDenominator: SOLANA_FEE_BPS_DENOMINATOR,
