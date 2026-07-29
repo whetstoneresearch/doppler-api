@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 - Malformed EVM WAD strings now return `422 INVALID_REQUEST` instead of an internal server error.
 - Multicurve launches now use the canonical `DopplerHookInitializer`, and omitted preset tick spacing is aligned to every selected curve boundary.
 - EVM create simulation and token-collision detection now use pending chain state, preventing broadcasts that target an address deployed by an unmined transaction.
+- Dynamic proceeds and EVM `uint256` request fields now reject non-canonical, over-precision, and overflowing values with `422 INVALID_REQUEST` before SDK assembly.
+- Redis idempotency lock-release failures now emit an operational warning without replacing a completed or in-doubt launch result.
 
 ### Changed
 

@@ -66,7 +66,7 @@ curl --request POST 'http://localhost:3000/v1/launches' \
   }'
 ```
 
-See the [Rehype Guide](docs/rehype.md) for fee schedules, distribution weights, initializer routing, and dynamic migration configuration. The [Launch Request Examples](docs/launch-examples.md) cover every supported EVM family.
+See the [Rehype Guide](docs/rehype.md) for fee schedules, distribution weights, initializer routing, and dynamic migration configuration. The [Launch Request Examples](docs/launch-examples.md) cover every supported EVM family. EVM supply, sale, vesting-allocation, and balance-limit amounts are canonical positive `uint256` decimal strings without leading zeros. Dynamic proceeds are canonical decimal strings with at most 18 decimal places whose scaled value fits `uint256`. Multicurve `tickSpacing` is at most 32,767, and each manual range supports at most 65,535 positions.
 
 ## API surface
 

@@ -7,40 +7,6 @@ export type GovernanceMode = 'noOp' | 'default' | 'custom';
 export type MigrationType = 'noOp' | 'uniswapV2' | 'uniswapV4';
 export type AuctionType = 'multicurve' | 'static' | 'dynamic';
 
-export interface TokenMetadata {
-  name: string;
-  symbol: string;
-  tokenURI: string;
-  maxBalanceLimit?: string;
-  balanceLimitEnd?: number;
-  balanceController?: HexAddress;
-  excludedFromBalanceLimit?: HexAddress[];
-}
-
-export interface Economics {
-  totalSupply: string;
-  tokensForSale?: string;
-  allocations?: Array<{
-    recipientAddress: HexAddress;
-    amount: string;
-    durationSeconds: number;
-    cliffDurationSeconds?: number;
-  }>;
-}
-
-export interface PairingConfig {
-  numeraireAddress?: HexAddress;
-}
-
-export interface PricingConfig {
-  numerairePriceUsd?: number;
-}
-
-export interface PoolFeeBeneficiaryInput {
-  address: HexAddress;
-  sharesWad: string;
-}
-
 export interface RehypeFeeBeneficiaryInput {
   address: HexAddress;
   sharesWad: string;
@@ -78,13 +44,6 @@ export type MigrationConfigInput =
       };
     };
 
-export interface PresetCurveConfig {
-  type: 'preset';
-  presets?: Array<'low' | 'medium' | 'high'>;
-  fee?: number;
-  tickSpacing?: number;
-}
-
 export interface RangesCurveInput {
   marketCapStartUsd: number;
   marketCapEndUsd: number | 'max';
@@ -92,35 +51,7 @@ export interface RangesCurveInput {
   sharesWad: string;
 }
 
-export interface RangesCurveConfig {
-  type: 'ranges';
-  fee?: number;
-  tickSpacing?: number;
-  curves: RangesCurveInput[];
-}
-
-export type CurveConfig = PresetCurveConfig | RangesCurveConfig;
-
 export type MarketCapPreset = 'low' | 'medium' | 'high';
-
-export interface StaticPresetCurveConfig {
-  type: 'preset';
-  preset: MarketCapPreset;
-  fee?: number;
-  numPositions?: number;
-  maxShareToBeSoldWad?: string;
-}
-
-export interface StaticRangeCurveConfig {
-  type: 'range';
-  marketCapStartUsd: number;
-  marketCapEndUsd: number;
-  fee?: number;
-  numPositions?: number;
-  maxShareToBeSoldWad?: string;
-}
-
-export type StaticCurveConfig = StaticPresetCurveConfig | StaticRangeCurveConfig;
 
 export type MulticurveInitializerConfig = {
   startFee: number;
@@ -138,66 +69,6 @@ export type MulticurveInitializerConfig = {
       rehypeFeeBeneficiaries: [RehypeFeeBeneficiaryInput, ...RehypeFeeBeneficiaryInput[]];
     }
 );
-
-export interface MulticurveAuctionConfig {
-  type: 'multicurve';
-  curveConfig: CurveConfig;
-  initializer: MulticurveInitializerConfig;
-}
-
-export interface StaticAuctionConfig {
-  type: 'static';
-  curveConfig: StaticCurveConfig;
-}
-
-export interface DynamicAuctionConfig {
-  type: 'dynamic';
-  curveConfig: DynamicCurveConfig;
-}
-
-export type AuctionConfig = MulticurveAuctionConfig | StaticAuctionConfig | DynamicAuctionConfig;
-
-export interface DynamicRangeCurveConfig {
-  type: 'range';
-  marketCapStartUsd: number;
-  marketCapMinUsd: number;
-  minProceeds: string;
-  maxProceeds: string;
-  durationSeconds?: number;
-  epochLengthSeconds?: number;
-  fee?: number;
-  tickSpacing?: number;
-  gamma?: number;
-  numPdSlugs?: number;
-}
-
-export type DynamicCurveConfig = DynamicRangeCurveConfig;
-
-interface CreateLaunchRequestBase {
-  chainId?: number;
-  userAddress: HexAddress;
-  integrationAddress?: HexAddress;
-  tokenMetadata: TokenMetadata;
-  economics: Economics;
-  pairing?: PairingConfig;
-  pricing?: PricingConfig;
-  poolFeeBeneficiaries?: PoolFeeBeneficiaryInput[];
-  governance?: boolean | HexAddress;
-}
-
-export type CreateLaunchRequest =
-  | (CreateLaunchRequestBase & {
-      migration?: never;
-      auction: StaticAuctionConfig;
-    })
-  | (CreateLaunchRequestBase & {
-      migration?: never;
-      auction: MulticurveAuctionConfig;
-    })
-  | (CreateLaunchRequestBase & {
-      migration: MigrationConfigInput;
-      auction: DynamicAuctionConfig;
-    });
 
 export interface CreateLaunchPredicted {
   tokenAddress: HexAddress;

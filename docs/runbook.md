@@ -69,6 +69,8 @@ The file backend fails startup when its store cannot be parsed. The Redis backen
 
 `NONCE_LOCK_LOST` occurs before broadcast. Verify Redis health and replica prefix consistency, then retry the identical request with the same idempotency key.
 
+`IDEMPOTENCY_LOCK_RELEASE_FAILED` is an operational warning, not a failed launch result. The completed or in-doubt record remains authoritative, and the Redis lock expires through its TTL. Check Redis connectivity and latency; retry only with the identical idempotency key, and do not clear the lock or record manually.
+
 ## RPC degraded
 
 `GET /ready` identifies an unhealthy configured chain but returns a sanitized dependency error. Use service logs and read-only RPC calls to diagnose it.

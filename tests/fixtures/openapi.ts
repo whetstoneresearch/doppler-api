@@ -82,3 +82,21 @@ export const readOpenApiExample = (name: string): unknown => {
 
   return JSON.parse(flowYamlToJson(extractFlowMapping(openApi, exampleStart)));
 };
+
+export const readOpenApiPattern = (name: string): string => {
+  const openApi = readFileSync(openApiPath, 'utf8');
+  const schemaStart = openApi.indexOf(`    ${name}:\n`);
+  if (schemaStart === -1) {
+    throw new Error(`Missing OpenAPI schema ${name}`);
+  }
+
+  const followingSource = openApi.slice(schemaStart + name.length + 6);
+  const nextSchemaOffset = followingSource.search(/^    [A-Za-z][A-Za-z0-9]+:\n/m);
+  const schemaSource =
+    nextSchemaOffset === -1 ? followingSource : followingSource.slice(0, nextSchemaOffset);
+  const pattern = schemaSource.match(/^      pattern: '([^']+)'$/m)?.[1];
+  if (!pattern) {
+    throw new Error(`Missing direct OpenAPI pattern for ${name}`);
+  }
+  return pattern;
+};

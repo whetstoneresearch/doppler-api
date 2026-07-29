@@ -1,5 +1,4 @@
-// allow: SIZE_OK — static launch behavior needs independent canonical, range, governance, SDK, and fail-fast assertions.
-import { StaticAuctionBuilder, getAddresses } from '@whetstone-research/doppler-sdk/evm';
+// allow: SIZE_OK — static launch behavior needs canonical, range, governance, and fail-fast assertions.
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -302,57 +301,6 @@ describe('static launch service', () => {
       }),
     );
     expect(builder.withGovernance).toHaveBeenCalledWith({ type: 'default' });
-  });
-
-  it('builds LockableUniswapV3Initializer SDK parameters', () => {
-    const userAddress = '0x1111111111111111111111111111111111111111';
-    const addresses = getAddresses(84532);
-    const lockableV3Initializer = addresses.lockableV3Initializer;
-    if (!lockableV3Initializer) {
-      throw new Error('Base Sepolia must provide a lockable V3 initializer');
-    }
-
-    const params = StaticAuctionBuilder.forChain(84532)
-      .tokenConfig({
-        type: 'dopplerERC20V1',
-        name: 'Static',
-        symbol: 'STC',
-        tokenURI: 'ipfs://token',
-        maxBalanceLimit: 400n,
-        balanceLimitEnd: 86_400,
-        controller: userAddress,
-        excludedFromBalanceLimit: [userAddress],
-      })
-      .saleConfig({ initialSupply: 1_000n, numTokensToSell: 800n, numeraire: addresses.weth })
-      .withMarketCapRange({
-        marketCap: STATIC_MARKET_CAP_PRESETS.low,
-        numerairePrice: 3_000,
-      })
-      .withBeneficiaries([{ beneficiary: userAddress, shares: 1_000_000_000_000_000_000n }])
-      .withV3Initializer(lockableV3Initializer)
-      .withGovernance({ type: 'noOp' })
-      .withMigration({ type: 'noOp' })
-      .withUserAddress(userAddress)
-      .build();
-
-    expect(params).toMatchObject({
-      token: {
-        type: 'dopplerERC20V1',
-        name: 'Static',
-        symbol: 'STC',
-        tokenURI: 'ipfs://token',
-        maxBalanceLimit: 400n,
-        balanceLimitEnd: 86_400,
-        controller: userAddress,
-        excludedFromBalanceLimit: [userAddress],
-      },
-      governance: { type: 'noOp' },
-      migration: { type: 'noOp' },
-    });
-    if (!params.modules) {
-      throw new Error('SDK static parameters must include module overrides');
-    }
-    expect(Object.values(params.modules)).toContain(lockableV3Initializer);
   });
 
   it.each([

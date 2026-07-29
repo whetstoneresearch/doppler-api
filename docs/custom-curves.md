@@ -91,12 +91,12 @@ The optional `presets` array contains `"low"`, `"medium"`, and `"high"` values. 
 Custom ranges follow these rules:
 
 - `curves` is non-empty.
-- Every curve has a positive `marketCapStartUsd`, a positive integer `numPositions`, and a positive integer-string `sharesWad`.
+- Every curve has a positive `marketCapStartUsd`, a `numPositions` integer from `1` through `65535`, and a positive integer-string `sharesWad`.
 - `marketCapEndUsd` is a positive number greater than the range start or `"max"`.
 - Numeric ranges are contiguous. Only the final range can use `"max"`.
 - All `sharesWad` values total `1000000000000000000`.
 
-Both multicurve shapes accept an integer `fee` from `0` through `100000` and a positive integer `tickSpacing`. For custom ranges, a standard fee tier uses the SDK default spacing; a custom fee derives a spacing unless the request supplies one.
+Both multicurve shapes accept an integer `fee` from `0` through `100000` and an integer `tickSpacing` from `1` through `32767`. For custom ranges, a standard fee tier uses the SDK default spacing; a custom fee derives a spacing unless the request supplies one.
 
 Every multicurve request also includes the required flattened Rehype `auction.initializer` described in the [Rehype Guide](rehype.md). Multicurve requests do not accept `migration`.
 
@@ -123,7 +123,7 @@ Set `auction.type` to `"dynamic"`. Dynamic auctions use this range `auction.curv
 The required fields follow these rules:
 
 - `marketCapStartUsd` and `marketCapMinUsd` are positive, and `marketCapMinUsd` is less than `marketCapStartUsd`.
-- `minProceeds` and `maxProceeds` are non-negative decimal strings with at most 18 decimal places. `maxProceeds` is greater than zero, and `minProceeds` does not exceed it.
+- `minProceeds` and `maxProceeds` are canonical non-negative decimal strings without leading zeros and with at most 18 decimal places. Their values in 18-decimal units cannot exceed `uint256`; the largest value is `115792089237316195423570985008687907853269984665640564039457.584007913129639935`. `maxProceeds` is greater than zero, and `minProceeds` does not exceed it.
 
 The optional fields follow these rules:
 

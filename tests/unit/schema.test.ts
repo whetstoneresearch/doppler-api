@@ -1,5 +1,6 @@
 // allow: SIZE_OK — this file is the canonical EVM boundary rejection matrix.
 import { describe, expect, it } from 'vitest';
+import { formatUnits } from 'viem';
 
 import { createLaunchRequestSchema } from '../../src/modules/launches/schema';
 import { genericSolanaCreateLaunchRequestSchema } from '../../src/modules/launches/solana-schema';
@@ -7,6 +8,13 @@ import { rangesCurveConfigSchema } from '../../src/modules/auctions/multicurve/s
 
 const USER = '0x1111111111111111111111111111111111111111';
 const BENEFICIARY = '0x2222222222222222222222222222222222222222';
+const SECOND_BENEFICIARY = '0x3333333333333333333333333333333333333333';
+const WAD = '1000000000000000000';
+const UINT32_MAX = 4_294_967_295;
+const UINT256_MAX = (2n ** 256n - 1n).toString();
+const UINT256_OVERFLOW = (2n ** 256n).toString();
+const UINT256_MAX_PROCEEDS = formatUnits(2n ** 256n - 1n, 18);
+const UINT256_PROCEEDS_OVERFLOW = formatUnits(2n ** 256n, 18);
 const FEE_DISTRIBUTION_INFO = {
   assetFeesToAssetBuybackWad: '500000000000000000',
   assetFeesToNumeraireBuybackWad: '500000000000000000',
@@ -59,6 +67,44 @@ const dynamicRequest = {
     },
   },
 };
+const uint256FieldCases = [
+  {
+    field: 'totalSupply',
+    request: (value: string) => ({
+      ...staticRequest,
+      economics: { totalSupply: value },
+    }),
+  },
+  {
+    field: 'tokensForSale',
+    request: (value: string) => ({
+      ...staticRequest,
+      economics: { totalSupply: UINT256_MAX, tokensForSale: value },
+    }),
+  },
+  {
+    field: 'allocations[].amount',
+    request: (value: string) => ({
+      ...staticRequest,
+      economics: {
+        totalSupply: UINT256_MAX,
+        allocations: [{ recipientAddress: BENEFICIARY, amount: value, durationSeconds: 86_400 }],
+      },
+    }),
+  },
+  {
+    field: 'maxBalanceLimit',
+    request: (value: string) => ({
+      ...staticRequest,
+      tokenMetadata: {
+        ...staticRequest.tokenMetadata,
+        maxBalanceLimit: value,
+        balanceLimitEnd: 1,
+      },
+      economics: { totalSupply: UINT256_MAX },
+    }),
+  },
+] as const;
 
 describe('create launch schema characterizations', () => {
   it('preserves multicurve manual range end max', () => {
@@ -297,6 +343,294 @@ describe('canonical EVM create launch schema', () => {
     ).toBe(false);
   });
 
+  it('validates independent Rehype beneficiaries', () => {
+    const request = {
+      ...multicurveRequest,
+      auction: {
+        ...multicurveRequest.auction,
+        initializer: {
+          rehypeFeeBeneficiaries: [
+            { address: BENEFICIARY, sharesWad: '400000000000000000' },
+            { address: SECOND_BENEFICIARY, sharesWad: '600000000000000000' },
+          ],
+          startFee: 30_000,
+          feeDistributionInfo: FEE_DISTRIBUTION_INFO,
+        },
+      },
+    };
+
+    expect(createLaunchRequestSchema.safeParse(request).success).toBe(true);
+
+    for (const initializer of [
+      { ...request.auction.initializer, buybackDestination: USER },
+      {
+        ...request.auction.initializer,
+        rehypeFeeBeneficiaries: [
+          { address: BENEFICIARY, sharesWad: '500000000000000000' },
+          { address: BENEFICIARY, sharesWad: '500000000000000000' },
+        ],
+      },
+      {
+        ...request.auction.initializer,
+        rehypeFeeBeneficiaries: [
+          { address: BENEFICIARY, sharesWad: '400000000000000000' },
+          { address: SECOND_BENEFICIARY, sharesWad: '500000000000000000' },
+        ],
+      },
+      { buybackDestination: BENEFICIARY, startFee: 30_000 },
+    ]) {
+      expect(
+        createLaunchRequestSchema.safeParse({
+          ...request,
+          auction: { ...request.auction, initializer },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it('accepts independent vesting schedules and rejects invalid allocation forms', () => {
+    const allocations = [
+      {
+        recipientAddress: BENEFICIARY,
+        amount: '10',
+        durationSeconds: 86_400,
+        cliffDurationSeconds: 0,
+      },
+      {
+        recipientAddress: BENEFICIARY,
+        amount: '20',
+        durationSeconds: 172_800,
+        cliffDurationSeconds: 86_400,
+      },
+    ];
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...staticRequest,
+        economics: { totalSupply: '100', tokensForSale: '70', allocations },
+      }).success,
+    ).toBe(true);
+
+    for (const invalidAllocations of [
+      { mode: 'unlock' },
+      [{ ...allocations[0], cliffDurationSeconds: 86_401 }],
+    ]) {
+      expect(
+        createLaunchRequestSchema.safeParse({
+          ...staticRequest,
+          economics: {
+            totalSupply: '100',
+            tokensForSale: '70',
+            allocations: invalidAllocations,
+          },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it.each(uint256FieldCases)(
+    'accepts uint256 max and rejects overflow for $field',
+    ({ request }) => {
+      expect(createLaunchRequestSchema.safeParse(request(UINT256_MAX)).success).toBe(true);
+      expect(createLaunchRequestSchema.safeParse(request(UINT256_OVERFLOW)).success).toBe(false);
+      expect(createLaunchRequestSchema.safeParse(request('01')).success).toBe(false);
+    },
+  );
+
+  it('accepts exact static, dynamic, migration, and zero-fee multicurve boundaries', () => {
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...staticRequest,
+        auction: {
+          type: 'static',
+          curveConfig: {
+            type: 'preset',
+            preset: 'medium',
+            numPositions: 65_535,
+            maxShareToBeSoldWad: WAD,
+          },
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...multicurveRequest,
+        auction: {
+          ...multicurveRequest.auction,
+          curveConfig: {
+            type: 'ranges',
+            fee: 0,
+            tickSpacing: 32_767,
+            curves: [
+              {
+                marketCapStartUsd: 100,
+                marketCapEndUsd: 'max',
+                numPositions: 65_535,
+                sharesWad: WAD,
+              },
+            ],
+          },
+          initializer: {
+            ...REHYPE_BUYBACK_INITIALIZER,
+            startFee: 0,
+            endFee: 0,
+          },
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...dynamicRequest,
+        auction: {
+          ...dynamicRequest.auction,
+          curveConfig: {
+            ...dynamicRequest.auction.curveConfig,
+            tickSpacing: 1,
+            gamma: 8_388_607,
+            numPdSlugs: 15,
+          },
+        },
+        migration: {
+          type: 'uniswapV4',
+          fee: 150_000,
+          tickSpacing: 32_767,
+          lockDurationSeconds: UINT32_MAX,
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([
+    { type: 'preset', preset: 'medium', numPositions: 65_536 },
+    { type: 'preset', preset: 'medium', maxShareToBeSoldWad: '1000000000000000001' },
+    { type: 'preset', preset: 'medium', maxShareToBeSoldWad: '0' },
+    { type: 'range', marketCapStartUsd: 100, marketCapEndUsd: 100 },
+    { type: 'preset', preset: 'medium', fee: 2_500 },
+  ])('rejects contract-invalid static curve %#', (curveConfig) => {
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...staticRequest,
+        auction: { type: 'static', curveConfig },
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    { type: 'preset', presets: ['medium'], tickSpacing: 32_768 },
+    {
+      type: 'ranges',
+      tickSpacing: 32_768,
+      curves: [{ marketCapStartUsd: 100, marketCapEndUsd: 'max', numPositions: 1, sharesWad: WAD }],
+    },
+    {
+      type: 'ranges',
+      curves: [
+        {
+          marketCapStartUsd: 100,
+          marketCapEndUsd: 'max',
+          numPositions: 65_536,
+          sharesWad: WAD,
+        },
+      ],
+    },
+  ])('rejects contract-invalid multicurve config %#', (curveConfig) => {
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...multicurveRequest,
+        auction: { ...multicurveRequest.auction, curveConfig },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts the exact uint256 dynamic proceeds boundary', () => {
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...dynamicRequest,
+        auction: {
+          ...dynamicRequest.auction,
+          curveConfig: {
+            ...dynamicRequest.auction.curveConfig,
+            minProceeds: '0',
+            maxProceeds: UINT256_MAX_PROCEEDS,
+          },
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([
+    ['minProceeds', UINT256_PROCEEDS_OVERFLOW],
+    ['maxProceeds', UINT256_PROCEEDS_OVERFLOW],
+    ['minProceeds', '0.0000000000000000009'],
+    ['maxProceeds', '1.0000000000000000009'],
+    ['minProceeds', '01'],
+    ['maxProceeds', '02'],
+  ] as const)('rejects contract-invalid dynamic %s value %s', (field, value) => {
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...dynamicRequest,
+        auction: {
+          ...dynamicRequest.auction,
+          curveConfig: {
+            ...dynamicRequest.auction.curveConfig,
+            minProceeds: '0',
+            maxProceeds: UINT256_MAX_PROCEEDS,
+            [field]: value,
+          },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    { minProceeds: '0', maxProceeds: '0' },
+    { minProceeds: '2', maxProceeds: '1' },
+  ])('rejects invalid dynamic proceeds relation %#', (proceeds) => {
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...dynamicRequest,
+        auction: {
+          ...dynamicRequest.auction,
+          curveConfig: { ...dynamicRequest.auction.curveConfig, ...proceeds },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    { ...dynamicRequest.auction.curveConfig, fee: 100_001 },
+    { ...dynamicRequest.auction.curveConfig, fee: 2_500 },
+    { ...dynamicRequest.auction.curveConfig, tickSpacing: 31 },
+    {
+      ...dynamicRequest.auction.curveConfig,
+      durationSeconds: 100,
+      epochLengthSeconds: 30,
+    },
+    { ...dynamicRequest.auction.curveConfig, tickSpacing: 30, gamma: 31 },
+    { ...dynamicRequest.auction.curveConfig, tickSpacing: 1, gamma: 8_388_608 },
+    { ...dynamicRequest.auction.curveConfig, numPdSlugs: 16 },
+  ])('rejects contract-invalid dynamic curve %#', (curveConfig) => {
+    expect(
+      createLaunchRequestSchema.safeParse({
+        ...dynamicRequest,
+        auction: { type: 'dynamic', curveConfig },
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    { type: 'uniswapV4', fee: 150_001, tickSpacing: 1, lockDurationSeconds: 0 },
+    { type: 'uniswapV4', fee: 150_000, tickSpacing: 32_768, lockDurationSeconds: 0 },
+    {
+      type: 'uniswapV4',
+      fee: 150_000,
+      tickSpacing: 1,
+      lockDurationSeconds: UINT32_MAX + 1,
+    },
+  ])('rejects contract-invalid migration %#', (migration) => {
+    expect(createLaunchRequestSchema.safeParse({ ...dynamicRequest, migration }).success).toBe(
+      false,
+    );
+  });
   it.each([
     { type: 'noOp' },
     { type: 'uniswapV3' },

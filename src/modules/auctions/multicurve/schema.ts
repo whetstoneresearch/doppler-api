@@ -5,6 +5,8 @@ import type { HexAddress } from '../../../core/types';
 
 const WAD = 10n ** 18n;
 const UINT32_MAX = 4_294_967_295;
+const UINT16_MAX = 65_535;
+const V4_MAX_TICK_SPACING = 32_767;
 const wadString = z.string().regex(/^\d+$/, 'must be a non-negative integer string');
 const addressString = z
   .string()
@@ -142,7 +144,7 @@ export const presetCurveConfigSchema = z
     type: z.literal('preset'),
     presets: z.array(z.enum(['low', 'medium', 'high'])).optional(),
     fee: z.number().int().min(0).max(V4_MAX_FEE).optional(),
-    tickSpacing: z.number().int().positive().optional(),
+    tickSpacing: z.number().int().positive().max(V4_MAX_TICK_SPACING).safe().optional(),
   })
   .strict();
 
@@ -150,14 +152,14 @@ export const rangesCurveConfigSchema = z
   .object({
     type: z.literal('ranges'),
     fee: z.number().int().min(0).max(V4_MAX_FEE).optional(),
-    tickSpacing: z.number().int().positive().optional(),
+    tickSpacing: z.number().int().positive().max(V4_MAX_TICK_SPACING).safe().optional(),
     curves: z
       .array(
         z
           .object({
             marketCapStartUsd: z.number().positive(),
             marketCapEndUsd: z.union([z.number().positive(), z.literal('max')]),
-            numPositions: z.number().int().positive(),
+            numPositions: z.number().int().positive().max(UINT16_MAX).safe(),
             sharesWad: wadString,
           })
           .strict(),

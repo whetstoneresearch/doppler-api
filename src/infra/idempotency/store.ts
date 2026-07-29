@@ -578,7 +578,17 @@ export class RedisIdempotencyStore implements IdempotencyStore {
   }
 
   private async releaseLock(key: string, lockValue: string): Promise<void> {
-    await this.redis.eval(RELEASE_LOCK_SCRIPT, 1, this.lockKey(key), lockValue);
+    try {
+      await this.redis.eval(RELEASE_LOCK_SCRIPT, 1, this.lockKey(key), lockValue);
+    } catch (error) {
+      process.emitWarning(
+        'Redis idempotency lock release failed; the lock will remain protected until its TTL expires',
+        {
+          code: 'IDEMPOTENCY_LOCK_RELEASE_FAILED',
+          ...(error instanceof Error ? { detail: error.message } : {}),
+        },
+      );
+    }
   }
 
   private async refreshLock(key: string, lockValue: string): Promise<boolean> {

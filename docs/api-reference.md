@@ -97,7 +97,7 @@ All four routes return the same EVM create response. EVM request objects are str
 | `balanceController` | No | Non-zero EVM address. |
 | `excludedFromBalanceLimit` | No | Case-insensitively unique EVM addresses. A non-empty list requires `maxBalanceLimit` and `balanceLimitEnd`. |
 
-EVM launches use `DopplerERC20V1`. Supplying only one of the two balance-limit fields, a zero limit, an expired end time, or exclusions without an active limit returns `422`.
+EVM launches use `DopplerERC20V1`. Supplying only one of the two balance-limit fields, a zero limit, an expired end time, or exclusions without an active limit returns `422`. `maxBalanceLimit`, `totalSupply`, `tokensForSale`, each allocation `amount`, and each pool-beneficiary `sharesWad` are canonical positive values encoded as decimal strings without leading zeros. Contract-sized values cannot exceed `115792089237316195423570985008687907853269984665640564039457584007913129639935` ($2^{256}-1$).
 
 #### `economics`
 
@@ -191,7 +191,7 @@ Multicurve requests use `auction.type: "multicurve"`, a preset or ranges curve, 
 | `type` | Yes | `"preset"`. |
 | `presets` | No | Array containing `"low"`, `"medium"`, and/or `"high"`. Omitted or empty selects all three. |
 | `fee` | No | Integer from `0` through `100000`; defaults to `500`. |
-| `tickSpacing` | No | Positive integer. When omitted, the API selects the largest spacing no greater than the fee-tier default that divides every boundary in the selected presets. |
+| `tickSpacing` | No | Integer from `1` through `32767`. When omitted, the API selects the largest spacing no greater than the fee-tier default that divides every boundary in the selected presets. |
 
 #### Ranges curve
 
@@ -199,10 +199,10 @@ Multicurve requests use `auction.type: "multicurve"`, a preset or ranges curve, 
 | --- | --- | --- |
 | `type` | Yes | `"ranges"`. |
 | `fee` | No | Integer from `0` through `100000`; defaults to `3000`. |
-| `tickSpacing` | No | Positive integer. Omitted built-in fee tiers use the SDK spacing; omitted custom fees derive a spacing from the fee. |
+| `tickSpacing` | No | Integer from `1` through `32767`. Omitted built-in fee tiers use the SDK spacing; omitted custom fees derive a spacing from the fee. |
 | `curves` | Yes | Non-empty array of contiguous curve entries. |
 
-Each curve entry requires positive `marketCapStartUsd`, `numPositions`, and `sharesWad`. `marketCapEndUsd` is either a positive number greater than the start or `"max"`. Numeric neighboring ranges must be exactly contiguous, `"max"` is valid only on the final range, and all positive `sharesWad` values must total `1e18`.
+Each curve entry requires positive `marketCapStartUsd`, `sharesWad`, and integer `numPositions` from `1` through `65535`. `marketCapEndUsd` is either a positive number greater than the start or `"max"`. Numeric neighboring ranges must be exactly contiguous, `"max"` is valid only on the final range, and all positive `sharesWad` values must total `1e18`.
 
 #### Mandatory flattened Rehype initializer
 
@@ -265,8 +265,8 @@ Dynamic requests use:
 | `type` | Yes | `"range"`. |
 | `marketCapStartUsd` | Yes | Positive number. |
 | `marketCapMinUsd` | Yes | Positive number lower than `marketCapStartUsd`. |
-| `minProceeds` | Yes | Non-negative decimal string with at most 18 decimal places. |
-| `maxProceeds` | Yes | Positive decimal string with at most 18 decimal places and not lower than `minProceeds`. |
+| `minProceeds` | Yes | Canonical non-negative decimal string without leading zeros and with at most 18 decimal places. Its value in 18-decimal units cannot exceed `uint256`; the largest value is `115792089237316195423570985008687907853269984665640564039457.584007913129639935`. |
+| `maxProceeds` | Yes | Same encoding and maximum as `minProceeds`; must be positive and not lower than `minProceeds`. |
 | `durationSeconds` | No | Positive integer; defaults to `604800`. |
 | `epochLengthSeconds` | No | Positive integer; defaults to `43200` and must divide the effective duration evenly. |
 | `fee` | No | Integer from `0` through `100000`; defaults to `10000`. |

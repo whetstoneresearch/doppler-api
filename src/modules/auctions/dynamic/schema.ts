@@ -6,8 +6,24 @@ import {
   VALID_FEE_TIERS,
   V4_MAX_FEE,
 } from '@whetstone-research/doppler-sdk/evm';
-
-const decimalStringSchema = z.string().regex(/^\d+(\.\d+)?$/, 'must be a positive decimal string');
+import { parseUnits } from 'viem';
+const PROCEEDS_DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
+const UINT256_MAX = 2n ** 256n - 1n;
+const isUint256Proceeds = (value: string): boolean => {
+  const decimalIndex = value.indexOf('.');
+  const wholeDigits = decimalIndex === -1 ? value.length : decimalIndex;
+  return wholeDigits <= 60 && parseUnits(value, 18) <= UINT256_MAX;
+};
+const proceedsDecimalStringSchema = z
+  .string()
+  .regex(
+    PROCEEDS_DECIMAL_PATTERN,
+    'must be a canonical non-negative decimal string with up to 18 decimal places',
+  )
+  .refine(
+    (value) => !PROCEEDS_DECIMAL_PATTERN.test(value) || isUint256Proceeds(value),
+    `must encode to a uint256 no greater than ${UINT256_MAX.toString()}`,
+  );
 const standardFeeTiers = new Set<number>(VALID_FEE_TIERS);
 const INT24_MAX = 8_388_607;
 const MAX_PRICE_DISCOVERY_SLUGS = 15;
@@ -17,8 +33,8 @@ const dynamicRangeCurveConfigBaseSchema = z
     type: z.literal('range'),
     marketCapStartUsd: z.number().positive(),
     marketCapMinUsd: z.number().positive(),
-    minProceeds: decimalStringSchema,
-    maxProceeds: decimalStringSchema,
+    minProceeds: proceedsDecimalStringSchema,
+    maxProceeds: proceedsDecimalStringSchema,
     durationSeconds: z.number().int().positive().safe().optional(),
     epochLengthSeconds: z.number().int().positive().safe().optional(),
     fee: z.number().int().min(0).max(V4_MAX_FEE).safe().optional(),
@@ -36,6 +52,29 @@ const dynamicRangeCurveConfigSchema = dynamicRangeCurveConfigBaseSchema.superRef
         path: ['marketCapMinUsd'],
         message: 'marketCapMinUsd must be less than marketCapStartUsd',
       });
+    }
+
+    if (
+      PROCEEDS_DECIMAL_PATTERN.test(value.minProceeds) &&
+      PROCEEDS_DECIMAL_PATTERN.test(value.maxProceeds) &&
+      isUint256Proceeds(value.minProceeds) &&
+      isUint256Proceeds(value.maxProceeds)
+    ) {
+      const minProceeds = parseUnits(value.minProceeds, 18);
+      const maxProceeds = parseUnits(value.maxProceeds, 18);
+      if (maxProceeds === 0n) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['maxProceeds'],
+          message: 'maxProceeds must be greater than zero',
+        });
+      } else if (minProceeds > maxProceeds) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['maxProceeds'],
+          message: 'maxProceeds must be greater than or equal to minProceeds',
+        });
+      }
     }
 
     if (

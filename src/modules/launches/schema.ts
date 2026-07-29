@@ -16,9 +16,20 @@ const nonZeroAddressSchema = addressSchema.refine(
   (value: HexAddress) => !/^0x0{40}$/i.test(value),
   'must be a non-zero EVM address',
 );
-const bigintStringSchema = z.string().regex(/^\d+$/, 'must be a non-negative integer string');
-const positiveBigintStringSchema = bigintStringSchema.refine(
-  (value: string) => /^\d+$/.test(value) && BigInt(value) > 0n,
+const UINT256_MAX = 2n ** 256n - 1n;
+const UINT256_PATTERN = /^(?:0|[1-9]\d*)$/;
+const uint256StringSchema = z
+  .string()
+  .regex(UINT256_PATTERN, 'must be a canonical non-negative integer string without leading zeros')
+  .refine(
+    (value) =>
+      !UINT256_PATTERN.test(value) ||
+      value.length < 78 ||
+      (value.length === 78 && BigInt(value) <= UINT256_MAX),
+    `must be less than or equal to ${UINT256_MAX.toString()}`,
+  );
+const positiveUint256StringSchema = uint256StringSchema.refine(
+  (value) => !UINT256_PATTERN.test(value) || value !== '0',
   'must be a positive integer string',
 );
 const UINT32_MAX = 4_294_967_295;
@@ -29,7 +40,7 @@ const MIN_VESTING_DURATION_SECONDS = 86_400;
 const vestingAllocationSchema = z
   .object({
     recipientAddress: nonZeroAddressSchema,
-    amount: positiveBigintStringSchema,
+    amount: positiveUint256StringSchema,
     durationSeconds: z.number().int().min(MIN_VESTING_DURATION_SECONDS).max(UINT32_MAX).safe(),
     cliffDurationSeconds: z.number().int().min(0).max(UINT32_MAX).safe().optional(),
   })
@@ -50,7 +61,7 @@ const vestingAllocationSchema = z
 const poolFeeBeneficiarySchema = z
   .object({
     address: nonZeroAddressSchema,
-    sharesWad: bigintStringSchema,
+    sharesWad: positiveUint256StringSchema,
   })
   .strict();
 type PoolFeeBeneficiary = z.infer<typeof poolFeeBeneficiarySchema>;
@@ -95,7 +106,7 @@ const tokenMetadataSchema = z
     name: z.string().min(1),
     symbol: z.string().min(1),
     tokenURI: z.string().min(1),
-    maxBalanceLimit: bigintStringSchema.optional(),
+    maxBalanceLimit: positiveUint256StringSchema.optional(),
     balanceLimitEnd: z.number().int().nonnegative().max(UINT48_MAX).safe().optional(),
     balanceController: nonZeroAddressSchema.optional(),
     excludedFromBalanceLimit: excludedFromBalanceLimitSchema.optional(),
@@ -124,20 +135,12 @@ const tokenMetadataSchema = z
       }
       return;
     }
-
-    if (!/^\d+$/.test(maxBalanceLimit) || BigInt(maxBalanceLimit) === 0n) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['maxBalanceLimit'],
-        message: 'maxBalanceLimit must be greater than zero when balance limiting is enabled',
-      });
-    }
   });
 
 const economicsSchema = z
   .object({
-    totalSupply: bigintStringSchema,
-    tokensForSale: bigintStringSchema.optional(),
+    totalSupply: positiveUint256StringSchema,
+    tokensForSale: positiveUint256StringSchema.optional(),
     allocations: vestingAllocationSchema.optional(),
   })
   .strict();

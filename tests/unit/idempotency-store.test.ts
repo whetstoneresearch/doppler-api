@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AppError } from '../../src/core/errors';
 import type { CreateLaunchResponse } from '../../src/core/types';
@@ -173,6 +173,19 @@ class FlakyCompletedWriteRedisClient extends FakeRedisClient {
     }
 
     return super.set(key, value, mode, durationMs, setMode);
+  }
+}
+
+class FailingReleaseRedisClient extends FakeRedisClient {
+  override async eval(
+    script: string,
+    numKeys: number,
+    ...args: Array<string | number>
+  ): Promise<unknown> {
+    if (args.length === 2) {
+      throw new Error('simulated Redis lock release failure');
+    }
+    return super.eval(script, numKeys, ...args);
   }
 }
 
@@ -471,6 +484,62 @@ describe('idempotency store', () => {
     expect((second.response as CreateLaunchResponse).txHash).toBe(
       (first.response as CreateLaunchResponse).txHash,
     );
+  });
+
+  it('redis backend preserves a completed response when lock release fails', async () => {
+    const redis = new FailingReleaseRedisClient();
+    const store = new RedisIdempotencyStore({
+      enabled: true,
+      ttlMs: 100_000,
+      redis,
+      keyPrefix: 'test',
+    });
+    const response = buildResponse(
+      '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    );
+    const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {});
+
+    try {
+      const result = await store.execute(
+        'release-failure-success',
+        samplePayload,
+        async () => response,
+      );
+
+      expect(result).toEqual({ response, replayed: false });
+      expect(warning).toHaveBeenCalledWith(
+        expect.stringContaining('lock release failed'),
+        expect.objectContaining({ code: 'IDEMPOTENCY_LOCK_RELEASE_FAILED' }),
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it('redis backend preserves an in-doubt error when lock release fails', async () => {
+    const redis = new FailingReleaseRedisClient();
+    const store = new RedisIdempotencyStore({
+      enabled: true,
+      ttlMs: 100_000,
+      redis,
+      keyPrefix: 'test',
+    });
+    const inDoubtError = buildEvmInDoubtError();
+    const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {});
+
+    try {
+      await expect(
+        store.execute('release-failure-in-doubt', samplePayload, async () => {
+          throw inDoubtError;
+        }),
+      ).rejects.toBe(inDoubtError);
+      expect(warning).toHaveBeenCalledWith(
+        expect.stringContaining('lock release failed'),
+        expect.objectContaining({ code: 'IDEMPOTENCY_LOCK_RELEASE_FAILED' }),
+      );
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it('redis backend rejects same key with different payload', async () => {

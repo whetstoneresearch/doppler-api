@@ -401,7 +401,7 @@ describe('POST /v1/launches', () => {
     expect(response.json().error.code).toBe('INVALID_REQUEST');
   });
 
-  it('returns 422 for malformed WAD strings without throwing', async () => {
+  it('returns 422 for malformed or contract-sized EVM integers without throwing', async () => {
     app = await buildTestServer();
     const basePayload = {
       userAddress: '0x1111111111111111111111111111111111111111',
@@ -451,6 +451,77 @@ describe('POST /v1/launches', () => {
               feeDistributionInfo,
             },
           },
+        },
+      },
+      {
+        url: '/v1/launches/static',
+        payload: {
+          ...basePayload,
+          economics: { totalSupply: (2n ** 256n).toString() },
+          auction: {
+            type: 'static',
+            curveConfig: { type: 'preset', preset: 'low' },
+          },
+        },
+      },
+      {
+        url: '/v1/launches/multicurve',
+        payload: {
+          ...basePayload,
+          auction: {
+            type: 'multicurve',
+            curveConfig: {
+              type: 'ranges',
+              tickSpacing: 32_768,
+              curves: [
+                {
+                  marketCapStartUsd: 100,
+                  marketCapEndUsd: 'max',
+                  numPositions: 65_536,
+                  sharesWad: '1000000000000000000',
+                },
+              ],
+            },
+            initializer: {
+              buybackDestination: '0x2222222222222222222222222222222222222222',
+              startFee: 1,
+              feeDistributionInfo,
+            },
+          },
+        },
+      },
+      {
+        url: '/v1/launches',
+        payload: {
+          ...basePayload,
+          auction: {
+            type: 'dynamic',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 100,
+              marketCapMinUsd: 50,
+              minProceeds: '0.0000000000000000009',
+              maxProceeds: '1',
+            },
+          },
+          migration: { type: 'uniswapV2' },
+        },
+      },
+      {
+        url: '/v1/launches/dynamic',
+        payload: {
+          ...basePayload,
+          auction: {
+            type: 'dynamic',
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 100,
+              marketCapMinUsd: 50,
+              minProceeds: '0',
+              maxProceeds: (2n ** 256n).toString(),
+            },
+          },
+          migration: { type: 'uniswapV2' },
         },
       },
     ];
