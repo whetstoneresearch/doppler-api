@@ -1,4 +1,5 @@
 import { parseEther } from 'viem';
+import { z } from 'zod';
 
 export const LIVE_READINESS_ERROR_MARKER = 'LIVE_TEST_READINESS_CHECK_FAILED';
 export const DEFAULT_LIVE_ESTIMATED_TX_COST_ETH = '0.000133333333333333';
@@ -6,6 +7,12 @@ export const DEFAULT_LIVE_ESTIMATED_OVERHEAD_ETH = '0.000133333333333333';
 export const DEFAULT_LIVE_ESTIMATED_TX_COST_SOL = '0.025';
 export const DEFAULT_LIVE_ESTIMATED_OVERHEAD_SOL = '0.01';
 const LAMPORTS_PER_SOL = 1_000_000_000n;
+const solanaCreateErrorResponseSchema = z.object({
+  error: z.object({
+    code: z.string(),
+    message: z.string().optional(),
+  }),
+});
 
 const estimatedLaunchesByFilter: Record<string, { evm: number; solana: number }> = {
   all: { evm: 19, solana: 0 },
@@ -34,6 +41,34 @@ const normalizeFilter = (liveFilter: string): string => liveFilter.trim().toLowe
 export const isSolanaLiveFilter = (liveFilter: string): boolean => {
   const normalized = normalizeFilter(liveFilter);
   return normalized === 'solana' || normalized.startsWith('solana-');
+};
+
+export const parseTransientSolanaCreateFailure = (response: {
+  statusCode: number;
+  body: string;
+  json: () => unknown;
+}): string | null => {
+  if (response.statusCode !== 502 && response.statusCode !== 503) {
+    return null;
+  }
+
+  try {
+    const parsed = solanaCreateErrorResponseSchema.safeParse(response.json());
+    if (!parsed.success) {
+      return null;
+    }
+
+    const isRetryable =
+      (response.statusCode === 502 && parsed.data.error.code === 'SOLANA_SUBMISSION_FAILED') ||
+      (response.statusCode === 503 && parsed.data.error.code === 'SOLANA_NOT_READY');
+    if (!isRetryable) {
+      return null;
+    }
+
+    return parsed.data.error.message ?? response.body;
+  } catch {
+    return null;
+  }
 };
 
 const parseEthAmount = (value: string, envName: string): bigint => {

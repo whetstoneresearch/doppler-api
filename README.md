@@ -483,18 +483,19 @@ Example `GET /health`:
   - `launchId` is a launch PDA and `statusUrl` points to `GET /v1/solana/launches/:launchAddress`
   - only WSOL is supported as numeraire
   - Solana rejects unsupported EVM-only fields instead of ignoring them
-  - when `SOLANA_DEVNET_ALT_ADDRESS` is set, launch creation reuses that address lookup table; otherwise it creates a per-launch lookup table before submitting the initialize transaction
+  - when `SOLANA_DEVNET_ALT_ADDRESS` is set, launch creation reuses that address lookup table; if the signed transaction still exceeds Solana's packet limit, it creates a launch-specific lookup table and rebuilds the transaction
 - Solana `migration.type="none"` launches use the initializer curve:
   - set `migration.supportCpmm=true` and `migration.minimumQuoteRaise` to register the launch with the CPMM migrator
-  - all API-created launches use the CPMM hook; CPMM migration registration is independent of hook features
+  - all API-created launches use Doppler launch hook v1; CPMM migration registration is independent of hook features
   - omit `economics.baseForDistribution` and `economics.baseForLiquidity`, or set both to `0`, unless `migration.supportCpmm=true`
   - non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled
   - `tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`
-- Solana `auction.cosignerGate` configures cosigner gating through the CPMM hook:
-  - `type` must be `"cosigner"` and `cosigner` must be a Solana address
-  - optional `expiry` supports `mode: "disabled" | "unixTimestamp" | "slot"`; omitting it or using `disabled` creates an indefinite gate, while timestamp and slot modes require `value`
+- Solana `auction.cosignerGate` configures Doppler-managed cosigning through Doppler launch hook v1:
+  - `type` must be `"cosigner"`; callers cannot select or register a cosigner
+  - the API resolves the canonical managed cosigner from the hook's on-chain config
+  - optional `expiry` supports `mode: "disabled" | "unixTimestamp"`; omitting it or using `disabled` creates an indefinite gate, while timestamp mode requires `value`
   - cosigner gating can be used with or without CPMM migration
-- Solana `auction.dynamicFee` configures a fee schedule on the CPMM hook:
+- Solana `auction.dynamicFee` configures a fee schedule on Doppler launch hook v1:
   - `startFeeBps` and `endFeeBps` are integer basis points between `0` and `10000`
   - `endFeeBps` must be less than or equal to `startFeeBps`
   - `durationSeconds` is a non-negative integer string; it must be non-zero when the fee decays
@@ -591,8 +592,8 @@ LIVE_TEST_VERBOSE=true npm run test:live
 `test:live` performs real on-chain creation and verification when `LIVE_TEST_ENABLE=true` and funded credentials are configured.
 By default, live output is concise (launch summary table). Set `LIVE_TEST_VERBOSE=true` for full per-launch parameter and verification tables.
 Live launch tests run sequentially to avoid nonce conflicts from a single funded signer.
-`test:live` remains the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet matrix. The Solana matrix covers supported parity with the Base Sepolia defaults, fee-beneficiary, reserve-split/CPMM, launches with no migration criteria, generic-route replay, randomized parameter paths, CPMM hook launches with cosigner gating, and CPMM hook launches with scheduled dynamic fees. Governance, vesting/vault locks, and static/dynamic EVM auction engines are EVM-only.
-Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR`, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, `SOLANA_DEVNET_ALT_ADDRESS`, and enough SOL for account creation; override the readiness estimate with `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` when needed.
+`test:live` remains the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet matrix. The Solana matrix covers supported parity with the Base Sepolia defaults, fee-beneficiary, reserve-split/CPMM, launches with no migration criteria, generic-route replay, randomized parameter paths, Doppler launch hook v1 launches with managed cosigner gating, and hook launches with scheduled dynamic fees. Governance, vesting/vault locks, and static/dynamic EVM auction engines are EVM-only.
+Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR_PATH` pointing to a Solana CLI keypair file, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, `SOLANA_DEVNET_ALT_ADDRESS`, and enough SOL for account creation; override the readiness estimate with `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` when needed. `SOLANA_KEYPAIR` remains available as an inline fallback, but do not set both payer variables. Solana RPC requests retry HTTP `429` responses with bounded exponential backoff. Live create verification retries transient `SOLANA_NOT_READY` and `SOLANA_SUBMISSION_FAILED` responses once after 10 seconds. The configured ALT remains the fast path; oversized launches fall back to a launch-specific ALT.
 
 ## Lint, format, and git hooks
 

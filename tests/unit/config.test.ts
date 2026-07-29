@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { loadConfig } from '../../src/core/config';
@@ -34,6 +38,7 @@ const resetEnv = (overrides: Record<string, string | undefined> = {}): void => {
     'SOLANA_MAINNET_BETA_RPC_URL',
     'SOLANA_MAINNET_BETA_WS_URL',
     'SOLANA_KEYPAIR',
+    'SOLANA_KEYPAIR_PATH',
     'SOLANA_CONFIRM_TIMEOUT_MS',
     'SOLANA_DEVNET_ALT_ADDRESS',
     'SOLANA_PRICE_MODE',
@@ -174,6 +179,34 @@ describe('shared-environment config guardrails', () => {
     );
   });
 
+  it('loads a Solana keypair from a file path', () => {
+    const tempDirectory = mkdtempSync(join(tmpdir(), 'doppler-api-keypair-'));
+    const keypairPath = join(tempDirectory, 'payer.json');
+    const keypairBytes = Array.from({ length: 64 }, (_, index) => index);
+
+    try {
+      writeFileSync(keypairPath, JSON.stringify(keypairBytes));
+      resetEnv({
+        SOLANA_KEYPAIR_PATH: keypairPath,
+      });
+
+      const config = loadConfig();
+
+      expect(Array.from(config.solana.keypairBytes ?? [])).toEqual(keypairBytes);
+    } finally {
+      rmSync(tempDirectory, { force: true, recursive: true });
+    }
+  });
+
+  it('rejects ambiguous Solana keypair env sources', () => {
+    resetEnv({
+      SOLANA_KEYPAIR: JSON.stringify(Array.from({ length: 64 }, (_, index) => index)),
+      SOLANA_KEYPAIR_PATH: '/tmp/payer.json',
+    });
+
+    expect(() => loadConfig()).toThrow('Set only one of SOLANA_KEYPAIR or SOLANA_KEYPAIR_PATH');
+  });
+
   it('fails fast when Solana is enabled without a keypair', () => {
     resetEnv({
       SOLANA_ENABLED: 'true',
@@ -181,7 +214,9 @@ describe('shared-environment config guardrails', () => {
       SOLANA_DEVNET_WS_URL: 'ws://127.0.0.1:8900',
     });
 
-    expect(() => loadConfig()).toThrow('SOLANA_KEYPAIR is required when SOLANA_ENABLED=true');
+    expect(() => loadConfig()).toThrow(
+      'SOLANA_KEYPAIR_PATH or SOLANA_KEYPAIR is required when SOLANA_ENABLED=true',
+    );
   });
 
   it('fails fast when fixed Solana pricing is enabled without a fixed price', () => {

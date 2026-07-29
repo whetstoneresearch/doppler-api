@@ -141,30 +141,19 @@ const solanaMigrationSchema = strictObject({
   }
 });
 
+const solanaCosignerGateExpirySchema = z.discriminatedUnion('mode', [
+  strictObject({
+    mode: z.literal('disabled'),
+  }),
+  strictObject({
+    mode: z.literal('unixTimestamp'),
+    value: u64NonNegativeStringSchema,
+  }),
+]);
+
 const solanaCosignerGateSchema = strictObject({
   type: z.literal('cosigner'),
-  cosigner: solanaAddressSchema,
-  expiry: strictObject({
-    mode: z.enum(['disabled', 'unixTimestamp', 'slot']),
-    value: u64NonNegativeStringSchema.optional(),
-  })
-    .superRefine((value, ctx) => {
-      if (value.mode !== 'disabled' && value.value === undefined) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['value'],
-          message: 'expiry.value is required when expiry.mode is unixTimestamp or slot',
-        });
-      }
-      if (value.mode === 'disabled' && value.value !== undefined) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['value'],
-          message: 'expiry.value must be omitted when expiry.mode is disabled',
-        });
-      }
-    })
-    .optional(),
+  expiry: solanaCosignerGateExpirySchema.optional(),
 });
 
 const solanaDynamicFeeSchema = strictObject({

@@ -12,6 +12,7 @@ import {
   formatSolAmount,
   isSolanaLiveFilter,
   estimateLiveLaunchCount,
+  parseTransientSolanaCreateFailure,
 } from '../live/readiness-check';
 
 describe('live readiness check', () => {
@@ -71,6 +72,25 @@ describe('live readiness check', () => {
       expect(packageJson.scripts[scriptName]).toContain(`LIVE_TEST_FILTER=${liveFilter}`);
       expect(packageJson.scripts[scriptName]).toContain('tests/live/create-and-verify.test.ts');
     }
+  });
+
+  it('retries only known transient Solana create failures', () => {
+    const buildResponse = (statusCode: number, code: string) => ({
+      statusCode,
+      body: JSON.stringify({ error: { code, message: code } }),
+      json: () => ({ error: { code, message: code } }),
+    });
+
+    expect(parseTransientSolanaCreateFailure(buildResponse(502, 'SOLANA_SUBMISSION_FAILED'))).toBe(
+      'SOLANA_SUBMISSION_FAILED',
+    );
+    expect(parseTransientSolanaCreateFailure(buildResponse(503, 'SOLANA_NOT_READY'))).toBe(
+      'SOLANA_NOT_READY',
+    );
+    expect(
+      parseTransientSolanaCreateFailure(buildResponse(422, 'SOLANA_INVALID_CURVE')),
+    ).toBeNull();
+    expect(parseTransientSolanaCreateFailure(buildResponse(503, 'INTERNAL_ERROR'))).toBeNull();
   });
 
   it('computes estimated required wei using defaults', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSigner } from '@solana/kit';
-import { cpmmHook, initializer } from '@whetstone-research/doppler-sdk/solana';
+import { dopplerLaunchHookV1, initializer } from '@whetstone-research/doppler-sdk/solana';
 
 import {
   SOLANA_CONSTANTS,
@@ -45,7 +45,7 @@ describe('Solana SDK assembly helpers', () => {
     const launchHookConfig = await buildSolanaLaunchHookConfig({
       namespace: payer.address,
       dynamicFee: undefined,
-      cosignerGate: undefined,
+      managedCosignerGate: undefined,
     });
 
     const [accounts, instructionArgs] = buildSolanaInitializeLaunchInstructionArgs({
@@ -95,7 +95,7 @@ describe('Solana SDK assembly helpers', () => {
       launchFeeState: launchFeeState.address,
       payer,
       authority: payer,
-      hookProgram: SOLANA_CONSTANTS.cpmmHookProgramId,
+      hookProgram: SOLANA_CONSTANTS.dopplerLaunchHookV1ProgramId,
       migratorProgram: SOLANA_CONSTANTS.systemProgramAddress,
       rent: SOLANA_CONSTANTS.rentSysvarAddress,
       metadataAccount: metadata.address,
@@ -160,7 +160,7 @@ describe('Solana SDK assembly helpers', () => {
     const launchHookConfig = await buildSolanaLaunchHookConfig({
       namespace: payer.address,
       dynamicFee: undefined,
-      cosignerGate: undefined,
+      managedCosignerGate: undefined,
     });
 
     const [accounts, instructionArgs] = buildSolanaInitializeLaunchInstructionArgs({
@@ -200,7 +200,7 @@ describe('Solana SDK assembly helpers', () => {
     });
 
     expect(accounts).toMatchObject({
-      hookProgram: SOLANA_CONSTANTS.cpmmHookProgramId,
+      hookProgram: SOLANA_CONSTANTS.dopplerLaunchHookV1ProgramId,
       migratorProgram: SOLANA_CONSTANTS.cpmmMigratorProgramId,
       cpmmConfig: cpmmConfig.address,
       launchFeeState: launchFeeState.address,
@@ -232,21 +232,21 @@ describe('Solana SDK assembly helpers', () => {
     );
   });
 
-  it('routes cosigner-only launches through the CPMM hook', async () => {
+  it('routes managed cosigner-only launches through Doppler launch hook v1', async () => {
     const namespace = await generateKeyPairSigner();
     const cosigner = await generateKeyPairSigner();
-    const [configAddress] = await cpmmHook.getCpmmHookConfigAddress();
+    const [configAddress] = await dopplerLaunchHookV1.getDopplerLaunchHookV1ConfigAddress();
     const hookConfig = await buildSolanaLaunchHookConfig({
       namespace: namespace.address,
       dynamicFee: undefined,
-      cosignerGate: {
-        type: 'cosigner',
+      managedCosignerGate: {
+        config: configAddress,
         cosigner: cosigner.address,
       },
     });
 
     expect(hookConfig).not.toBeNull();
-    expect(hookConfig!.hookProgram).toBe(SOLANA_CONSTANTS.cpmmHookProgramId);
+    expect(hookConfig!.hookProgram).toBe(SOLANA_CONSTANTS.dopplerLaunchHookV1ProgramId);
     expect(hookConfig!.hookFlags).toBe(
       initializer.HF_BEFORE_SWAP | initializer.HF_FORWARD_READONLY_SIGNERS,
     );
@@ -267,11 +267,11 @@ describe('Solana SDK assembly helpers', () => {
     );
   });
 
-  it('assembles Solana CPMM hook config for initializer SDK inputs', async () => {
+  it('assembles Doppler launch hook v1 config for initializer SDK inputs', async () => {
     const namespace = await generateKeyPairSigner();
     const hookConfig = await buildSolanaLaunchHookConfig({
       namespace: namespace.address,
-      cosignerGate: undefined,
+      managedCosignerGate: undefined,
       dynamicFee: {
         startingTime: '0',
         startFeeBps: 8000,
@@ -281,10 +281,10 @@ describe('Solana SDK assembly helpers', () => {
     });
 
     expect(hookConfig).not.toBeNull();
-    expect(hookConfig!.hookProgram).toBe(SOLANA_CONSTANTS.cpmmHookProgramId);
+    expect(hookConfig!.hookProgram).toBe(SOLANA_CONSTANTS.dopplerLaunchHookV1ProgramId);
     expect(hookConfig!.hookFlags).toBe(initializer.HF_BEFORE_CREATE | initializer.HF_BEFORE_SWAP);
-    expect(hookConfig!.hookPayload).toHaveLength(cpmmHook.DYNAMIC_FEE_SCHEDULE_LEN);
-    expect(cpmmHook.isDynamicFeeSchedulePayload(hookConfig!.hookPayload)).toBe(true);
+    expect(hookConfig!.hookPayload).toHaveLength(dopplerLaunchHookV1.DYNAMIC_FEE_SCHEDULE_LEN);
+    expect(dopplerLaunchHookV1.isDynamicFeeSchedulePayload(hookConfig!.hookPayload)).toBe(true);
     expect(hookConfig!.hookCreateRemainingAccountsLen).toBe(0);
     expect(Array.from(hookConfig!.hookCreateRemainingAccountsHash)).toEqual(
       Array.from(initializer.computeRemainingAccountsHash([])),
@@ -298,7 +298,7 @@ describe('Solana SDK assembly helpers', () => {
   it('encodes dynamic fees with an indefinite cosigner gate', async () => {
     const namespace = await generateKeyPairSigner();
     const cosigner = await generateKeyPairSigner();
-    const [configAddress] = await cpmmHook.getCpmmHookConfigAddress();
+    const [configAddress] = await dopplerLaunchHookV1.getDopplerLaunchHookV1ConfigAddress();
     const hookConfig = await buildSolanaLaunchHookConfig({
       namespace: namespace.address,
       dynamicFee: {
@@ -307,8 +307,8 @@ describe('Solana SDK assembly helpers', () => {
         endFeeBps: 200,
         durationSeconds: '600',
       },
-      cosignerGate: {
-        type: 'cosigner',
+      managedCosignerGate: {
+        config: configAddress,
         cosigner: cosigner.address,
       },
     });
@@ -319,7 +319,7 @@ describe('Solana SDK assembly helpers', () => {
         initializer.HF_BEFORE_SWAP |
         initializer.HF_FORWARD_READONLY_SIGNERS,
     );
-    expect(hookConfig!.hookPayload).toHaveLength(cpmmHook.DYNAMIC_FEE_SCHEDULE_LEN);
+    expect(hookConfig!.hookPayload).toHaveLength(dopplerLaunchHookV1.DYNAMIC_FEE_SCHEDULE_LEN);
     expect(hookConfig!.hookRemainingAccounts).toEqual([
       namespace.address,
       configAddress,
@@ -336,7 +336,7 @@ describe('Solana SDK assembly helpers', () => {
     );
   });
 
-  it('preserves CPMM migration payloads when the CPMM hook is configured', async () => {
+  it('preserves CPMM migration payloads when Doppler launch hook v1 is configured', async () => {
     const payer = await generateKeyPairSigner();
     const config = await generateKeyPairSigner();
     const launch = await generateKeyPairSigner();
@@ -349,6 +349,7 @@ describe('Solana SDK assembly helpers', () => {
     const cpmmMigrationState = await generateKeyPairSigner();
     const cpmmConfig = await generateKeyPairSigner();
     const cosigner = await generateKeyPairSigner();
+    const [hookConfigAddress] = await dopplerLaunchHookV1.getDopplerLaunchHookV1ConfigAddress();
     const migrationAccounts = {
       cpmmMigrationState: cpmmMigrationState.address,
       cpmmConfig: cpmmConfig.address,
@@ -362,13 +363,10 @@ describe('Solana SDK assembly helpers', () => {
         endFeeBps: 200,
         durationSeconds: '600',
       },
-      cosignerGate: {
-        type: 'cosigner',
+      managedCosignerGate: {
+        config: hookConfigAddress,
         cosigner: cosigner.address,
-        expiry: {
-          mode: 'unixTimestamp',
-          value: '9999999999',
-        },
+        expiresAt: 9_999_999_999n,
       },
     });
 
@@ -409,7 +407,7 @@ describe('Solana SDK assembly helpers', () => {
     });
 
     expect(accounts).toMatchObject({
-      hookProgram: SOLANA_CONSTANTS.cpmmHookProgramId,
+      hookProgram: SOLANA_CONSTANTS.dopplerLaunchHookV1ProgramId,
       migratorProgram: SOLANA_CONSTANTS.cpmmMigratorProgramId,
       cpmmConfig: cpmmConfig.address,
     });
@@ -418,15 +416,15 @@ describe('Solana SDK assembly helpers', () => {
         initializer.HF_BEFORE_SWAP |
         initializer.HF_FORWARD_READONLY_SIGNERS,
     );
-    const expectedGatePayload = cpmmHook.encodeCosignerGateExpiryPayload({
-      mode: cpmmHook.GATE_EXPIRY_UNIX_TIMESTAMP,
+    const expectedGatePayload = dopplerLaunchHookV1.encodeCosignerGateExpiryPayload({
+      mode: dopplerLaunchHookV1.GATE_EXPIRY_UNIX_TIMESTAMP,
       value: 9_999_999_999n,
       cosigner: cosigner.address,
     });
     expect(instructionArgs.hookPayload).toHaveLength(
-      cpmmHook.DYNAMIC_FEE_SCHEDULE_LEN + expectedGatePayload.length,
+      dopplerLaunchHookV1.DYNAMIC_FEE_SCHEDULE_LEN + expectedGatePayload.length,
     );
-    expect(instructionArgs.hookPayload.slice(cpmmHook.DYNAMIC_FEE_SCHEDULE_LEN)).toEqual(
+    expect(instructionArgs.hookPayload.slice(dopplerLaunchHookV1.DYNAMIC_FEE_SCHEDULE_LEN)).toEqual(
       expectedGatePayload,
     );
     expect(Array.from(instructionArgs.migratorInitPayload)).toEqual([1, 2, 3]);
