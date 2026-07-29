@@ -47,7 +47,7 @@ describe('live create verification', () => {
       }
       if (!config.solana.keypairBytes) {
         throw new Error(
-          `[${LIVE_READINESS_ERROR_MARKER}] LIVE_TEST_FILTER=${liveFilter} requires SOLANA_KEYPAIR to be configured.`,
+          `[${LIVE_READINESS_ERROR_MARKER}] LIVE_TEST_FILTER=${liveFilter} requires SOLANA_KEYPAIR_PATH or SOLANA_KEYPAIR to be configured.`,
         );
       }
       if (liveFilter !== 'solana-failing' && !config.solana.altAddress) {

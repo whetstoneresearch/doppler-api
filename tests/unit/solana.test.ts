@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { generateKeyPairSigner } from '@solana/kit';
+import {
+  generateKeyPairSigner,
+  SolanaError,
+  SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+} from '@solana/kit';
 
 import type { AppConfig } from '../../src/core/config';
 import {
@@ -9,7 +13,10 @@ import {
   deriveSolanaCurveConfig,
   deriveSolanaLaunchSeed,
   genericSolanaCreateLaunchRequestSchema,
+  isSolanaTransactionPacketTooLarge,
   normalizeDedicatedSolanaCreateRequest,
+  type CreateSolanaLaunchRequestInput,
+  withSolanaRpcRateLimitRetries,
 } from '../../src/modules/launches/solana';
 
 const buildConfig = (solanaOverrides: Partial<AppConfig['solana']> = {}): AppConfig => ({
@@ -644,6 +651,111 @@ describe('Solana launch helpers', () => {
       statusCode: 422,
       code: 'SOLANA_NUMERAIRE_PRICE_REQUIRED',
     });
+  });
+
+  it('retries only Solana RPC HTTP 429 failures', async () => {
+    const rateLimitError = new SolanaError(SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR, {
+      headers: new Headers(),
+      message: 'Too Many Requests',
+      statusCode: 429,
+    });
+    const rateLimitedOperation = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(rateLimitError)
+      .mockResolvedValue('ok');
+
+    await expect(
+      withSolanaRpcRateLimitRetries(rateLimitedOperation, {
+        maxAttempts: 2,
+        baseDelayMs: 0,
+      }),
+    ).resolves.toBe('ok');
+    expect(rateLimitedOperation).toHaveBeenCalledTimes(2);
+
+    const nonRateLimitError = new Error('rpc failed');
+    const failedOperation = vi.fn<() => Promise<string>>().mockRejectedValue(nonRateLimitError);
+    await expect(
+      withSolanaRpcRateLimitRetries(failedOperation, {
+        maxAttempts: 2,
+        baseDelayMs: 0,
+      }),
+    ).rejects.toBe(nonRateLimitError);
+    expect(failedOperation).toHaveBeenCalledTimes(1);
+  });
+
+  it('detects signed transactions that exceed the Solana packet limit', () => {
+    expect(isSolanaTransactionPacketTooLarge(Buffer.alloc(1_232).toString('base64'))).toBe(false);
+    expect(isSolanaTransactionPacketTooLarge(Buffer.alloc(1_233).toString('base64'))).toBe(true);
+  });
+
+  it('validates request-level Solana failures before checking devnet readiness', async () => {
+    const service = new SolanaLaunchService({
+      config: buildConfig(),
+      pricingService: {
+        getUsdPriceByAssetId: vi.fn(),
+      } as any,
+    });
+    const readinessSpy = vi.spyOn(service, 'getReadiness').mockResolvedValue({
+      enabled: true,
+      ok: false,
+      network: 'solanaDevnet',
+      checks: [{ name: 'rpcReachable', ok: false, error: 'rpc down' }],
+    });
+    const baseInput: CreateSolanaLaunchRequestInput = {
+      network: 'solanaDevnet',
+      tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://token' },
+      economics: { totalSupply: '1000' },
+      pricing: { numerairePriceUsd: 150 },
+      governance: false,
+      migration: { type: 'none' },
+      auction: {
+        type: 'xyk',
+        curveConfig: {
+          type: 'range',
+          marketCapStartUsd: 100,
+          marketCapEndUsd: 1000,
+        },
+      },
+    };
+    const cases: Array<{ input: CreateSolanaLaunchRequestInput; code: string }> = [
+      {
+        input: {
+          ...baseInput,
+          economics: { totalSupply: '1000', baseForDistribution: '1' },
+        },
+        code: 'SOLANA_INVALID_ECONOMICS',
+      },
+      {
+        input: {
+          ...baseInput,
+          pairing: { numeraireAddress: '11111111111111111111111111111111' },
+        },
+        code: 'SOLANA_NUMERAIRE_UNSUPPORTED',
+      },
+      {
+        input: {
+          ...baseInput,
+          auction: {
+            ...baseInput.auction,
+            curveConfig: {
+              type: 'range',
+              marketCapStartUsd: 1000,
+              marketCapEndUsd: 100,
+            },
+          },
+        },
+        code: 'SOLANA_INVALID_CURVE',
+      },
+    ];
+
+    for (const testCase of cases) {
+      readinessSpy.mockClear();
+      await expect(service.createLaunch(testCase.input)).rejects.toMatchObject({
+        statusCode: 422,
+        code: testCase.code,
+      });
+      expect(readinessSpy).not.toHaveBeenCalled();
+    }
   });
 
   it('fails create with SOLANA_NOT_READY when readiness checks fail', async () => {

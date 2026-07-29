@@ -1,5 +1,9 @@
 import 'dotenv/config';
 
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { resolve } from 'node:path';
+
 import { AppError } from './errors';
 import type { AuctionType, GovernanceMode, MigrationType, SolanaNetwork } from './types';
 import { dopplerTemplateConfig } from '../../doppler.config';
@@ -198,11 +202,7 @@ const parseSolanaPriceMode = (value: string | undefined): 'required' | 'fixed' |
   );
 };
 
-const parseSolanaKeypairBytes = (value: string | undefined): Uint8Array | undefined => {
-  if (value === undefined || value.trim() === '') {
-    return undefined;
-  }
-
+const parseSolanaKeypairJson = (value: string, sourceLabel: string): Uint8Array => {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
@@ -210,7 +210,7 @@ const parseSolanaKeypairBytes = (value: string | undefined): Uint8Array | undefi
     throw new AppError(
       500,
       'INVALID_ENV',
-      'SOLANA_KEYPAIR must be a JSON array containing 64 secret-key bytes',
+      `${sourceLabel} must be a JSON array containing 64 secret-key bytes`,
     );
   }
 
@@ -218,7 +218,7 @@ const parseSolanaKeypairBytes = (value: string | undefined): Uint8Array | undefi
     throw new AppError(
       500,
       'INVALID_ENV',
-      'SOLANA_KEYPAIR must be a JSON array containing 64 secret-key bytes',
+      `${sourceLabel} must be a JSON array containing 64 secret-key bytes`,
     );
   }
 
@@ -227,13 +227,54 @@ const parseSolanaKeypairBytes = (value: string | undefined): Uint8Array | undefi
       throw new AppError(
         500,
         'INVALID_ENV',
-        'SOLANA_KEYPAIR must contain only byte values between 0 and 255',
+        `${sourceLabel} must contain only byte values between 0 and 255`,
       );
     }
     return entry;
   });
 
   return Uint8Array.from(bytes);
+};
+
+const resolveSolanaKeypairPath = (value: string | undefined): string | undefined => {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  if (trimmed === '~') return homedir();
+  if (trimmed.startsWith('~/')) return resolve(homedir(), trimmed.slice(2));
+  return resolve(trimmed);
+};
+
+const parseSolanaKeypairBytes = (
+  inlineValue: string | undefined,
+  pathValue: string | undefined,
+): Uint8Array | undefined => {
+  const inline = inlineValue?.trim();
+  const keypairPath = resolveSolanaKeypairPath(pathValue);
+
+  if (inline && keypairPath) {
+    throw new AppError(500, 'INVALID_ENV', 'Set only one of SOLANA_KEYPAIR or SOLANA_KEYPAIR_PATH');
+  }
+
+  if (keypairPath) {
+    let fileContents: string;
+    try {
+      fileContents = readFileSync(keypairPath, 'utf8');
+    } catch {
+      throw new AppError(
+        500,
+        'INVALID_ENV',
+        `SOLANA_KEYPAIR_PATH points to an unreadable keypair file: ${keypairPath}`,
+      );
+    }
+
+    return parseSolanaKeypairJson(fileContents, 'SOLANA_KEYPAIR_PATH file');
+  }
+
+  if (!inline) {
+    return undefined;
+  }
+
+  return parseSolanaKeypairJson(inline, 'SOLANA_KEYPAIR');
 };
 
 const parseOptionalStringArray = (value: string | undefined): string[] | undefined => {
@@ -391,7 +432,10 @@ export const loadConfig = (): AppConfig => {
     'solanaDevnet',
   );
   const solanaPriceMode = parseSolanaPriceMode(process.env.SOLANA_PRICE_MODE);
-  const solanaKeypairBytes = parseSolanaKeypairBytes(process.env.SOLANA_KEYPAIR);
+  const solanaKeypairBytes = parseSolanaKeypairBytes(
+    process.env.SOLANA_KEYPAIR,
+    process.env.SOLANA_KEYPAIR_PATH,
+  );
   const solanaFixedNumerairePriceUsd =
     solanaPriceMode === 'required'
       ? undefined
@@ -400,7 +444,11 @@ export const loadConfig = (): AppConfig => {
 
   if (solanaEnabled) {
     if (!solanaKeypairBytes) {
-      throw new AppError(500, 'MISSING_ENV', 'SOLANA_KEYPAIR is required when SOLANA_ENABLED=true');
+      throw new AppError(
+        500,
+        'MISSING_ENV',
+        'SOLANA_KEYPAIR_PATH or SOLANA_KEYPAIR is required when SOLANA_ENABLED=true',
+      );
     }
 
     if (!process.env.SOLANA_DEVNET_RPC_URL?.trim()) {

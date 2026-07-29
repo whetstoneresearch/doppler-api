@@ -168,10 +168,13 @@ Dedicated Solana create endpoint.
 - invalid economics or unsupported reserves -> `422 SOLANA_INVALID_ECONOMICS`
 - invalid market-cap range or fee input -> `422 SOLANA_INVALID_CURVE`
 - invalid fee beneficiaries -> `422 SOLANA_INVALID_FEE_BENEFICIARIES`
+- parameters that remain oversized after launch-specific ALT compression -> `422 SOLANA_TRANSACTION_TOO_LARGE`
 - readiness failure -> `503 SOLANA_NOT_READY`
 - simulation failure -> `422 SOLANA_SIMULATION_FAILED`
 - submission failure -> `502 SOLANA_SUBMISSION_FAILED`
 - ambiguous confirmation -> `409 IDEMPOTENCY_KEY_IN_DOUBT`
+
+Deterministic request validation runs before dependency readiness checks.
 
 ---
 

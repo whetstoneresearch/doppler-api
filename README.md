@@ -483,7 +483,7 @@ Example `GET /health`:
   - `launchId` is a launch PDA and `statusUrl` points to `GET /v1/solana/launches/:launchAddress`
   - only WSOL is supported as numeraire
   - Solana rejects unsupported EVM-only fields instead of ignoring them
-  - when `SOLANA_DEVNET_ALT_ADDRESS` is set, launch creation reuses that address lookup table; otherwise it creates a per-launch lookup table before submitting the initialize transaction
+  - when `SOLANA_DEVNET_ALT_ADDRESS` is set, launch creation reuses that address lookup table; if the signed transaction still exceeds Solana's packet limit, it creates a launch-specific lookup table and rebuilds the transaction
 - Solana `migration.type="none"` launches use the initializer curve:
   - set `migration.supportCpmm=true` and `migration.minimumQuoteRaise` to register the launch with the CPMM migrator
   - all API-created launches use the CPMM hook; CPMM migration registration is independent of hook features
@@ -592,7 +592,7 @@ LIVE_TEST_VERBOSE=true npm run test:live
 By default, live output is concise (launch summary table). Set `LIVE_TEST_VERBOSE=true` for full per-launch parameter and verification tables.
 Live launch tests run sequentially to avoid nonce conflicts from a single funded signer.
 `test:live` remains the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet matrix. The Solana matrix covers supported parity with the Base Sepolia defaults, fee-beneficiary, reserve-split/CPMM, launches with no migration criteria, generic-route replay, randomized parameter paths, CPMM hook launches with cosigner gating, and CPMM hook launches with scheduled dynamic fees. Governance, vesting/vault locks, and static/dynamic EVM auction engines are EVM-only.
-Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR`, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, `SOLANA_DEVNET_ALT_ADDRESS`, and enough SOL for account creation; override the readiness estimate with `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` when needed.
+Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR_PATH` pointing to a Solana CLI keypair file, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, `SOLANA_DEVNET_ALT_ADDRESS`, and enough SOL for account creation; override the readiness estimate with `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` when needed. `SOLANA_KEYPAIR` remains available as an inline fallback, but do not set both payer variables. Solana RPC requests retry HTTP `429` responses with bounded exponential backoff. The configured ALT remains the fast path; oversized launches fall back to a launch-specific ALT.
 
 ## Lint, format, and git hooks
 

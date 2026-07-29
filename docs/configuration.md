@@ -74,8 +74,10 @@ Redis-backed idempotency writes `in_progress` markers for EVM flows and also per
   - optional scaffolded setting
 - `SOLANA_MAINNET_BETA_WS_URL`
   - optional scaffolded setting
+- `SOLANA_KEYPAIR_PATH`
+  - path to a Solana CLI keypair file for the payer; preferred over inline secret-key bytes
 - `SOLANA_KEYPAIR`
-  - JSON array of 64 secret-key bytes for the payer
+  - JSON array of 64 secret-key bytes for the payer; inline fallback when `SOLANA_KEYPAIR_PATH` is not set
 - `SOLANA_CONFIRM_TIMEOUT_MS`
   - confirmation wait before returning `409 IDEMPOTENCY_KEY_IN_DOUBT`
 - `SOLANA_DEVNET_ALT_ADDRESS`
@@ -91,10 +93,11 @@ Redis-backed idempotency writes `in_progress` markers for EVM flows and also per
 
 When `SOLANA_ENABLED=true`, startup fails fast for static config errors:
 
-- missing `SOLANA_KEYPAIR`
+- missing both `SOLANA_KEYPAIR_PATH` and `SOLANA_KEYPAIR`
 - missing `SOLANA_DEVNET_RPC_URL`
 - missing `SOLANA_DEVNET_WS_URL`
-- invalid `SOLANA_KEYPAIR` format
+- invalid `SOLANA_KEYPAIR_PATH` file or `SOLANA_KEYPAIR` format
+- ambiguous payer config when both `SOLANA_KEYPAIR_PATH` and `SOLANA_KEYPAIR` are set
 - invalid `SOLANA_DEFAULT_NETWORK`
 - invalid `SOLANA_PRICE_MODE`
 - missing `SOLANA_FIXED_NUMERAIRE_PRICE_USD` when `SOLANA_PRICE_MODE=fixed`
@@ -104,7 +107,8 @@ When `SOLANA_ENABLED=true`, startup fails fast for static config errors:
 - Only `solanaDevnet` is executable in this API profile.
 - `solanaMainnetBeta` is scaffolded in config and capabilities but returns `501 SOLANA_NETWORK_UNSUPPORTED`.
 - WSOL is the only supported Solana numeraire.
-- Launch creation reuses `SOLANA_DEVNET_ALT_ADDRESS` when configured; without it, creation builds a per-launch address lookup table before submitting the initialize transaction.
+- Launch creation reuses `SOLANA_DEVNET_ALT_ADDRESS` when configured. If the signed transaction exceeds Solana's packet limit, creation builds a launch-specific lookup table and rebuilds the transaction before simulation.
+- Solana RPC requests retry HTTP `429` responses up to five total attempts with bounded exponential backoff.
 - Solana price resolution precedence is:
   1. request `pricing.numerairePriceUsd`
   2. `SOLANA_FIXED_NUMERAIRE_PRICE_USD`
@@ -136,7 +140,7 @@ When `SOLANA_ENABLED=true`, startup fails fast for static config errors:
 - `npm run test:live:solana:failing` runs Solana route/policy failures without submitting launches.
 - Set `LIVE_TEST_VERBOSE=true` for full per-launch output instead of the concise summary mode.
 - The Solana readiness gate estimates required payer balance in SOL; override it with `LIVE_TEST_MIN_BALANCE_SOL` or tune the per-launch estimate with `LIVE_TEST_ESTIMATED_TX_COST_SOL` and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL`.
-- Solana live create filters require `SOLANA_DEVNET_ALT_ADDRESS` so the matrix reuses a deployed lookup table instead of building one per launch.
+- Solana live create filters require `SOLANA_DEVNET_ALT_ADDRESS` so transactions that fit reuse a deployed lookup table. Oversized launch combinations create a launch-specific fallback table.
 - Solana live parity covers supported XYK/create behavior, including CPMM hook launches with cosigner gating. Governance, vesting/vault locks, and static/dynamic EVM auction engines are intentionally excluded from Solana because the Solana API profile does not support those features.
 
 ## Multichain EVM configuration

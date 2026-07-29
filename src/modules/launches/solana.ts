@@ -6,7 +6,6 @@ import {
   appendTransactionMessageInstructions,
   assertAccountExists,
   createKeyPairSignerFromBytes,
-  createSolanaRpc,
   createTransactionMessage,
   decodeAccount,
   fetchAddressesForLookupTables,
@@ -53,6 +52,13 @@ import {
   isSolanaSignatureConfirmed,
   throwIfSolanaSignatureRejected,
 } from './solana-assembly';
+import {
+  createLaunchSpecificLookupTable,
+  createRetryingSolanaRpc,
+  isSolanaTransactionPacketTooLarge,
+  type SolanaLookupTable,
+  withSolanaRpcRateLimitRetries,
+} from './solana-rpc';
 export {
   dedicatedSolanaCreateLaunchRequestSchema,
   genericSolanaCreateLaunchRequestSchema,
@@ -79,6 +85,7 @@ export {
   isSolanaSignatureConfirmed,
   throwIfSolanaSignatureRejected,
 } from './solana-assembly';
+export { isSolanaTransactionPacketTooLarge, withSolanaRpcRateLimitRetries };
 
 const U64_MAX = 18_446_744_073_709_551_615n;
 const SOLANA_NUMERAIRE_DECIMALS = 9;
@@ -276,13 +283,13 @@ export const deriveSolanaCurveConfig = (args: {
 export class SolanaLaunchService {
   private readonly config: AppConfig;
   private readonly pricingService: PricingService;
-  private readonly rpc: ReturnType<typeof createSolanaRpc>;
+  private readonly rpc: ReturnType<typeof createRetryingSolanaRpc>;
   private payerSignerPromise?: Promise<Awaited<ReturnType<typeof createKeyPairSignerFromBytes>>>;
 
   constructor(args: { config: AppConfig; pricingService: PricingService }) {
     this.config = args.config;
     this.pricingService = args.pricingService;
-    this.rpc = createSolanaRpc(this.config.solana.devnetRpcUrl);
+    this.rpc = createRetryingSolanaRpc(this.config.solana.devnetRpcUrl);
   }
 
   private getAltAddress(): Address | undefined {
@@ -291,7 +298,11 @@ export class SolanaLaunchService {
 
   private async getPayerSigner() {
     if (!this.config.solana.keypairBytes) {
-      throw new AppError(500, 'MISSING_ENV', 'SOLANA_KEYPAIR is required for Solana creation');
+      throw new AppError(
+        500,
+        'MISSING_ENV',
+        'SOLANA_KEYPAIR_PATH or SOLANA_KEYPAIR is required for Solana creation',
+      );
     }
 
     if (!this.payerSignerPromise) {
@@ -591,11 +602,6 @@ export class SolanaLaunchService {
     this.assertEnabled();
     this.assertSupportedNetwork(input.network);
 
-    const readiness = await this.getReadiness();
-    if (!readiness.ok) {
-      throw new AppError(503, 'SOLANA_NOT_READY', 'Solana devnet is not ready for launch creation');
-    }
-
     const supportCpmmMigration = input.migration?.supportCpmm ?? false;
     const totalSupply = BigInt(input.economics.totalSupply);
     const baseForDistribution = BigInt(input.economics.baseForDistribution ?? '0');
@@ -624,6 +630,11 @@ export class SolanaLaunchService {
       marketCapStartUsd: input.auction.curveConfig.marketCapStartUsd,
       marketCapEndUsd: input.auction.curveConfig.marketCapEndUsd,
     });
+
+    const readiness = await this.getReadiness();
+    if (!readiness.ok) {
+      throw new AppError(503, 'SOLANA_NOT_READY', 'Solana devnet is not ready for launch creation');
+    }
 
     const payer = await this.getPayerSigner();
     const initializerConfig = await this.fetchInitializerConfig();
@@ -735,7 +746,7 @@ export class SolanaLaunchService {
       initializeArgs,
     );
 
-    let lookupTable: { lookupTableAddress: Address; addresses: readonly Address[] };
+    let lookupTable: SolanaLookupTable;
     const configuredAltAddress = this.getAltAddress();
     if (configuredAltAddress) {
       const lookupTables = await fetchAddressesForLookupTables([configuredAltAddress], this.rpc, {
@@ -756,152 +767,67 @@ export class SolanaLaunchService {
         addresses: configuredAltAddresses,
       };
     } else {
-      const lookupTableAuthority = await generateKeyPairSigner();
-      const recentSlot = await this.rpc.getSlot({ commitment: 'finalized' }).send();
-      const lookupTableSetup = await initializer.buildAddressLookupTableSetupInstructions({
-        authority: lookupTableAuthority,
+      lookupTable = await createLaunchSpecificLookupTable({
+        rpc: this.rpc,
         payer,
-        recentSlot,
-        addresses: initializer.getInstructionLookupTableAddresses(instruction),
+        instruction,
+        confirmTimeoutMs: this.config.solana.confirmTimeoutMs,
       });
-      lookupTable = {
-        lookupTableAddress: lookupTableSetup.lookupTableAddress,
-        addresses: lookupTableSetup.addresses,
-      };
+    }
 
-      const lookupTableSetupBlockhash = await this.rpc
-        .getLatestBlockhash({ commitment: 'confirmed' })
-        .send();
-      const lookupTableSetupMessage = appendTransactionMessageInstructions(
-        [lookupTableSetup.createInstruction, ...lookupTableSetup.extendInstructions],
+    const buildSignedLaunchTransaction = async (selectedLookupTable: SolanaLookupTable) => {
+      const latestBlockhash = await this.rpc.getLatestBlockhash({ commitment: 'confirmed' }).send();
+      const uncompressedTransactionMessage = appendTransactionMessageInstructions(
+        [instruction],
         setTransactionMessageLifetimeUsingBlockhash(
-          lookupTableSetupBlockhash.value,
+          latestBlockhash.value,
           setTransactionMessageFeePayerSigner(payer, createTransactionMessage({ version: 0 })),
         ),
       );
-      const signedLookupTableSetup =
-        await signTransactionMessageWithSigners(lookupTableSetupMessage);
-      const lookupTableSetupSignatureBytes = signedLookupTableSetup.signatures[payer.address];
-      if (!lookupTableSetupSignatureBytes) {
+      const transactionMessage = initializer.compressTransactionMessageWithLookupTable(
+        uncompressedTransactionMessage,
+        selectedLookupTable,
+      );
+      const signedTransaction = await signTransactionMessageWithSigners(transactionMessage);
+      const feePayerSignature = signedTransaction.signatures[payer.address];
+      if (!feePayerSignature) {
         throw new AppError(
           500,
           'SOLANA_SUBMISSION_FAILED',
-          'Failed to sign Solana lookup table setup transaction with the configured payer',
+          'Failed to sign Solana launch transaction with the configured payer',
         );
       }
-      const lookupTableSetupSignature = signature(
-        getBase58Decoder().decode(lookupTableSetupSignatureBytes),
-      );
-      const lookupTableSetupWire = getBase64EncodedWireTransaction(signedLookupTableSetup);
 
-      try {
-        await this.rpc
-          .sendTransaction(lookupTableSetupWire, {
-            encoding: 'base64',
-            preflightCommitment: 'confirmed',
-            skipPreflight: false,
-          })
-          .send();
-      } catch (error) {
-        throw buildSolanaLookupTableSubmitError(errorMessage(error));
-      }
+      return {
+        transactionSignature: signature(getBase58Decoder().decode(feePayerSignature)),
+        wireTransaction: getBase64EncodedWireTransaction(signedTransaction),
+      };
+    };
 
-      const lookupTableDeadline = Date.now() + this.config.solana.confirmTimeoutMs;
-      for (;;) {
-        let status: Parameters<typeof throwIfSolanaSignatureRejected>[0];
-        try {
-          const statuses = await this.rpc.getSignatureStatuses([lookupTableSetupSignature]).send();
-          status = statuses.value[0];
-        } catch (_error) {
-          if (Date.now() >= lookupTableDeadline) {
-            throw buildSolanaLookupTableConfirmTimeoutError();
-          }
-
-          await delay(SOLANA_CONFIRM_POLL_INTERVAL_MS);
-          continue;
-        }
-
-        throwIfSolanaSignatureRejected(
-          status,
-          'Solana lookup table setup transaction was rejected after submission',
-        );
-
-        if (isSolanaSignatureConfirmed(status)) {
-          break;
-        }
-
-        if (Date.now() >= lookupTableDeadline) {
-          throw buildSolanaLookupTableConfirmTimeoutError();
-        }
-
-        await delay(SOLANA_CONFIRM_POLL_INTERVAL_MS);
-      }
-
-      let lookupTableSetupSlot: bigint;
-      for (;;) {
-        try {
-          lookupTableSetupSlot = await this.rpc.getSlot({ commitment: 'confirmed' }).send();
-          break;
-        } catch (_error) {
-          if (Date.now() >= lookupTableDeadline) {
-            throw buildSolanaLookupTableWarmupTimeoutError();
-          }
-
-          await delay(SOLANA_CONFIRM_POLL_INTERVAL_MS);
-        }
-      }
-
-      for (;;) {
-        let currentSlot: bigint;
-        try {
-          currentSlot = await this.rpc.getSlot({ commitment: 'confirmed' }).send();
-        } catch (_error) {
-          if (Date.now() >= lookupTableDeadline) {
-            throw buildSolanaLookupTableWarmupTimeoutError();
-          }
-
-          await delay(SOLANA_CONFIRM_POLL_INTERVAL_MS);
-          continue;
-        }
-
-        if (currentSlot > lookupTableSetupSlot) {
-          break;
-        }
-
-        if (Date.now() >= lookupTableDeadline) {
-          throw buildSolanaLookupTableWarmupTimeoutError();
-        }
-
-        await delay(SOLANA_CONFIRM_POLL_INTERVAL_MS);
-      }
+    let signedLaunchTransaction = await buildSignedLaunchTransaction(lookupTable);
+    if (
+      configuredAltAddress &&
+      isSolanaTransactionPacketTooLarge(signedLaunchTransaction.wireTransaction)
+    ) {
+      lookupTable = await createLaunchSpecificLookupTable({
+        rpc: this.rpc,
+        payer,
+        instruction,
+        confirmTimeoutMs: this.config.solana.confirmTimeoutMs,
+      });
+      signedLaunchTransaction = await buildSignedLaunchTransaction(lookupTable);
     }
 
-    const latestBlockhash = await this.rpc.getLatestBlockhash({ commitment: 'confirmed' }).send();
-    const uncompressedTransactionMessage = appendTransactionMessageInstructions(
-      [instruction],
-      setTransactionMessageLifetimeUsingBlockhash(
-        latestBlockhash.value,
-        setTransactionMessageFeePayerSigner(payer, createTransactionMessage({ version: 0 })),
-      ),
-    );
-    const transactionMessage = initializer.compressTransactionMessageWithLookupTable(
-      uncompressedTransactionMessage,
-      lookupTable,
-    );
-
-    const signedTransaction = await signTransactionMessageWithSigners(transactionMessage);
-    const feePayerSignature = signedTransaction.signatures[payer.address];
-    if (!feePayerSignature) {
+    if (isSolanaTransactionPacketTooLarge(signedLaunchTransaction.wireTransaction)) {
       throw new AppError(
-        500,
-        'SOLANA_SUBMISSION_FAILED',
-        'Failed to sign Solana launch transaction with the configured payer',
+        422,
+        'SOLANA_TRANSACTION_TOO_LARGE',
+        'Solana launch parameters exceed the maximum transaction size',
       );
     }
 
-    const transactionSignature = signature(getBase58Decoder().decode(feePayerSignature));
+    const { transactionSignature, wireTransaction } = signedLaunchTransaction;
     const explorerUrl = buildExplorerUrl(input.network, transactionSignature);
-    const wireTransaction = getBase64EncodedWireTransaction(signedTransaction);
 
     let simulation: { value: { err: unknown; logs: string[] | null } };
     try {
