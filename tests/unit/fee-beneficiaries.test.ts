@@ -4,13 +4,30 @@ import { WAD } from '@whetstone-research/doppler-sdk/evm';
 import { normalizeFeeBeneficiaries } from '../../src/modules/auctions/multicurve/mapper';
 import type { CreateLaunchRequestInput } from '../../src/modules/launches/schema';
 
+const REHYPE_INITIALIZER = {
+  buybackDestination: '0x2222222222222222222222222222222222222222',
+  startFee: 100,
+  feeDistributionInfo: {
+    assetFeesToAssetBuybackWad: '1000000000000000000',
+    assetFeesToNumeraireBuybackWad: '0',
+    assetFeesToBeneficiaryWad: '0',
+    assetFeesToLpWad: '0',
+    numeraireFeesToAssetBuybackWad: '0',
+    numeraireFeesToNumeraireBuybackWad: '1000000000000000000',
+    numeraireFeesToBeneficiaryWad: '0',
+    numeraireFeesToLpWad: '0',
+  },
+} as const;
+
 const baseInput: CreateLaunchRequestInput = {
   userAddress: '0x1111111111111111111111111111111111111111',
   tokenMetadata: { name: 'Token', symbol: 'TOK', tokenURI: 'ipfs://meta' },
   economics: { totalSupply: '1000000000000000000' },
-  governance: { enabled: false, mode: 'noOp' },
-  migration: { type: 'noOp' },
-  auction: { type: 'multicurve', curveConfig: { type: 'preset', presets: ['low'] } },
+  auction: {
+    type: 'multicurve',
+    curveConfig: { type: 'preset', presets: ['low'] },
+    initializer: REHYPE_INITIALIZER,
+  },
 };
 
 describe('fee beneficiary defaults', () => {
@@ -30,7 +47,7 @@ describe('fee beneficiary defaults', () => {
       normalizeFeeBeneficiaries({
         input: {
           ...baseInput,
-          feeBeneficiaries: [
+          poolFeeBeneficiaries: [
             { address: '0x1111111111111111111111111111111111111111', sharesWad: '1' },
           ],
         },
@@ -43,7 +60,7 @@ describe('fee beneficiary defaults', () => {
     const result = await normalizeFeeBeneficiaries({
       input: {
         ...baseInput,
-        feeBeneficiaries: [
+        poolFeeBeneficiaries: [
           {
             address: '0x1111111111111111111111111111111111111111',
             sharesWad: '950000000000000000',
@@ -59,7 +76,7 @@ describe('fee beneficiary defaults', () => {
       (entry) => entry.beneficiary.toLowerCase() === '0x2222222222222222222222222222222222222222',
     );
     expect(protocolEntry?.shares).toBe(50_000_000_000_000_000n);
-    expect(result.beneficiaries[0]!.shares + result.beneficiaries[1]!.shares).toBe(WAD);
+    expect(result.beneficiaries.reduce((sum, entry) => sum + entry.shares, 0n)).toBe(WAD);
   });
 
   it('rejects duplicate beneficiary addresses', async () => {
@@ -67,7 +84,7 @@ describe('fee beneficiary defaults', () => {
       normalizeFeeBeneficiaries({
         input: {
           ...baseInput,
-          feeBeneficiaries: [
+          poolFeeBeneficiaries: [
             {
               address: '0x1111111111111111111111111111111111111111',
               sharesWad: '475000000000000000',

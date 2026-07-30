@@ -10,10 +10,12 @@ import type {
 import type { PricingService } from '../../pricing/service';
 import type { CreateStaticLaunchRequestInput } from '../../launches/schema';
 import type { ChainContext } from '../../../infra/chain/registry';
-import type { DopplerSdkRegistry } from '../../../infra/doppler/sdk-client';
+import {
+  type DopplerSdkRegistry,
+  withCreateSimulationErrorTranslation,
+} from '../../../infra/doppler/sdk-client';
 import type { TxSubmitter } from '../../../infra/tx/submitter';
 import { resolveGovernance } from '../../governance/policy';
-import { resolveMigration } from '../../migration/policy';
 import {
   normalizeFeeBeneficiaries,
   parsePositiveBigInt,
@@ -40,7 +42,20 @@ const resolveStaticMarketCapRange = (
   input: CreateStaticLaunchRequestInput['auction']['curveConfig'],
 ): { start: number; end: number } => {
   if (input.type === 'preset') {
-    return STATIC_MARKET_CAP_PRESETS[input.preset];
+    switch (input.preset) {
+      case 'low':
+        return STATIC_MARKET_CAP_PRESETS.low;
+      case 'medium':
+        return STATIC_MARKET_CAP_PRESETS.medium;
+      case 'high':
+        return STATIC_MARKET_CAP_PRESETS.high;
+      default:
+        throw new AppError(
+          422,
+          'INVALID_MARKET_CAP_PRESET',
+          'Unsupported static market-cap preset',
+        );
+    }
   }
 
   return {
@@ -57,6 +72,14 @@ export const createStaticLaunch = async ({
   txSubmitter,
 }: CreateStaticArgs): Promise<CreateLaunchResponse> => {
   const sdk = sdkRegistry.get(chain.chainId);
+  const lockableV3Initializer = chain.addresses.lockableV3Initializer;
+  if (!lockableV3Initializer) {
+    throw new AppError(
+      422,
+      'LOCKABLE_V3_INITIALIZER_UNSUPPORTED',
+      `Lockable V3 initializer is not configured for chain ${chain.chainId}`,
+    );
+  }
 
   const { totalSupply, tokensForSale } = resolveSaleNumbers(input);
   const allocationPlan = resolveAllocationPlan({
@@ -66,7 +89,6 @@ export const createStaticLaunch = async ({
   });
 
   const governance = resolveGovernance(input.governance, chain.config);
-  const migration = resolveMigration(input.migration, chain.config);
   const protocolOwner = (await sdk.getAirlockOwner()) as HexAddress;
 
   const numeraireAddress =
@@ -108,9 +130,24 @@ export const createStaticLaunch = async ({
   const builder = sdk
     .buildStaticAuction()
     .tokenConfig({
+      type: 'dopplerERC20V1',
       name: input.tokenMetadata.name,
       symbol: input.tokenMetadata.symbol,
       tokenURI: input.tokenMetadata.tokenURI,
+      ...(input.tokenMetadata.maxBalanceLimit === undefined
+        ? {}
+        : {
+            maxBalanceLimit: BigInt(input.tokenMetadata.maxBalanceLimit),
+          }),
+      ...(input.tokenMetadata.balanceLimitEnd === undefined
+        ? {}
+        : { balanceLimitEnd: input.tokenMetadata.balanceLimitEnd }),
+      ...(input.tokenMetadata.balanceController === undefined
+        ? {}
+        : { controller: input.tokenMetadata.balanceController }),
+      ...(input.tokenMetadata.excludedFromBalanceLimit === undefined
+        ? {}
+        : { excludedFromBalanceLimit: input.tokenMetadata.excludedFromBalanceLimit }),
     })
     .saleConfig({
       initialSupply: totalSupply,
@@ -124,7 +161,8 @@ export const createStaticLaunch = async ({
       ...(staticCurve.numPositions !== undefined ? { numPositions: staticCurve.numPositions } : {}),
       ...(maxShareToBeSold !== undefined ? { maxShareToBeSold } : {}),
     })
-    .withBeneficiaries(beneficiaries as BeneficiaryData[]);
+    .withBeneficiaries(beneficiaries as BeneficiaryData[])
+    .withV3Initializer(lockableV3Initializer);
 
   if (input.integrationAddress) {
     builder.withIntegrator(input.integrationAddress as HexAddress);
@@ -132,28 +170,36 @@ export const createStaticLaunch = async ({
 
   if (allocationPlan.allocationAmount > 0n) {
     builder.withVesting({
-      duration: BigInt(allocationPlan.lockDurationSeconds),
-      cliffDuration: allocationPlan.cliffDurationSeconds,
-      recipients: allocationPlan.recipients,
-      amounts: allocationPlan.amounts,
+      allocations: allocationPlan.allocations.map((allocation) => ({
+        recipient: allocation.recipient,
+        amount: allocation.amount,
+        schedule: {
+          duration: BigInt(allocation.durationSeconds),
+          cliffDuration: allocation.cliffDurationSeconds,
+        },
+      })),
     });
   }
 
   const params = builder
     .withGovernance(governance)
-    .withMigration(migration)
+    .withMigration({ type: 'noOp' })
     .withUserAddress(input.userAddress as HexAddress)
     .build();
 
-  const simulation = await sdk.factory.simulateCreateStaticAuction(params as any);
+  const simulation = await sdk.factory.simulateCreateStaticAuction(params);
 
-  const { request } = await chain.publicClient.simulateContract({
+  const simulationRequest = {
     address: chain.addresses.airlock,
     abi: airlockAbi,
     functionName: 'create',
     args: [{ ...simulation.createParams }],
     account: chain.walletClient.account,
-  });
+    blockTag: 'pending',
+  } as const;
+  const { request } = await withCreateSimulationErrorTranslation(chain, simulationRequest, () =>
+    chain.publicClient.simulateContract(simulationRequest),
+  );
 
   const txHash = (await txSubmitter.submitCreateTx({
     chain,
@@ -177,16 +223,15 @@ export const createStaticLaunch = async ({
     effectiveConfig: {
       tokensForSale: tokensForSale.toString(),
       allocationAmount: allocationPlan.allocationAmount.toString(),
-      allocationRecipient: allocationPlan.recipientAddress,
-      allocationRecipients: allocationPlan.recipients.map((address, index) => ({
-        address,
-        amount: allocationPlan.amounts[index]!.toString(),
+      vestingAllocations: allocationPlan.allocations.map((allocation) => ({
+        recipientAddress: allocation.recipient,
+        amount: allocation.amount.toString(),
+        durationSeconds: allocation.durationSeconds,
+        cliffDurationSeconds: allocation.cliffDurationSeconds,
       })),
-      allocationLockMode: allocationPlan.lockMode,
-      allocationLockDurationSeconds: allocationPlan.lockDurationSeconds,
       numeraireAddress,
       numerairePriceUsd,
-      feeBeneficiariesSource: source,
+      poolFeeBeneficiariesSource: source,
     },
   };
 };

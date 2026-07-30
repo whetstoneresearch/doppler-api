@@ -1,7 +1,6 @@
 const WAD = 10n ** 18n;
 const BPS_DENOMINATOR = 10_000;
 const WAD_PER_BPS = WAD / BigInt(BPS_DENOMINATOR); // 1e14
-const MIN_START_MARKET_CAP_USD = 2;
 const MAX_START_MARKET_CAP_USD = 999_999;
 
 export interface RandomCurveInput {
@@ -26,16 +25,15 @@ const pickBreakpoints = (curveCount: 3 | 4, maxMarketCapUsd: number): number[] =
     throw new Error(`maxMarketCapUsd must be greater than ${MAX_START_MARKET_CAP_USD}`);
   }
 
-  const first = randomInt(MIN_START_MARKET_CAP_USD, 100_000);
-  const second = randomInt(first + 100, 350_000);
-  const thirdUpperBound = curveCount === 3 ? MAX_START_MARKET_CAP_USD : 750_000;
-  const third = randomInt(second + 100, thirdUpperBound);
+  const first = randomInt(100, 1_000);
+  const second = randomInt(5_000, 10_000);
+  const third = randomInt(50_000, 100_000);
 
   if (curveCount === 3) {
     return [first, second, third, maxMarketCapUsd];
   }
 
-  const fourth = randomInt(third + 100, MAX_START_MARKET_CAP_USD);
+  const fourth = randomInt(500_000, MAX_START_MARKET_CAP_USD);
   return [first, second, third, fourth, maxMarketCapUsd];
 };
 

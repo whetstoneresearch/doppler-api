@@ -5,21 +5,7 @@ import type { ChainRegistry } from '../../infra/chain/registry';
 import { SOLANA_CONSTANTS } from '../../modules/launches/solana';
 import type { PricingService } from '../../modules/pricing/service';
 
-const resolveMulticurveInitializers = (chain: ReturnType<ChainRegistry['list']>[number]) => {
-  const modes: Array<'standard' | 'scheduled' | 'decay' | 'rehype'> = ['standard'];
-  const addresses = chain.addresses as Partial<{
-    v4ScheduledMulticurveInitializer: string;
-    v4DecayMulticurveInitializer: string;
-    dopplerHookInitializer: string;
-    rehypeDopplerHook: string;
-  }>;
-
-  if (addresses.v4ScheduledMulticurveInitializer) modes.push('scheduled');
-  if (addresses.v4DecayMulticurveInitializer) modes.push('decay');
-  if (addresses.dopplerHookInitializer && addresses.rehypeDopplerHook) modes.push('rehype');
-
-  return modes;
-};
+const MULTICURVE_INITIALIZERS = ['rehype'] as const;
 
 export const registerCapabilitiesRoute = async (
   fastify: FastifyInstance<any, any, any, any>,
@@ -46,7 +32,7 @@ export const registerCapabilitiesRoute = async (
         chainId: chain.chainId,
         auctionTypes: chain.config.auctionTypes,
         multicurveInitializers: chain.config.auctionTypes.includes('multicurve')
-          ? resolveMulticurveInitializers(chain)
+          ? MULTICURVE_INITIALIZERS
           : [],
         migrationModes: chain.config.migrationModes,
         governanceModes: chain.config.governanceModes,

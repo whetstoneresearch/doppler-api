@@ -4,7 +4,12 @@ import {
   computePoolId,
   v4MulticurveInitializerAbi,
 } from '@whetstone-research/doppler-sdk/evm';
-import { TransactionNotFoundError, decodeAbiParameters, decodeFunctionData } from 'viem';
+import {
+  TransactionNotFoundError,
+  decodeAbiParameters,
+  decodeFunctionData,
+  zeroAddress,
+} from 'viem';
 
 import { AppError } from '../../core/errors';
 import type { LaunchStatusResponse } from '../../core/types';
@@ -162,7 +167,7 @@ export class StatusService {
     }) as `0x${string}`;
   }
 
-  private async decodePoolConfigFromInitializerData(args: {
+  async decodePoolConfigFromInitializerData(args: {
     chain: ChainContext;
     poolInitializer: `0x${string}`;
     poolInitializerData: `0x${string}`;
@@ -170,9 +175,15 @@ export class StatusService {
     const initializerAddress = args.poolInitializer.toLowerCase();
     const decayInitializerAddress =
       args.chain.addresses.v4DecayMulticurveInitializer?.toLowerCase();
-    const rehypeInitializerAddress = args.chain.addresses.dopplerHookInitializer?.toLowerCase();
+    const dopplerHookInitializerAddress =
+      args.chain.addresses.dopplerHookInitializer?.toLowerCase();
+    const legacyMisroutedRehypeInitializerAddress =
+      args.chain.addresses.rehypeDopplerHookInitializer?.toLowerCase();
 
-    if (rehypeInitializerAddress && initializerAddress === rehypeInitializerAddress) {
+    if (
+      initializerAddress === dopplerHookInitializerAddress ||
+      initializerAddress === legacyMisroutedRehypeInitializerAddress
+    ) {
       const [decoded] = decodeAbiParameters(
         [
           {
@@ -209,9 +220,9 @@ export class StatusService {
       ) as readonly [{ fee: number; tickSpacing: number; dopplerHook: `0x${string}` }];
 
       return {
-        fee: decoded.fee,
+        fee: decoded.dopplerHook.toLowerCase() === zeroAddress ? decoded.fee : DYNAMIC_FEE_FLAG,
         tickSpacing: decoded.tickSpacing,
-        hookAddress: decoded.dopplerHook,
+        hookAddress: args.poolInitializer,
       };
     }
 

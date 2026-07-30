@@ -134,6 +134,7 @@ const resolveSelectedSuites = () => {
 };
 
 const selectedSuites = resolveSelectedSuites();
+const liveTestsEnabled = selectedSuites.some((suite) => suite.id === 'live');
 
 if (selectedSuites.length === 0) {
   console.error('No suites selected. Use --suite=<id1,id2>, --with-live, or --live-only.');
@@ -237,6 +238,7 @@ const runSuite = async (suite, index, total) => {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
+        LIVE_TEST_ENABLE: suite.id === 'live' ? 'true' : process.env.LIVE_TEST_ENABLE,
         LIVE_TEST_VERBOSE:
           suite.id === 'live' && verboseLiveOutput
             ? 'true'
@@ -462,7 +464,7 @@ const main = async () => {
             : 'default (unit+integration)'
     }`,
   );
-  console.log(`LIVE_TEST_ENABLE  : ${process.env.LIVE_TEST_ENABLE ?? 'unset'}`);
+  console.log(`LIVE_TEST_ENABLE  : ${liveTestsEnabled ? 'true' : 'false'}`);
   console.log(`LIVE_TEST_VERBOSE : ${verboseLiveOutput ? 'true (from --verbose)' : 'false'}`);
   console.log(`Suites            : ${selectedSuites.map((suite) => suite.id).join(', ')}`);
 
@@ -525,7 +527,7 @@ const main = async () => {
         : withLive
           ? 'all'
           : 'default',
-    liveTestEnable: process.env.LIVE_TEST_ENABLE ?? null,
+    liveTestEnable: liveTestsEnabled,
     suites: results,
     totals,
     success: failedSuites.length === 0,

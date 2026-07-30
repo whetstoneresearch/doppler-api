@@ -6,6 +6,14 @@ export default defineConfig({
   singleQuote: true,
   trailingComma: 'all',
   arrowParens: 'always',
+  overrides: [
+    {
+      files: ['README.md', 'AGENT_INTEGRATION.md', 'CHANGELOG.md', 'SECURITY.md', 'docs/**/*.md'],
+      options: {
+        proseWrap: 'never',
+      },
+    },
+  ],
   sortPackageJson: false,
   ignorePatterns: [
     'node_modules/**',

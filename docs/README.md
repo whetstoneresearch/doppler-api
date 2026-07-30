@@ -1,46 +1,24 @@
 # Documentation
 
-This folder contains the complete API and operations reference for the Doppler Launch API.
+Guides and references for integrating with, configuring, and operating the Doppler Launch API.
 
-## Contents
+## API and launch guides
 
-- `docs/openapi.yaml`
-  - OpenAPI 3.1 specification for all implemented endpoints.
-  - Best entry point for code generation and AI-assisted integrations.
-- `docs/api-reference.md`
-  - Human-readable endpoint reference with request/response behavior.
-- `docs/custom-curves.md`
-  - Detailed guide for multicurve preset and ranges payloads.
-- `docs/mvp-launch.md`
-  - Minimal launch example plus defaults-resolution reference.
-- `docs/configuration.md`
-  - Environment variables, defaults, and multichain configuration.
-- `docs/errors.md`
-  - Error model and common error codes.
-- `docs/contributing.md`
-  - Linting/formatting conventions and contributor workflow.
-- `docs/runbook.md`
-  - Minimal operational procedures for public launch incidents.
+- [OpenAPI specification](openapi.yaml): Machine-readable OpenAPI 3.1 schemas, endpoints, and request examples.
+- [API reference](api-reference.md): Authentication, launch creation, capabilities, status, and operational endpoint behavior.
+- [Launch examples and defaults](launch-examples.md): Complete supported-family request payloads and defaults applied to omitted launch settings.
+- [Custom curve guide](custom-curves.md): Static, multicurve, and dynamic curve configuration and validation rules.
+- [Rehype Guide](rehype.md) — Rehype initializer and migration configuration
+- [Error handling](errors.md): Error response format, HTTP statuses, error codes, and operational guidance.
 
-Project-level reference files:
+## Configuration and operations
 
-- `CHANGELOG.md`
-  - Release history and known compatibility notes.
-- `SECURITY.md`
-  - Vulnerability disclosure and supported version policy.
-- `LICENSE`
-  - Repository license terms.
-- `.github/workflows/ci.yml`
-  - CI workflow that runs `npm run check`.
+- [Configuration](configuration.md): Required environment variables, EVM RPC settings, and Solana configuration.
+- [Operations runbook](runbook.md): Health checks, incident response, transaction and RPC troubleshooting, and rollback procedures.
+- [Contributing guide](contributing.md): Local development workflow, quality standards, conventions, and contributor checklist.
 
-## Source of truth
+## Project information
 
-- Route and schema behavior is implemented in:
-  - `src/app/routes/*`
-  - `src/modules/launches/schema.ts`
-  - `src/modules/auctions/multicurve/schema.ts`
-  - `src/modules/auctions/dynamic/schema.ts`
-  - `src/modules/auctions/static/schema.ts`
-  - `src/modules/*/service.ts`
-
-When behavior changes in code, update these docs in the same PR.
+- [Changelog](../CHANGELOG.md): Release history and compatibility notes.
+- [Security policy](../SECURITY.md): Vulnerability reporting.
+- [License](../LICENSE): Repository license terms.

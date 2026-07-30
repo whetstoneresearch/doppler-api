@@ -5,6 +5,7 @@ COPY package.json package-lock.json tsconfig.json ./
 RUN npm ci
 
 COPY src ./src
+COPY doppler.config.ts ./
 COPY README.md AGENT_INTEGRATION.md ./
 
 RUN npm run build && npm prune --omit=dev

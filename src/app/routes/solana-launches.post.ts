@@ -10,11 +10,11 @@ export const registerCreateSolanaLaunchRoute = async (
   defaultNetwork: SolanaNetwork,
 ) => {
   fastify.post('/v1/solana/launches', async (request, reply) => {
-    const payload = parseDedicatedSolanaCreateLaunchRequest(request.body, defaultNetwork);
     const rawKey = request.headers['idempotency-key'];
     const idempotencyKey = Array.isArray(rawKey) ? rawKey[0] : rawKey;
     const result = await launchService.createLaunchWithIdempotency({
-      input: payload,
+      rawInput: request.body,
+      parseInput: (input) => parseDedicatedSolanaCreateLaunchRequest(input, defaultNetwork),
       idempotencyKey,
     });
     if (result.replayed) {

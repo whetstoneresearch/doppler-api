@@ -14,23 +14,27 @@ import {
   estimateLiveLaunchCount,
   parseTransientSolanaCreateFailure,
 } from '../live/readiness-check';
+import {
+  assertLiveCapabilities,
+  shouldAssertAllocationDetails,
+} from '../live/helpers/live-support';
 
 describe('live readiness check', () => {
   it('estimates launch counts by live filter', () => {
-    expect(estimateLiveLaunchCount('all')).toBe(19);
-    expect(estimateLiveLaunchCount('static')).toBe(3);
-    expect(estimateLiveLaunchCount('dynamic')).toBe(4);
-    expect(estimateLiveLaunchCount('migration-v2')).toBe(1);
-    expect(estimateLiveLaunchCount('migration-v4')).toBe(1);
-    expect(estimateLiveLaunchCount('multicurve')).toBe(12);
+    expect(estimateLiveLaunchCount('all')).toBe(24);
+    expect(estimateLiveLaunchCount('static')).toBe(5);
+    expect(estimateLiveLaunchCount('dynamic')).toBe(8);
+    expect(estimateLiveLaunchCount('uniswap-v2')).toBe(1);
+    expect(estimateLiveLaunchCount('uniswap-v4')).toBe(3);
+    expect(estimateLiveLaunchCount('multicurve')).toBe(11);
     expect(estimateLiveLaunchCount('multicurve-defaults')).toBe(3);
-    expect(estimateLiveLaunchCount('fees')).toBe(3);
+    expect(estimateLiveLaunchCount('fees')).toBe(4);
     expect(estimateLiveLaunchCount('governance')).toBe(3);
     expect(estimateLiveLaunchCount('negative')).toBe(0);
   });
 
   it('falls back to all estimate for unknown filters', () => {
-    expect(estimateLiveLaunchCount('unknown-filter')).toBe(19);
+    expect(estimateLiveLaunchCount('unknown-filter')).toBe(24);
   });
 
   it('estimates Solana launch counts and filter detection', () => {
@@ -91,6 +95,47 @@ describe('live readiness check', () => {
       parseTransientSolanaCreateFailure(buildResponse(422, 'SOLANA_INVALID_CURVE')),
     ).toBeNull();
     expect(parseTransientSolanaCreateFailure(buildResponse(503, 'INTERNAL_ERROR'))).toBeNull();
+  });
+
+  it('keeps exact EVM migrator scripts aligned with readiness filters', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+
+    expect(packageJson.scripts['test:live:uniswap-v2']).toContain('LIVE_TEST_FILTER=uniswap-v2');
+    expect(packageJson.scripts['test:live:uniswap-v4']).toContain('LIVE_TEST_FILTER=uniswap-v4');
+    expect(packageJson.scripts).not.toHaveProperty('test:live:v4migration');
+  });
+
+  it('checks live capabilities without mutating their advertised arrays', () => {
+    const auctionTypes = Object.freeze(['static', 'multicurve', 'dynamic'] as const);
+    const migrationModes = Object.freeze(['uniswapV2', 'uniswapV4'] as const);
+
+    expect(() =>
+      assertLiveCapabilities({
+        chainId: 84532,
+        auctionTypes,
+        migrationModes,
+        auctionType: 'dynamic',
+        migrationType: 'uniswapV4',
+      }),
+    ).not.toThrow();
+    expect(auctionTypes).toEqual(['static', 'multicurve', 'dynamic']);
+    expect(migrationModes).toEqual(['uniswapV2', 'uniswapV4']);
+    expect(() =>
+      assertLiveCapabilities({
+        chainId: 84532,
+        auctionTypes: ['static'],
+        migrationModes,
+        auctionType: 'dynamic',
+        migrationType: 'uniswapV2',
+      }),
+    ).toThrow(/does not advertise dynamic/);
+  });
+
+  it('scopes allocation details to configured nonzero allocation', () => {
+    expect(shouldAssertAllocationDetails(0n)).toBe(false);
+    expect(shouldAssertAllocationDetails(1n)).toBe(true);
   });
 
   it('computes estimated required wei using defaults', () => {

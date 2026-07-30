@@ -1,6 +1,7 @@
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { loadConfig } from '../../../src/core/config';
+import { EVM_LIVE_SCENARIO_GROUPS as groups } from '../scenario-metadata';
 import {
   DEFAULT_LIVE_TOTAL_SUPPLY,
   buildRandomAddressAllocations,
@@ -13,17 +14,17 @@ import {
 export const registerStaticLiveScenarios = () => {
   liveIt(
     'STATIC V3 Custom Fee (Random 0.10%-10.00%, supported tier)',
-    ['static', 'fees'],
+    groups.staticCustomFee,
     async () => {
-      const supportedStaticFees = [3000, 10000];
+      const supportedStaticFees = [3_000, 10_000] as const;
       const selectedFee =
         supportedStaticFees[Math.floor(Math.random() * supportedStaticFees.length)]!;
-      const feeBeneficiaries = buildRandomFeeBeneficiaries(
+      const poolFeeBeneficiaries = buildRandomFeeBeneficiaries(
         privateKeyToAccount(loadConfig().privateKey).address,
       );
       await runStaticLaunchAndVerify({
         configLabel: `STATIC V3 Custom Fee (${(selectedFee / 10000).toFixed(2)}%)`,
-        feeBeneficiaries,
+        poolFeeBeneficiaries,
         curveConfig: {
           type: 'preset',
           preset: 'medium',
@@ -36,7 +37,7 @@ export const registerStaticLiveScenarios = () => {
 
   liveIt(
     'STATIC V3 Lockable (MEDIUM preset)',
-    ['static'],
+    groups.staticPreset,
     async () => {
       await runStaticLaunchAndVerify({
         curveConfig: { type: 'preset', preset: 'medium' },
@@ -47,7 +48,7 @@ export const registerStaticLiveScenarios = () => {
 
   liveIt(
     'STATIC V3 Lockable (Range $100-$100000)',
-    ['static'],
+    groups.staticRange,
     async () => {
       await runStaticLaunchAndVerify({
         curveConfig: {
@@ -62,7 +63,7 @@ export const registerStaticLiveScenarios = () => {
 
   liveIt(
     'STATIC V3 Random 30-50% Sale + Random 3-5 Address Allocation Split',
-    ['static'],
+    groups.staticVesting,
     async () => {
       const randomSalePercent = 30 + Math.floor(Math.random() * 21);
       const tokensForSale = calculateSaleAmount(DEFAULT_LIVE_TOTAL_SUPPLY, randomSalePercent);
@@ -73,11 +74,11 @@ export const registerStaticLiveScenarios = () => {
       await runStaticLaunchAndVerify({
         configLabel: `STATIC V3 Random Split (${recipientCount} recipients, ${randomSalePercent}% market)`,
         salePercent: randomSalePercent,
-        allocations: {
-          mode: 'vest',
-          durationSeconds: 60 * 24 * 60 * 60,
-          recipients: allocations,
-        },
+        allocations: allocations.map((allocation, index) => ({
+          recipientAddress: allocation.address,
+          amount: allocation.amount,
+          durationSeconds: (60 + index * 30) * 24 * 60 * 60,
+        })),
         curveConfig: { type: 'preset', preset: 'medium' },
       });
     },
@@ -86,7 +87,7 @@ export const registerStaticLiveScenarios = () => {
 
   liveIt(
     'STATIC V3 Governance Enabled (Random Preset)',
-    ['static', 'governance'],
+    groups.staticGovernance,
     async () => {
       const presets: Array<'low' | 'medium' | 'high'> = ['low', 'medium', 'high'];
       const preset = presets[Math.floor(Math.random() * presets.length)]!;

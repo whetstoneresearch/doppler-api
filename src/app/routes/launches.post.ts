@@ -32,11 +32,11 @@ export const registerCreateLaunchRoute = async (
   launchService: LaunchService,
 ) => {
   fastify.post('/v1/launches', async (request, reply) => {
-    const payload = parseLaunchRequest(request.body);
     const rawKey = request.headers['idempotency-key'];
     const idempotencyKey = Array.isArray(rawKey) ? rawKey[0] : rawKey;
     const result = await launchService.createLaunchWithIdempotency({
-      input: payload,
+      rawInput: request.body,
+      parseInput: parseLaunchRequest,
       idempotencyKey,
     });
     if (result.replayed) {

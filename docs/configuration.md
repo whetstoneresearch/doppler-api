@@ -1,202 +1,130 @@
-# Configuration Reference
+# Configuration
 
-Runtime configuration is TypeScript-first:
+The service uses `doppler.config.ts` for typed, non-secret defaults and environment variables for secrets and runtime overrides. Copy `.env.example`, set the required values, and keep private keys and RPC URLs out of the TypeScript configuration.
 
-- Canonical non-secret settings live in `doppler.config.ts`.
-- Secrets and runtime overrides come from environment variables.
-- The template object in `doppler.config.ts` must satisfy `DopplerTemplateConfigV1`.
+Unless a row says otherwise, a blank value uses the documented default. Boolean runtime settings accept `1`, `true`, `yes`, `y`, or `on` and `0`, `false`, `no`, `n`, or `off`, case-insensitively. Unrecognized Boolean values fall back to the documented default.
 
-## Canonical typed config
+## Required
 
-Edit `doppler.config.ts` for:
+Every service instance requires:
 
-- EVM chain map and per-chain capabilities
-- default EVM chain selection
-- non-secret service defaults (port, logging, idempotency, pricing)
+| Variable | Default | Constraint |
+| --- | --- | --- |
+| `API_KEY` | None | Non-empty caller credential. It remains valid when `API_KEYS` adds more credentials. |
+| `PRIVATE_KEY` | None | EVM signer private key used to submit transactions. |
+| One named EVM RPC variable | None | At least one non-empty RPC variable from the named-chain table below must be set. |
 
-## Required environment variables
+The service rejects startup with `MISSING_ENV` when either required credential is absent and with `INVALID_ENV` when no named EVM RPC is configured.
 
-- `API_KEY`
-- `PRIVATE_KEY`
+## Optional core
 
-## Optional core environment overrides
+| Variable | Default | Constraint |
+| --- | --- | --- |
+| `API_KEYS` | Empty | Comma-separated additional caller credentials. Empty entries are removed and duplicate keys are deduplicated. |
+| `PORT` | `3000` | Positive number; invalid or non-positive values fall back to the default. |
+| `LOG_LEVEL` | `info` | Non-empty logger level. |
+| `CORS_ORIGINS` | Empty list | Comma-separated origins. |
+| `RATE_LIMIT_MAX` | `100` | Positive request count; invalid or non-positive values fall back to the default. |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | Positive window in milliseconds; invalid or non-positive values fall back to the default. |
+| `READY_RPC_TIMEOUT_MS` | `2000` | Positive RPC readiness timeout in milliseconds; invalid or non-positive values fall back to the default. |
+| `DEPLOYMENT_MODE` | `standalone` | `standalone` or `shared`. When it is unset and `NODE_ENV=production`, the effective mode is `shared`. |
+| `NODE_ENV` | Unset | `production` selects shared mode only when `DEPLOYMENT_MODE` is unset. |
 
-- `PORT`
-- `DEPLOYMENT_MODE`
-  - allowed: `standalone`, `shared`
-  - defaults to `shared` when `NODE_ENV=production` and no explicit mode is set
-- `DEFAULT_CHAIN_ID`
-- `RPC_URL`
-  - overrides the configured RPC only for `DEFAULT_CHAIN_ID`
-- `DEFAULT_NUMERAIRE_ADDRESS`
-  - overrides the configured numeraire only for `DEFAULT_CHAIN_ID`
-- `READY_RPC_TIMEOUT_MS`
-- `LOG_LEVEL`
-- `CORS_ORIGINS`
-- `API_KEYS`
-- `RATE_LIMIT_MAX`
-- `RATE_LIMIT_WINDOW_MS`
+`standalone` mode supports the file or Redis idempotency backend and may disable idempotency. `shared` mode requires `REDIS_URL`, `IDEMPOTENCY_ENABLED=true`, and `IDEMPOTENCY_BACKEND=redis`. It also requires an idempotency key on every create request regardless of `IDEMPOTENCY_REQUIRE_KEY`.
 
-## Idempotency environment variables
+## Named EVM chain RPCs
 
-- `IDEMPOTENCY_ENABLED`
-- `IDEMPOTENCY_BACKEND`
-  - allowed: `file`, `redis`
-- `IDEMPOTENCY_REQUIRE_KEY`
-  - forced to `true` when `DEPLOYMENT_MODE=shared`
-- `IDEMPOTENCY_TTL_MS`
-- `IDEMPOTENCY_STORE_PATH`
-- `IDEMPOTENCY_REDIS_LOCK_TTL_MS`
-- `IDEMPOTENCY_REDIS_LOCK_REFRESH_MS`
+Each non-empty RPC variable enables exactly one chain:
 
-Redis-backed idempotency writes `in_progress` markers for EVM flows and also persists Solana
-`IDEMPOTENCY_KEY_IN_DOUBT` results so retries fail closed with the original error details.
+| Chain        | Chain ID | Variable               | Default |
+| ------------ | -------: | ---------------------- | ------- |
+| Ethereum     |        1 | `ETHEREUM_RPC_URL`     | None    |
+| Monad        |      143 | `MONAD_RPC_URL`        | None    |
+| Robinhood    |     4663 | `ROBINHOOD_RPC_URL`    | None    |
+| Base         |     8453 | `BASE_RPC_URL`         | None    |
+| Base Sepolia |    84532 | `BASE_SEPOLIA_RPC_URL` | None    |
 
-## Pricing environment variables
+Any non-empty subset is valid. There is no generic RPC variable and no Base Sepolia or first-enabled-chain fallback.
 
-- `PRICE_ENABLED`
-- `PRICE_PROVIDER`
-- `PRICE_BASE_URL`
-- `PRICE_TIMEOUT_MS`
-- `PRICE_CACHE_TTL_MS`
-- `PRICE_API_KEY`
-- `PRICE_COINGECKO_ASSET_ID`
+| Variable | Default | Constraint |
+| --- | --- | --- |
+| `DEFAULT_CHAIN_ID` | None | Positive integer identifying a chain enabled by its named RPC. Requests to the shared EVM launch route may omit `chainId` only when this is set. |
+| `DEFAULT_NUMERAIRE_ADDRESS` | Chain configuration, then the Doppler SDK WETH address | Requires `DEFAULT_CHAIN_ID` and overrides the default numeraire only for that chain. A request's `pairing.numeraireAddress` takes precedence. |
 
-## Solana environment variables
+Without `DEFAULT_CHAIN_ID`, each EVM launch request must include `chainId`; omission returns `CHAIN_ID_REQUIRED`. A supported chain without its named RPC returns `CHAIN_NOT_CONFIGURED`.
 
-- `SOLANA_ENABLED`
-- `SOLANA_DEFAULT_NETWORK`
-  - allowed: `solanaDevnet`, `solanaMainnetBeta`
-  - this uses canonical internal names only
-- `SOLANA_DEVNET_RPC_URL`
-- `SOLANA_DEVNET_WS_URL`
-- `SOLANA_MAINNET_BETA_RPC_URL`
-  - optional scaffolded setting
-- `SOLANA_MAINNET_BETA_WS_URL`
-  - optional scaffolded setting
-- `SOLANA_KEYPAIR_PATH`
-  - path to a Solana CLI keypair file for the payer; preferred over inline secret-key bytes
-- `SOLANA_KEYPAIR`
-  - JSON array of 64 secret-key bytes for the payer; inline fallback when `SOLANA_KEYPAIR_PATH` is not set
-- `SOLANA_CONFIRM_TIMEOUT_MS`
-  - confirmation wait before returning `409 IDEMPOTENCY_KEY_IN_DOUBT`
-- `SOLANA_DEVNET_ALT_ADDRESS`
-  - optional devnet address lookup table reused during launch creation
-- `SOLANA_PRICE_MODE`
-  - allowed: `required`, `fixed`, `coingecko`
-- `SOLANA_FIXED_NUMERAIRE_PRICE_USD`
-  - required when `SOLANA_PRICE_MODE=fixed`
-- `SOLANA_COINGECKO_ASSET_ID`
-  - defaults to `solana`
+## Idempotency
 
-### Solana startup guardrails
+| Variable | Default | Constraint |
+| --- | --- | --- |
+| `IDEMPOTENCY_ENABLED` | `true` | Must be `true` in shared mode. |
+| `IDEMPOTENCY_BACKEND` | `file` | `file` or `redis`; shared mode requires `redis`. |
+| `IDEMPOTENCY_REQUIRE_KEY` | `false` | Requires callers to send an idempotency key in standalone mode. Shared mode always behaves as `true`. |
+| `IDEMPOTENCY_TTL_MS` | `86400000` | Positive record-retention duration in milliseconds; invalid or non-positive values fall back to the default. |
+| `IDEMPOTENCY_STORE_PATH` | `.data/idempotency-store.json` | Non-empty path used by the file backend. |
+| `IDEMPOTENCY_REDIS_LOCK_TTL_MS` | `900000` | Positive Redis lock TTL in milliseconds; invalid or non-positive values fall back to the default. |
+| `IDEMPOTENCY_REDIS_LOCK_REFRESH_MS` | `300000` | Positive refresh interval in milliseconds and strictly less than `IDEMPOTENCY_REDIS_LOCK_TTL_MS`. |
 
-When `SOLANA_ENABLED=true`, startup fails fast for static config errors:
+## Pricing
 
-- missing both `SOLANA_KEYPAIR_PATH` and `SOLANA_KEYPAIR`
-- missing `SOLANA_DEVNET_RPC_URL`
-- missing `SOLANA_DEVNET_WS_URL`
-- invalid `SOLANA_KEYPAIR_PATH` file or `SOLANA_KEYPAIR` format
-- ambiguous payer config when both `SOLANA_KEYPAIR_PATH` and `SOLANA_KEYPAIR` are set
-- invalid `SOLANA_DEFAULT_NETWORK`
-- invalid `SOLANA_PRICE_MODE`
-- missing `SOLANA_FIXED_NUMERAIRE_PRICE_USD` when `SOLANA_PRICE_MODE=fixed`
+These settings control optional automatic EVM numeraire pricing:
 
-### Solana runtime notes
+| Variable | Default | Constraint |
+| --- | --- | --- |
+| `PRICE_ENABLED` | `true` | When false, automatic provider resolution is unavailable; request-level pricing may still be supplied. |
+| `PRICE_PROVIDER` | `coingecko` | `coingecko` or `none`. `none` disables provider resolution. |
+| `PRICE_BASE_URL` | `https://api.coingecko.com/api/v3` | Non-empty provider base URL. |
+| `PRICE_TIMEOUT_MS` | `3000` | Positive provider timeout in milliseconds; invalid or non-positive values fall back to the default. |
+| `PRICE_CACHE_TTL_MS` | `15000` | Positive in-memory cache TTL in milliseconds; invalid or non-positive values fall back to the default. |
+| `PRICE_API_KEY` | None | Optional provider API key. |
+| `PRICE_COINGECKO_ASSET_ID` | `ethereum` | Non-empty CoinGecko asset ID used for the configured default EVM numeraire. |
 
-- Only `solanaDevnet` is executable in this API profile.
-- `solanaMainnetBeta` is scaffolded in config and capabilities but returns `501 SOLANA_NETWORK_UNSUPPORTED`.
-- WSOL is the only supported Solana numeraire.
-- Launch creation reuses `SOLANA_DEVNET_ALT_ADDRESS` when configured. If the signed transaction exceeds Solana's packet limit, creation builds a launch-specific lookup table and rebuilds the transaction before simulation.
-- Solana RPC requests retry HTTP `429` responses up to five total attempts with bounded exponential backoff.
-- Solana price resolution precedence is:
-  1. request `pricing.numerairePriceUsd`
-  2. `SOLANA_FIXED_NUMERAIRE_PRICE_USD`
-  3. CoinGecko using `SOLANA_COINGECKO_ASSET_ID`
-  4. otherwise `422 SOLANA_NUMERAIRE_PRICE_REQUIRED`
+## Redis
 
-## Live test environment variables
+| Variable | Default | Constraint |
+| --- | --- | --- |
+| `REDIS_URL` | None | Required in shared mode and whenever `IDEMPOTENCY_BACKEND=redis`. Shared mode also uses Redis for rate limiting and signer nonce locks. |
+| `REDIS_KEY_PREFIX` | `doppler-api` | Non-empty namespace shared by replicas that coordinate with one another. |
 
-- `LIVE_TEST_ENABLE`
-- `LIVE_TEST_VERBOSE`
-- `LIVE_NUMERAIRE_PRICE_USD`
-- `LIVE_TEST_MIN_BALANCE_ETH`
-- `LIVE_TEST_ESTIMATED_TX_COST_ETH`
-- `LIVE_TEST_ESTIMATED_OVERHEAD_ETH`
-- `LIVE_TEST_MIN_BALANCE_SOL`
-- `LIVE_TEST_ESTIMATED_TX_COST_SOL`
-- `LIVE_TEST_ESTIMATED_OVERHEAD_SOL`
+## Solana
 
-### Solana live test notes
+Solana configuration is independent of EVM configuration and does not satisfy the named EVM RPC requirement.
 
-- `npm run test:live:solana` runs the full Solana devnet matrix.
-- `npm run test:live:solana:devnet` is an explicit devnet alias.
-- `npm run test:live:solana:defaults` runs the LOW/MEDIUM/HIGH default-range coverage.
-- `npm run test:live:solana:fees` runs the custom fee-beneficiary coverage.
-- `npm run test:live:solana:cpmm` runs the fixed and randomized CPMM reserve-split coverage.
-- `npm run test:live:solana:no-migration` runs launches that omit migration criteria and assert the system-program migrator path.
-- `npm run test:live:solana:random` runs randomized Solana parameter coverage.
-- `npm run test:live:solana:cosigner` runs Doppler launch hook v1 managed-cosigner coverage.
-- `npm run test:live:solana:failing` runs Solana route/policy failures without submitting launches.
-- Set `LIVE_TEST_VERBOSE=true` for full per-launch output instead of the concise summary mode.
-- Successful Solana live scenarios retry transient `SOLANA_NOT_READY` and `SOLANA_SUBMISSION_FAILED` create responses once after 10 seconds.
-- The Solana readiness gate estimates required payer balance in SOL; override it with `LIVE_TEST_MIN_BALANCE_SOL` or tune the per-launch estimate with `LIVE_TEST_ESTIMATED_TX_COST_SOL` and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL`.
-- Solana live create filters require `SOLANA_DEVNET_ALT_ADDRESS` so transactions that fit reuse a deployed lookup table. Oversized launch combinations create a launch-specific fallback table.
-- Solana live parity covers supported XYK/create behavior, including Doppler launch hook v1 launches with managed cosigner gating. Governance, vesting/vault locks, and static/dynamic EVM auction engines are intentionally excluded from Solana because the Solana API profile does not support those features.
+| Variable | Default | Constraint |
+| --- | --- | --- |
+| `SOLANA_ENABLED` | `false` | Enables Solana launch handling. |
+| `SOLANA_DEFAULT_NETWORK` | `solanaDevnet` | `solanaDevnet` or `solanaMainnetBeta`; only devnet execution is currently supported. |
+| `SOLANA_DEVNET_RPC_URL` | `https://api.devnet.solana.com` | Must be explicitly non-empty when Solana is enabled. |
+| `SOLANA_DEVNET_WS_URL` | `wss://api.devnet.solana.com` | Must be explicitly non-empty when Solana is enabled. |
+| `SOLANA_MAINNET_BETA_RPC_URL` | None | Reserved for Mainnet Beta; Mainnet Beta execution is not supported. |
+| `SOLANA_MAINNET_BETA_WS_URL` | None | Reserved for Mainnet Beta; Mainnet Beta execution is not supported. |
+| `SOLANA_KEYPAIR_PATH` | None | Preferred payer input: path to a Solana CLI keypair file. Mutually exclusive with `SOLANA_KEYPAIR`. |
+| `SOLANA_KEYPAIR` | None | Inline payer fallback: JSON array of exactly 64 integer secret-key bytes, each from 0 through 255. Mutually exclusive with `SOLANA_KEYPAIR_PATH`; one payer input is required when Solana is enabled. |
+| `SOLANA_CONFIRM_TIMEOUT_MS` | `60000` | Positive integer confirmation timeout in milliseconds; invalid values fail startup. |
+| `SOLANA_DEVNET_ALT_ADDRESS` | None | Optional devnet address lookup table reused when the transaction fits. Oversized transactions fall back to a launch-specific lookup table. |
+| `SOLANA_PRICE_MODE` | `required` | `required`, `fixed`, or `coingecko`. `required` expects request pricing; `fixed` uses the configured fixed price; `coingecko` resolves the configured asset. |
+| `SOLANA_FIXED_NUMERAIRE_PRICE_USD` | None | Positive number. Required when Solana is enabled with `SOLANA_PRICE_MODE=fixed`. |
+| `SOLANA_COINGECKO_ASSET_ID` | `solana` | Non-empty CoinGecko asset ID used in `coingecko` mode. |
 
-## Multichain EVM configuration
+Solana request fee routing uses `feeBeneficiaries`. It does not change the EVM fee-routing contract.
 
-Define EVM chains directly in `doppler.config.ts`:
+Solana RPC requests retry HTTP `429` responses up to five total attempts with bounded exponential backoff. A signed launch that remains larger than the Solana packet limit after launch-specific lookup-table compression returns `422 SOLANA_TRANSACTION_TOO_LARGE`.
 
-```ts
-chains: {
-  84532: {
-    rpcUrl: 'https://your-base-sepolia-rpc',
-    defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
-    auctionTypes: ['multicurve', 'dynamic'],
-    migrationModes: ['noOp', 'uniswapV2', 'uniswapV4'],
-    governanceModes: ['noOp', 'default'],
-    governanceEnabled: true,
-  },
-  8453: {
-    rpcUrl: 'https://your-base-mainnet-rpc',
-    defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
-    auctionTypes: ['multicurve'],
-    migrationModes: ['noOp'],
-    governanceModes: ['noOp', 'default'],
-    governanceEnabled: true,
-  },
-}
-```
+## Live tests
 
-### EVM notes
+These variables configure the onchain live suite and are not service runtime settings:
 
-- Keys must be numeric chain IDs.
-- `DEFAULT_CHAIN_ID` must reference an existing configured EVM chain.
-- `launchId` is `<chainId>:<txHash>` for EVM launches.
-- `RPC_URL` only overrides the default chain's RPC.
-- `uniswapV3` migration is not supported and returns `501 MIGRATION_NOT_IMPLEMENTED`.
+| Variable | Default | Constraint |
+| --- | --- | --- |
+| `LIVE_TEST_ENABLE` | `false` | The literal string `true` enables live scenarios. `npm run test:live` and `npm run test:all` set it for the live suite. |
+| `LIVE_TEST_VERBOSE` | `false` | The literal string `true` enables verbose live output. |
+| `LIVE_TEST_FILTER` | `all` | `all`, `static`, `dynamic`, `uniswap-v2`, `uniswap-v4`, `multicurve`, `multicurve-defaults`, `fees`, `governance`, `negative`, `solana`, or a documented `solana-*` script filter. `all` runs EVM scenarios, not Solana scenarios. |
+| `LIVE_NUMERAIRE_PRICE_USD` | `3000` | Numeric USD fixture used by EVM live launch inputs. |
+| `LIVE_TEST_MIN_BALANCE_ETH` | Derived estimate | Optional non-negative ETH balance override. When set, it replaces the transaction-count estimate. |
+| `LIVE_TEST_ESTIMATED_TX_COST_ETH` | `0.000133333333333333` | Non-negative ETH amount used per estimated EVM launch when no minimum-balance override is set. |
+| `LIVE_TEST_ESTIMATED_OVERHEAD_ETH` | `0.000133333333333333` | Non-negative ETH overhead added when no minimum-balance override is set. |
+| `LIVE_TEST_MIN_BALANCE_SOL` | Derived estimate | Optional non-negative SOL balance override with at most nine decimal places. When set, it replaces the transaction-count estimate. |
+| `LIVE_TEST_ESTIMATED_TX_COST_SOL` | `0.025` | Non-negative SOL amount with at most nine decimal places, used per estimated Solana launch when no minimum-balance override is set. |
+| `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` | `0.01` | Non-negative SOL amount with at most nine decimal places, added when no minimum-balance override is set. |
 
-## Redis environment variables
-
-- `REDIS_URL`
-- `REDIS_KEY_PREFIX`
-
-## Deployment mode guidance
-
-- `standalone`: one API instance owns its own local state.
-- `shared`: multiple API instances coordinate through Redis.
-
-When `DEPLOYMENT_MODE=standalone`:
-
-- Redis is optional.
-- File-backed idempotency is the default.
-
-When `DEPLOYMENT_MODE=shared`:
-
-- `REDIS_URL` is required.
-- `IDEMPOTENCY_ENABLED` must be `true`.
-- `IDEMPOTENCY_BACKEND` must be `redis`.
-- create endpoints require `Idempotency-Key`.
-- rate-limiter state uses Redis for cross-replica consistency.
-- startup fails fast if Redis cannot be reached.
+EVM live filters require `DEFAULT_CHAIN_ID` and its named RPC plus the signer configuration. Solana live filters require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR_PATH` or `SOLANA_KEYPAIR`, and devnet endpoints. They also require `SOLANA_DEVNET_ALT_ADDRESS`, except for `solana-failing`. Successful Solana live scenarios retry transient `SOLANA_NOT_READY` and `SOLANA_SUBMISSION_FAILED` create responses once after 10 seconds.

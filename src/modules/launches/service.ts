@@ -17,6 +17,19 @@ import { createMulticurveLaunch } from '../auctions/multicurve/service';
 import { createStaticLaunch } from '../auctions/static/service';
 import { SolanaLaunchService, type CreateSolanaLaunchRequestInput } from './solana';
 
+type ParsedLaunchInput = CreateLaunchRequestInput | CreateSolanaLaunchRequestInput;
+
+type CreateLaunchWithIdempotencyArgs =
+  | {
+      readonly input: ParsedLaunchInput;
+      readonly idempotencyKey?: string;
+    }
+  | {
+      readonly rawInput: unknown;
+      readonly parseInput: (input: unknown) => ParsedLaunchInput;
+      readonly idempotencyKey?: string;
+    };
+
 interface LaunchServiceDeps {
   chainRegistry: ChainRegistry;
   sdkRegistry: DopplerSdkRegistry;
@@ -47,11 +60,20 @@ export class LaunchService {
   }
 
   private async createLaunchInternal(
-    input: CreateLaunchRequestInput | CreateSolanaLaunchRequestInput,
+    input: ParsedLaunchInput,
     idempotencyKey?: string,
   ): Promise<CreateAnyLaunchResponse> {
     if ('network' in input) {
       return this.solanaLaunchService.createLaunch(input, idempotencyKey);
+    }
+
+    const balanceLimitEnd = input.tokenMetadata.balanceLimitEnd;
+    if (balanceLimitEnd !== undefined && balanceLimitEnd <= Math.floor(Date.now() / 1_000)) {
+      throw new AppError(
+        422,
+        'INVALID_TOKEN_CONFIG',
+        'tokenMetadata.balanceLimitEnd must be a future Unix timestamp',
+      );
     }
 
     const chain = this.chainRegistry.get(input.chainId);
@@ -99,10 +121,9 @@ export class LaunchService {
     return this.createLaunchInternal(input) as Promise<CreateLaunchResponse>;
   }
 
-  async createLaunchWithIdempotency(args: {
-    input: CreateLaunchRequestInput | CreateSolanaLaunchRequestInput;
-    idempotencyKey?: string;
-  }): Promise<{ response: CreateAnyLaunchResponse; replayed: boolean }> {
+  async createLaunchWithIdempotency(
+    args: CreateLaunchWithIdempotencyArgs,
+  ): Promise<{ response: CreateAnyLaunchResponse; replayed: boolean }> {
     const key = args.idempotencyKey?.trim();
     if (this.requireIdempotencyKey && !key) {
       throw new AppError(
@@ -112,13 +133,18 @@ export class LaunchService {
       );
     }
 
+    const payload = 'rawInput' in args ? args.rawInput : args.input;
+    const createLaunch = () =>
+      this.createLaunchInternal(
+        'rawInput' in args ? args.parseInput(args.rawInput) : args.input,
+        key,
+      );
+
     if (!key) {
-      const response = await this.createLaunchInternal(args.input);
+      const response = await createLaunch();
       return { response, replayed: false };
     }
 
-    return this.idempotencyStore.execute(key, args.input, () =>
-      this.createLaunchInternal(args.input, key),
-    );
+    return this.idempotencyStore.execute(key, payload, createLaunch);
   }
 }

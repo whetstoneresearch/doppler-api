@@ -26,6 +26,14 @@ export interface ChainRuntimeConfig {
   governanceEnabled: boolean;
 }
 
+const CHAIN_RPC_ENVIRONMENTS = [
+  { chainId: 1, rpcEnvVar: 'ETHEREUM_RPC_URL' },
+  { chainId: 143, rpcEnvVar: 'MONAD_RPC_URL' },
+  { chainId: 4663, rpcEnvVar: 'ROBINHOOD_RPC_URL' },
+  { chainId: 8453, rpcEnvVar: 'BASE_RPC_URL' },
+  { chainId: 84532, rpcEnvVar: 'BASE_SEPOLIA_RPC_URL' },
+] as const;
+
 export interface SolanaRuntimeConfig {
   enabled: boolean;
   defaultNetwork: SolanaNetwork;
@@ -46,7 +54,7 @@ export interface AppConfig {
   deploymentMode: DeploymentMode;
   apiKey: string;
   apiKeys: string[];
-  defaultChainId: number;
+  defaultChainId: number | null;
   chains: Record<number, ChainRuntimeConfig>;
   privateKey: `0x${string}`;
   logLevel: string;
@@ -287,33 +295,33 @@ const parseOptionalStringArray = (value: string | undefined): string[] | undefin
 const resolveTemplateChains = (
   template: DopplerTemplateConfigV1,
 ): Record<number, ChainRuntimeConfig> => {
-  const entries = Object.entries(template.chains);
-  if (entries.length === 0) {
+  if (Object.keys(template.chains).length === 0) {
     throw new AppError(500, 'INVALID_ENV', 'doppler.config.ts must define at least one chain');
   }
 
   const mapped: Record<number, ChainRuntimeConfig> = {};
-  for (const [chainIdStr, value] of entries) {
-    const chainId = Number(chainIdStr);
-    if (!Number.isInteger(chainId) || chainId <= 0) {
+  for (const { chainId, rpcEnvVar } of CHAIN_RPC_ENVIRONMENTS) {
+    const value = template.chains[chainId];
+    if (!value) {
+      continue;
+    }
+
+    if (value.rpcEnvVar !== rpcEnvVar) {
       throw new AppError(
         500,
         'INVALID_ENV',
-        `Invalid chainId key in doppler.config.ts: ${chainIdStr}`,
+        `Chain ${chainId} must use ${rpcEnvVar} in doppler.config.ts`,
       );
     }
 
-    if (!value.rpcUrl || value.rpcUrl.trim() === '') {
-      throw new AppError(
-        500,
-        'INVALID_ENV',
-        `Missing rpcUrl for chain ${chainId} in doppler.config.ts`,
-      );
+    const rpcUrl = process.env[rpcEnvVar]?.trim();
+    if (!rpcUrl) {
+      continue;
     }
 
     mapped[chainId] = {
       chainId,
-      rpcUrl: value.rpcUrl,
+      rpcUrl,
       defaultNumeraireAddress: value.defaultNumeraireAddress as `0x${string}` | undefined,
       auctionTypes: value.auctionTypes,
       migrationModes: value.migrationModes,
@@ -322,7 +330,25 @@ const resolveTemplateChains = (
     };
   }
 
+  if (Object.keys(mapped).length === 0) {
+    throw new AppError(500, 'INVALID_ENV', 'No chain-specific RPC URL is configured');
+  }
+
   return mapped;
+};
+
+const resolveDefaultChainId = (): number | null => {
+  const explicitDefaultChainId = process.env.DEFAULT_CHAIN_ID?.trim();
+  if (!explicitDefaultChainId) {
+    return null;
+  }
+
+  const chainId = Number(explicitDefaultChainId);
+  if (!Number.isInteger(chainId) || chainId <= 0) {
+    throw new AppError(500, 'INVALID_ENV', 'DEFAULT_CHAIN_ID must be a positive integer');
+  }
+
+  return chainId;
 };
 
 export const loadConfig = (): AppConfig => {
@@ -356,31 +382,27 @@ export const loadConfig = (): AppConfig => {
     throw new AppError(500, 'MISSING_ENV', 'PRIVATE_KEY is required');
   }
 
-  const defaultChainId = parseInteger(process.env.DEFAULT_CHAIN_ID, template.defaultChainId);
   const chains = resolveTemplateChains(template);
+  const defaultChainId = resolveDefaultChainId();
+  const defaultChain = defaultChainId === null ? undefined : chains[defaultChainId];
 
-  if (!chains[defaultChainId]) {
+  if (defaultChainId !== null && !defaultChain) {
     throw new AppError(
       500,
       'INVALID_ENV',
-      `DEFAULT_CHAIN_ID ${defaultChainId} is not configured in doppler.config.ts`,
+      `DEFAULT_CHAIN_ID ${defaultChainId} does not have a configured named RPC URL`,
     );
-  }
-
-  const rpcUrlOverride = process.env.RPC_URL?.trim();
-  if (rpcUrlOverride) {
-    chains[defaultChainId] = {
-      ...chains[defaultChainId],
-      rpcUrl: rpcUrlOverride,
-    };
   }
 
   const defaultNumeraireAddressOverride = process.env.DEFAULT_NUMERAIRE_ADDRESS as
     | `0x${string}`
     | undefined;
   if (defaultNumeraireAddressOverride) {
+    if (defaultChainId === null || !defaultChain) {
+      throw new AppError(500, 'INVALID_ENV', 'DEFAULT_NUMERAIRE_ADDRESS requires DEFAULT_CHAIN_ID');
+    }
     chains[defaultChainId] = {
-      ...chains[defaultChainId],
+      ...defaultChain,
       defaultNumeraireAddress: defaultNumeraireAddressOverride,
     };
   }

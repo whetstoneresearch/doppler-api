@@ -1,624 +1,164 @@
 # Doppler API
 
-TypeScript REST API for creating Doppler launches.
+A self-hosted TypeScript REST API for creating and monitoring Doppler token launches without embedding the Doppler SDK. It supports EVM launches across configured chains, an optional Solana launch surface, durable idempotency, and health and metrics endpoints for production operation.
 
-## Disclaimer
+## Run locally
 
-This project is in active development & not ready for production use.
-
-## Endpoints
-
-- `POST /v1/launches`
-- `POST /v1/solana/launches`
-- `GET /v1/solana/launches/:launchAddress`
-- `POST /v1/launches/multicurve` (alias)
-- `POST /v1/launches/static` (alias)
-- `POST /v1/launches/dynamic` (alias)
-- `GET /v1/launches/:launchId`
-- `GET /v1/capabilities`
-- `GET /metrics`
-- `GET /health`
-- `GET /ready`
-
-Auth model:
-
-- `x-api-key` is required on all endpoints except `GET /health`.
-
-## Error behavior
-
-- Error envelope shape: `{ "error": { "code", "message", "details?" } }`
-- Rate limiting returns `429` with code `RATE_LIMITED`.
-- `GET /health` rate limits are keyed by client IP; spoofed `x-api-key` values do not create new buckets.
-- `5xx` responses always return a generic client message: `"Internal server error"`.
-  Inspect server logs and correlate by `x-request-id` for full diagnostics.
-
-## Quick start
+Requirements: Node.js 22 and npm 10.
 
 ```bash
 npm install
 cp .env.example .env
+```
+
+Set `API_KEY`, `PRIVATE_KEY`, and at least one named EVM RPC URL in `.env`. The following example uses `BASE_SEPOLIA_RPC_URL` and chain ID `84532`. Start the development server:
+
+```bash
 npm run dev
 ```
 
-## Configuration model
+The API listens on `http://localhost:3000` by default.
 
-- `doppler.config.ts` is the canonical source for non-secret runtime settings.
-- Environment variables override typed settings at runtime.
-- Required secrets remain in env: `API_KEY`, `PRIVATE_KEY` (and `REDIS_URL` when needed).
-- The template object is type-checked via `DopplerTemplateConfigV1`; config shape drift fails build/typecheck.
+## Create a multicurve launch
 
-## Current target feature set
+This quick-start sends a minimal multicurve request to the shared EVM launch route. Multicurve launches require the flattened Rehype initializer shown below. Set the request's addresses for your launch, and use an enabled `chainId`.
 
-- Auction types:
-  - `multicurve` (recommended default on V4-capable networks)
-  - `dynamic` (for higher-value assets that need maximally capital-efficient price discovery; supports `migration.type="uniswapV2"` or `migration.type="uniswapV4"` in this API profile)
-  - `static` (Uniswap V3 static launch with lockable beneficiaries; compatibility fallback for networks without Uniswap V4 support)
-- Multicurve initializer modes:
-  - `standard` (implemented via scheduled initializer with `startTime=0`)
-  - `scheduled` (`startTime` required)
-  - `decay` (`startFee`, `durationSeconds`, optional `startTime`)
-  - `rehype` (hook-based initializer config)
-- Migration modes:
-  - `noOp` for multicurve/static
-  - `uniswapV2` and `uniswapV4` for dynamic
-  - `uniswapV3` is not supported and returns `501 MIGRATION_NOT_IMPLEMENTED`
-- Solana:
-  - create via `POST /v1/solana/launches`
-  - read launch account state via `GET /v1/solana/launches/:launchAddress`
-  - `POST /v1/launches` also accepts Solana when `network` is `solanaDevnet` or `solanaMainnetBeta`
-  - only `solanaDevnet` is executable
-  - only WSOL is supported as numeraire
-  - strict request shape; unsupported EVM-only fields are rejected
-- Governance: `enabled=false` is the active profile, eg. `noOp`
-- Token allocation profile:
-  - Default: 100% of `totalSupply` is allocated to the multicurve market.
-  - Optional: set `economics.tokensForSale` to allocate less to the market.
-  - Remainder (`totalSupply - tokensForSale`) is allocated to non-market allocation recipients.
-  - Optional: set `economics.allocations.recipients` (max 10 unique recipients) to split the non-market remainder.
-- Multicurve design reference: [Doppler Multicurve whitepaper](https://doppler.lol/multicurve.pdf).
-- Guidance: prefer `multicurve` whenever the target chain has Uniswap V4 support. Use `static` only when V4 is unavailable.
-
-## Scope and roadmap
-
-- This API profile is at feature parity with the other Doppler launch APIs for the supported launch flows.
-
-## Launch ID format
-
-- EVM: `<chainId>:<txHash>`
-- Solana: base58 launch PDA
-
-Examples:
-
-- `84532:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
-- `8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP`
-
-## Create launch example
-
-### Request
-
-```http
-POST /v1/launches
-x-api-key: <API_KEY>
-Idempotency-Key: <UNIQUE_KEY>
-content-type: application/json
-```
-
-```json
-{
-  "chainId": 84532,
-  "userAddress": "0x1111111111111111111111111111111111111111",
-  "integrationAddress": "0x1111111111111111111111111111111111111111",
-  "tokenMetadata": {
-    "name": "My Token",
-    "symbol": "MTK",
-    "tokenURI": "ipfs://my-token-metadata"
-  },
-  "economics": {
-    "totalSupply": "1000000000000000000000000",
-    "tokensForSale": "800000000000000000000000",
-    "allocations": {
-      "recipients": [
-        {
-          "address": "0x1111111111111111111111111111111111111111",
-          "amount": "100000000000000000000000"
-        },
-        {
-          "address": "0x2222222222222222222222222222222222222222",
-          "amount": "100000000000000000000000"
-        }
-      ],
-      "mode": "vest",
-      "durationSeconds": 7776000
-    }
-  },
-  "pricing": {
-    "numerairePriceUsd": 3000
-  },
-  "governance": {
-    "enabled": false,
-    "mode": "noOp"
-  },
-  "migration": {
-    "type": "noOp"
-  },
-  "auction": {
-    "type": "multicurve",
-    "curveConfig": {
-      "type": "preset",
-      "presets": ["low", "medium", "high"]
+```bash
+curl --request POST 'http://localhost:3000/v1/launches' \
+  --header 'content-type: application/json' \
+  --header 'x-api-key: replace-with-api-key' \
+  --header 'Idempotency-Key: rehype-quick-start-1' \
+  --data '{
+    "chainId": 84532,
+    "userAddress": "0x1111111111111111111111111111111111111111",
+    "tokenMetadata": {
+      "name": "Example Token",
+      "symbol": "EXAMPLE",
+      "tokenURI": "ipfs://example-token"
     },
-    "initializer": {
-      "type": "standard"
-    }
-  }
-}
-```
-
-## Solana create example
-
-### Request
-
-```http
-POST /v1/solana/launches
-x-api-key: <API_KEY>
-Idempotency-Key: <UNIQUE_KEY>
-content-type: application/json
-```
-
-```json
-{
-  "network": "devnet",
-  "tokenMetadata": {
-    "name": "My Solana Token",
-    "symbol": "MSOL",
-    "tokenURI": "ipfs://my-solana-token"
-  },
-  "economics": {
-    "totalSupply": "1000000000"
-  },
-  "pricing": {
-    "numerairePriceUsd": 150
-  },
-  "governance": false,
-  "migration": {
-    "type": "none"
-  },
-  "auction": {
-    "type": "xyk",
-    "curveConfig": {
-      "type": "range",
-      "marketCapStartUsd": 100,
-      "marketCapEndUsd": 1000
+    "economics": {
+      "totalSupply": "1000000000000000000000000"
     },
-    "swapFeeBps": 25,
-    "allowBuy": true,
-    "allowSell": true
-  }
-}
-```
-
-## Deployment modes and Redis
-
-This repo currently supports two runtime modes:
-
-- `standalone`: one API instance owns its own local state and does not need cross-instance coordination.
-- `shared`: multiple API instances can serve the same workload safely by coordinating through Redis.
-
-- Single-instance / standalone (`DEPLOYMENT_MODE=standalone`)
-  - This is the default typed config mode and the simplest way to run the API.
-  - `IDEMPOTENCY_BACKEND=file` is the default.
-  - Redis is optional.
-  - Good fit for one API instance, one signer, and a durable local filesystem.
-  - Redis is still recommended if you want stronger idempotency recovery around crashes/restarts.
-- Shared / multi-instance (`DEPLOYMENT_MODE=shared`)
-  - Intended for horizontally scaled or production-style shared deployments.
-  - `REDIS_URL` is required.
-  - `IDEMPOTENCY_BACKEND` must be `redis`.
-  - Create endpoints always require `Idempotency-Key` (`IDEMPOTENCY_REQUIRE_KEY=true` is enforced).
-  - Rate-limit state is Redis-backed for cross-replica consistency.
-  - Nonce submission uses a Redis-backed distributed signer lock for cross-replica coordination.
-  - Redis-backed idempotency writes an `in_progress` marker before tx submit to close crash/restart duplicate windows.
-  - Retries against a stuck `in_progress` marker fail closed with `409 IDEMPOTENCY_KEY_IN_DOUBT`; verify launch status before attempting a new key.
-  - Redis in-flight lock uses a heartbeat; tune `IDEMPOTENCY_REDIS_LOCK_TTL_MS` to exceed max expected create duration.
-
-`NODE_ENV=production` with no explicit `DEPLOYMENT_MODE` resolves to `shared`, so Redis becomes required in that case.
-
-### Redis guidance
-
-- Optional: single-instance / standalone deployments that use file-backed idempotency.
-- Recommended: any deployment that wants stronger crash/restart recovery for create requests, even with one instance.
-- Required: any shared deployment, multi-replica deployment, or any setup that explicitly sets `IDEMPOTENCY_BACKEND=redis`.
-
-## Curve configuration examples
-
-### Multicurve explicit ranges (non-preset)
-
-Use this when you want deterministic, non-default market-cap bands instead of presets.
-
-```json
-{
-  "auction": {
-    "type": "multicurve",
-    "curveConfig": {
-      "type": "ranges",
-      "fee": 15000,
-      "tickSpacing": 300,
-      "curves": [
-        {
-          "marketCapStartUsd": 100,
-          "marketCapEndUsd": 10000,
-          "numPositions": 11,
-          "sharesWad": "200000000000000000"
-        },
-        {
-          "marketCapStartUsd": 10000,
-          "marketCapEndUsd": 100000,
-          "numPositions": 11,
-          "sharesWad": "300000000000000000"
-        },
-        {
-          "marketCapStartUsd": 100000,
-          "marketCapEndUsd": "max",
-          "numPositions": 11,
-          "sharesWad": "500000000000000000"
-        }
-      ]
-    }
-  }
-}
-```
-
-### Static explicit range (starts at $100)
-
-Use this only for the static fallback path.
-
-```json
-{
-  "auction": {
-    "type": "static",
-    "curveConfig": {
-      "type": "range",
-      "marketCapStartUsd": 100,
-      "marketCapEndUsd": 100000
-    }
-  }
-}
-```
-
-### Dynamic explicit range (starts at $100, uniswapV2 migration)
-
-Use this for the V4 dynamic flow. Dynamic exits/migrates when `maxProceeds` is reached, or at auction end when `minProceeds` is satisfied.
-Dynamic is intended for assets with well-known value that benefit from maximally capital-efficient price discovery.
-
-```json
-{
-  "migration": {
-    "type": "uniswapV2"
-  },
-  "auction": {
-    "type": "dynamic",
-    "curveConfig": {
-      "type": "range",
-      "marketCapStartUsd": 100,
-      "marketCapMinUsd": 50,
-      "minProceeds": "0.01",
-      "maxProceeds": "0.1",
-      "durationSeconds": 86400
-    }
-  }
-}
-```
-
-### Success response (`200`)
-
-```json
-{
-  "launchId": "84532:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "chainId": 84532,
-  "txHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "statusUrl": "/v1/launches/84532:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "predicted": {
-    "tokenAddress": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "poolId": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    "gasEstimate": "12500000"
-  },
-  "effectiveConfig": {
-    "tokensForSale": "800000000000000000000000",
-    "allocationAmount": "200000000000000000000000",
-    "allocationRecipient": "0x1111111111111111111111111111111111111111",
-    "allocationRecipients": [
-      {
-        "address": "0x1111111111111111111111111111111111111111",
-        "amount": "100000000000000000000000"
+    "pricing": {
+      "numerairePriceUsd": 2500
+    },
+    "auction": {
+      "type": "multicurve",
+      "curveConfig": {
+        "type": "preset",
+        "presets": ["medium"]
       },
-      {
-        "address": "0x2222222222222222222222222222222222222222",
-        "amount": "100000000000000000000000"
+      "initializer": {
+        "startFee": 3000,
+        "feeDistributionInfo": {
+          "assetFeesToAssetBuybackWad": "250000000000000000",
+          "assetFeesToNumeraireBuybackWad": "250000000000000000",
+          "assetFeesToBeneficiaryWad": "250000000000000000",
+          "assetFeesToLpWad": "250000000000000000",
+          "numeraireFeesToAssetBuybackWad": "250000000000000000",
+          "numeraireFeesToNumeraireBuybackWad": "250000000000000000",
+          "numeraireFeesToBeneficiaryWad": "250000000000000000",
+          "numeraireFeesToLpWad": "250000000000000000"
+        },
+        "buybackDestination": "0x2222222222222222222222222222222222222222"
       }
-    ],
-    "allocationLockMode": "vest",
-    "allocationLockDurationSeconds": 7776000,
-    "numeraireAddress": "0x4200000000000000000000000000000000000006",
-    "numerairePriceUsd": 3000,
-    "feeBeneficiariesSource": "default"
-  }
-}
-```
-
-### Solana success response (`200`)
-
-```json
-{
-  "launchId": "8BD7a7kU4sASQ17S1X4Lw52dQWxwM8C2Y3jD7xA8fDzP",
-  "network": "solanaDevnet",
-  "signature": "5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J",
-  "explorerUrl": "https://explorer.solana.com/tx/5M7wVJf4t1A6sM97CG8PcHqx6LwH7qQ6B27vZ37h7uPj7m9Yx4mQnBn1HX9gD4FVyMPRZ4Jrped1ZSmHgkmHGW4J?cluster=devnet",
-  "predicted": {
-    "tokenAddress": "6QWeT6FpJrm8AF1btu6WH2k2Xhq6t5vbheKVfQavmeoZ",
-    "launchAuthorityAddress": "E7Ud4m8S7fC2YdUQdL7p9V2sRrMfQjQ9fA5spuR4T9gQ",
-    "launchFeeStateAddress": "F7Ud4m8S7fC2YdUQdL7p9V2sRrMfQjQ9fA5spuR4T9gR",
-    "baseVaultAddress": "9xQeWvG816bUx9EPjHmaT23yvVMHh2eHq9cYqB9Yg6xT",
-    "quoteVaultAddress": "J1veWvV6BF8L7rN8D66zCFAaj6MqFmoVoeAQMtkP8dwF"
-  },
-  "effectiveConfig": {
-    "tokensForSale": "1000000000",
-    "allocationAmount": "0",
-    "baseForDistribution": "0",
-    "baseForLiquidity": "0",
-    "allocationLockMode": "none",
-    "numeraireAddress": "So11111111111111111111111111111111111111112",
-    "numerairePriceUsd": 150,
-    "curveVirtualBase": "1000000000",
-    "curveVirtualQuote": "100000000",
-    "curveFeeBps": 25,
-    "swapFeeBps": 25,
-    "feeBeneficiariesSource": "default",
-    "feeBeneficiaries": [],
-    "allowBuy": true,
-    "allowSell": true,
-    "tokenDecimals": 6
-  }
-}
-```
-
-## Status examples
-
-### Pending (`200`)
-
-```json
-{
-  "launchId": "84532:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "chainId": 84532,
-  "txHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "status": "pending",
-  "confirmations": 0
-}
-```
-
-### Confirmed (`200`)
-
-```json
-{
-  "launchId": "84532:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "chainId": 84532,
-  "txHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "status": "confirmed",
-  "confirmations": 2,
-  "result": {
-    "tokenAddress": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "poolOrHookAddress": "0xdddddddddddddddddddddddddddddddddddddddd",
-    "poolId": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    "blockNumber": "12345678"
-  }
-}
-```
-
-### Reverted (`200`)
-
-```json
-{
-  "launchId": "84532:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "chainId": 84532,
-  "txHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "status": "reverted",
-  "confirmations": 1,
-  "error": {
-    "code": "TX_REVERTED",
-    "message": "Transaction reverted on-chain"
-  }
-}
-```
-
-## Capabilities example
-
-### `GET /v1/capabilities` (`200`)
-
-```json
-{
-  "defaultChainId": 84532,
-  "pricing": {
-    "enabled": true,
-    "provider": "coingecko"
-  },
-  "chains": [
-    {
-      "chainId": 84532,
-      "auctionTypes": ["multicurve", "dynamic"],
-      "multicurveInitializers": ["standard", "scheduled", "decay", "rehype"],
-      "migrationModes": ["noOp", "uniswapV2"],
-      "governanceModes": ["noOp", "default"],
-      "governanceEnabled": true
     }
-  ],
-  "solana": {
-    "enabled": true,
-    "supportedNetworks": ["solanaDevnet"],
-    "unsupportedNetworks": ["solanaMainnetBeta"],
-    "dedicatedRouteInputAliases": ["devnet", "mainnet-beta"],
-    "creationOnly": true,
-    "numeraireAddress": "So11111111111111111111111111111111111111112",
-    "priceResolutionModes": ["request", "fixed", "coingecko"]
-  }
-}
+  }'
 ```
 
-## Health and readiness
+See the [Rehype Guide](docs/rehype.md) for fee schedules, distribution weights, initializer routing, and dynamic migration configuration. The [Launch Request Examples](docs/launch-examples.md) cover every supported EVM family. EVM supply, sale, vesting-allocation, and balance-limit amounts are canonical positive `uint256` decimal strings without leading zeros. Dynamic proceeds are canonical decimal strings with at most 18 decimal places whose scaled value fits `uint256`. Multicurve `tickSpacing` is at most 32,767, and each manual range supports at most 65,535 positions.
 
-- `GET /health`: process liveness
-- `GET /ready`: dependency readiness (EVM chain RPC checks plus Solana readiness, requires `x-api-key`)
-- `GET /metrics`: service metrics snapshot (requires `x-api-key`)
-- degraded readiness checks return a generic error string (`"dependency unavailable"`) to avoid leaking upstream internals
+## API surface
 
-Example `GET /health`:
+The shared EVM launch route dispatches by `auction.type`:
 
-```json
-{ "status": "ok" }
-```
+- `POST /v1/launches`
 
-## Validation and defaults
+The family-specific routes accept the corresponding EVM request shape:
 
-- Solana create-only rules:
-  - use `POST /v1/solana/launches` or `POST /v1/launches` with `network: "solanaDevnet" | "solanaMainnetBeta"`
-  - short Solana aliases are accepted only on the dedicated route
-  - `launchId` is a launch PDA and `statusUrl` points to `GET /v1/solana/launches/:launchAddress`
-  - only WSOL is supported as numeraire
-  - Solana rejects unsupported EVM-only fields instead of ignoring them
-  - when `SOLANA_DEVNET_ALT_ADDRESS` is set, launch creation reuses that address lookup table; if the signed transaction still exceeds Solana's packet limit, it creates a launch-specific lookup table and rebuilds the transaction
-- Solana `migration.type="none"` launches use the initializer curve:
-  - set `migration.supportCpmm=true` and `migration.minimumQuoteRaise` to register the launch with the CPMM migrator
-  - all API-created launches use Doppler launch hook v1; CPMM migration registration is independent of hook features
-  - omit `economics.baseForDistribution` and `economics.baseForLiquidity`, or set both to `0`, unless `migration.supportCpmm=true`
-  - non-zero reserve fields return `422 SOLANA_INVALID_ECONOMICS` unless CPMM migration support is enabled
-  - `tokensForSale = totalSupply - baseForDistribution - baseForLiquidity`
-- Solana `auction.cosignerGate` configures Doppler-managed cosigning through Doppler launch hook v1:
-  - `type` must be `"cosigner"`; callers cannot select or register a cosigner
-  - the API resolves the canonical managed cosigner from the hook's on-chain config
-  - optional `expiry` supports `mode: "disabled" | "unixTimestamp"`; omitting it or using `disabled` creates an indefinite gate, while timestamp mode requires `value`
-  - cosigner gating can be used with or without CPMM migration
-- Solana `auction.dynamicFee` configures a fee schedule on Doppler launch hook v1:
-  - `startFeeBps` and `endFeeBps` are integer basis points between `0` and `10000`
-  - `endFeeBps` must be less than or equal to `startFeeBps`
-  - `durationSeconds` is a non-negative integer string; it must be non-zero when the fee decays
-  - `startingTime` is an optional non-negative Unix timestamp string; omit it or set it to `"0"` to start at launch creation
-  - combine `auction.dynamicFee` with `auction.cosignerGate` to enable both features on the same hook
-  - the effective swap fee is the greater of the dynamic schedule fee and `auction.swapFeeBps`
-- Solana auction fee input:
-  - prefer `auction.swapFeeBps`; `auction.curveFeeBps` remains accepted as a backward-compatible alias
-  - if omitted, the API uses the on-chain initializer minimum swap fee
-  - request values must be within the on-chain initializer min/max swap-fee bounds
-- Solana fee beneficiaries:
-  - optional `feeBeneficiaries: [{ address, shareBps }]` splits the post-protocol-fee share
-  - custom lists support up to 8 unique addresses and `shareBps` must sum to `10000`
-  - omitted beneficiaries default to the API payer when the protocol fee leaves a post-protocol share
-  - if the API payer is the initializer protocol beneficiary, callers must provide a non-protocol beneficiary list
-  - the initializer protocol beneficiary is rejected in request/default beneficiaries
-- Multicurve initializer:
-  - default is `standard` (implemented as scheduled with `startTime=0`).
-  - `scheduled` requires `auction.initializer.startTime`.
-  - `decay` requires `startFee` and `durationSeconds` (optional `startTime`).
-  - `rehype` requires hook config and percent wad fields that sum to `1e18`.
-- Multicurve curve selection:
-  - presets are convenient defaults.
-  - explicit `ranges` are recommended when you need intentional market-cap bands instead of default tiers.
-  - custom multicurve swap fees are supported via `curveConfig.fee` (custom values supported; tick spacing can be derived or provided).
-- Static launch curve config:
-  - `auction.type="static"` requires `auction.curveConfig`.
-  - `curveConfig.type="preset"` supports `preset: "low" | "medium" | "high"`.
-  - `curveConfig.type="range"` supports explicit `marketCapStartUsd` and `marketCapEndUsd`.
-  - custom static fee input is supported via `curveConfig.fee`, but Uniswap V3 still enforces valid V3 fee tiers onchain.
-  - static launches always use lockable beneficiaries (request values or default 95% user / 5% protocol owner).
-  - use static only as a fallback when the target chain does not support Uniswap V4/multicurve.
-- Dynamic launch curve config:
-  - `auction.type="dynamic"` requires `auction.curveConfig`.
-  - `curveConfig.type="range"` requires:
-    - `marketCapStartUsd`
-    - `marketCapMinUsd`
-    - `minProceeds` (decimal string in numeraire units)
-    - `maxProceeds` (decimal string in numeraire units)
-  - optional: `durationSeconds`, `epochLengthSeconds`, `fee`, `tickSpacing`, `gamma`, `numPdSlugs`
-  - custom dynamic fees are supported via `curveConfig.fee`.
-  - dynamic launches require `migration.type="uniswapV2"` or `migration.type="uniswapV4"` in this API profile.
-  - for `migration.type="uniswapV4"`, request `migration.fee` and `migration.tickSpacing`.
-  - for `migration.type="uniswapV4"`, streamable fee beneficiaries are derived from `feeBeneficiaries` (or the default 95/5 split).
-  - `migration.type="uniswapV3"` is reserved and currently returns `501 MIGRATION_NOT_IMPLEMENTED`.
-- Percentage-based allocation is supported by converting percent to amount:
-  - `tokensForSale = totalSupply * salePercent / 100`
-  - Example: 20% sale means 80% non-market allocation.
-- `integrationAddress` is optional.
-- `governance` is binary at create time:
-  - omitted/`false` => no governance
-  - `true` or `{ "enabled": true }` => default token-holder governance (OpenZeppelin Governor via protocol governance factory)
-- `pricing.numerairePriceUsd` overrides provider pricing.
-- If auto-pricing is unavailable, caller must pass `pricing.numerairePriceUsd`.
-- If `feeBeneficiaries` is omitted, API applies default split:
-  - `userAddress`: 95%
-  - protocol owner: 5%
-- `feeBeneficiaries` request constraints:
-  - supports up to `10` unique beneficiary addresses.
-  - shares use WAD precision and must sum to `1e18` (100%) when protocol owner is included.
-  - if protocol owner is omitted, provided shares must sum to `95%` (`0.95e18`) and API appends protocol owner at `5%`.
-  - if protocol owner is provided, it must have at least `5%` (`WAD / 20`).
+- `POST /v1/launches/static`
+- `POST /v1/launches/multicurve`
+- `POST /v1/launches/dynamic`
 
-See `docs/mvp-launch.md` for a concise MVP launch example and a full defaults-resolution table.
+Status and operational routes are:
 
-## Tests
+- `GET /v1/launches/:launchId`
+- `GET /v1/capabilities`
+- `POST /v1/solana/launches`
+- `GET /v1/solana/launches/:launchAddress`
+- `GET /health`
+- `GET /ready`
+- `GET /metrics`
+
+Every route except `GET /health` requires `x-api-key`. Create routes accept an `Idempotency-Key`; shared deployments require one.
+
+Use the [OpenAPI specification](docs/openapi.yaml) for exact request and response schemas and the [API reference](docs/api-reference.md) for endpoint behavior.
+
+## Solana behavior
+
+Use `POST /v1/solana/launches` for dedicated Solana creation, or the shared route with a canonical `solanaDevnet` or `solanaMainnetBeta` network. Only Devnet is executable.
+
+All API-created Solana launches use Doppler launch hook v1. `auction.cosignerGate` uses the canonical managed cosigner from the hook's onchain configuration; callers do not provide a cosigner address, and optional expiry supports only `disabled` or `unixTimestamp`. `auction.dynamicFee` may be used independently or with managed cosigning.
+
+When `SOLANA_DEVNET_ALT_ADDRESS` is configured, creation reuses it when the transaction fits and falls back to a launch-specific lookup table otherwise. Solana RPC requests retry HTTP `429` responses with bounded exponential backoff; a transaction that remains oversized returns `422 SOLANA_TRANSACTION_TOO_LARGE`.
+
+Enable Solana with a funded payer from `SOLANA_KEYPAIR_PATH` (preferred) or inline `SOLANA_KEYPAIR`, but not both. See the [Configuration Reference](docs/configuration.md) for the complete runtime and live-test requirements.
+
+## Supported EVM families
+
+| Family | Curve | Migration |
+| --- | --- | --- |
+| `static` | `low`, `medium`, or `high` preset; or a manual Uniswap V3 range | None |
+| `multicurve` | Presets or contiguous manual ranges | None; a Rehype initializer is required |
+| `dynamic` | Dynamic range | Required Uniswap V2 or Uniswap V4 migration; Uniswap V4 can add Rehype |
+
+All EVM families use `DopplerERC20V1`. See the [Custom Curve Guide](docs/custom-curves.md) for curve configuration and the [Rehype Guide](docs/rehype.md) for initializer and migrator configuration.
+
+## Configuration
+
+The minimum EVM configuration is:
+
+- `API_KEY`: authenticates API callers
+- `PRIVATE_KEY`: signs EVM transactions
+- one or more named EVM RPC URLs
+
+Each non-empty RPC variable enables its corresponding chain:
+
+| Chain        | Chain ID | Environment variable   |
+| ------------ | -------: | ---------------------- |
+| Ethereum     |        1 | `ETHEREUM_RPC_URL`     |
+| Monad        |      143 | `MONAD_RPC_URL`        |
+| Robinhood    |     4663 | `ROBINHOOD_RPC_URL`    |
+| Base         |     8453 | `BASE_RPC_URL`         |
+| Base Sepolia |    84532 | `BASE_SEPOLIA_RPC_URL` |
+
+`DEFAULT_CHAIN_ID` may identify one enabled chain. Without it, each EVM launch request supplies `chainId`. The service does not fall back to Base Sepolia or the first configured chain. `GET /v1/capabilities` reports enabled chains without exposing RPC URLs.
+
+Standalone mode uses local durable state by default. Set `DEPLOYMENT_MODE=shared` for multiple replicas; shared mode requires Redis, the Redis idempotency backend, and idempotency keys on create requests.
+
+See the [Configuration Reference](docs/configuration.md) and [`.env.example`](.env.example) for EVM, Solana, pricing, CORS, rate limiting, logging, and readiness settings.
+
+## Production and operations
+
+Create a production build and start it:
 
 ```bash
+npm run build
+npm start
+```
+
+The repository includes a `Dockerfile` and `docker-compose.yml`. CI and container builds use npm with the committed `package-lock.json`.
+
+An exact retry of a completed request replays its durable idempotency record. Ambiguous transaction submission returns `409 IDEMPOTENCY_KEY_IN_DOUBT`; lost distributed nonce ownership returns `503 NONCE_LOCK_LOST`. See [Error Handling](docs/errors.md) for response codes and the [Operations Runbook](docs/runbook.md) for health checks, recovery, and incident procedures.
+
+## Development
+
+```bash
+npm run lint
+npm run typecheck
 npm test
-npm run test:static
-npm run test:dynamic
-npm run test:live
-npm run test:live:static
-npm run test:live:dynamic
-npm run test:live:v2migration
-npm run test:live:v4migration
-npm run test:live:multicurve
-npm run test:live:multicurve:defaults
-npm run test:live:fees
-npm run test:live:governance
-npm run test:live:solana
-npm run test:live:solana:devnet
-npm run test:live:solana:defaults
-npm run test:live:solana:fees
-npm run test:live:solana:cpmm
-npm run test:live:solana:no-migration
-npm run test:live:solana:random
-npm run test:live:solana:cosigner
-npm run test:live:solana:dynamic-fee
-npm run test:live:solana:failing
-LIVE_TEST_VERBOSE=true npm run test:live
 ```
 
-`test:live` performs real on-chain creation and verification when `LIVE_TEST_ENABLE=true` and funded credentials are configured.
-By default, live output is concise (launch summary table). Set `LIVE_TEST_VERBOSE=true` for full per-launch parameter and verification tables.
-Live launch tests run sequentially to avoid nonce conflicts from a single funded signer.
-`test:live` remains the EVM baseline matrix; use `test:live:solana` or `test:live:solana:devnet` for the Solana devnet matrix. The Solana matrix covers supported parity with the Base Sepolia defaults, fee-beneficiary, reserve-split/CPMM, launches with no migration criteria, generic-route replay, randomized parameter paths, Doppler launch hook v1 launches with managed cosigner gating, and hook launches with scheduled dynamic fees. Governance, vesting/vault locks, and static/dynamic EVM auction engines are EVM-only.
-Solana live tests require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR_PATH` pointing to a Solana CLI keypair file, reachable `SOLANA_DEVNET_RPC_URL` / `SOLANA_DEVNET_WS_URL`, `SOLANA_DEVNET_ALT_ADDRESS`, and enough SOL for account creation; override the readiness estimate with `LIVE_TEST_MIN_BALANCE_SOL`, `LIVE_TEST_ESTIMATED_TX_COST_SOL`, and `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` when needed. `SOLANA_KEYPAIR` remains available as an inline fallback, but do not set both payer variables. Solana RPC requests retry HTTP `429` responses with bounded exponential backoff. Live create verification retries transient `SOLANA_NOT_READY` and `SOLANA_SUBMISSION_FAILED` responses once after 10 seconds. The configured ALT remains the fast path; oversized launches fall back to a launch-specific ALT.
+`npm run test:all` runs unit, integration, and onchain live coverage. It requires the RPC and signer environment described in `.env.example`.
 
-## Lint, format, and git hooks
-
-Tooling:
-
-- `oxlint` (`oxlint.config.ts`) — fast Rust-based ESLint replacement.
-- `oxfmt` (`oxfmt.config.ts`) — fast Rust-based Prettier replacement.
-- `lefthook` (`lefthook.yml`) — runs the formatter, linter, and typecheck against staged files before each commit.
-
-Both `oxlint.config.ts` and `oxfmt.config.ts` use `defineConfig` from their respective packages for full type-checking and editor autocomplete. TypeScript configs require Node ≥22.18 (covered by `.nvmrc` / `engines.node`).
-
-Scripts:
-
-```bash
-npm run lint           # oxlint --deny-warnings
-npm run lint:fix       # oxlint --fix
-npm run format         # oxfmt (write)
-npm run format:check   # oxfmt --check
-npm run fix            # format + lint:fix
-npm run check          # format:check + lint + typecheck + test
-```
-
-Git hooks (managed by [lefthook](https://lefthook.dev)):
-
-- `pre-commit` — formats staged files with `oxfmt`, runs `oxlint --fix --deny-warnings` on staged JS/TS, restages fixed files, and runs `tsc --noEmit` when TypeScript files are staged.
-- `pre-push` — runs `format:check`, `lint`, `typecheck`, and `test:unit` in parallel.
-
-Hooks install automatically via the `prepare` script when running `npm install`. To install manually run `npx lefthook install`. To bypass for a single commit, use `git commit --no-verify` (discouraged).
+See the [Contributing Guide](docs/contributing.md) for the contributor workflow and the [Documentation Index](docs/README.md) for all guides and references.

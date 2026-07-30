@@ -1,16 +1,20 @@
-import {
-  airlockAbi,
-  type MigrationConfig,
-  type GovernanceOption,
-  type BeneficiaryData,
-} from '@whetstone-research/doppler-sdk/evm';
+// allow: SIZE_OK — multicurve launch assembly remains one transaction boundary.
+import { airlockAbi, type BeneficiaryData } from '@whetstone-research/doppler-sdk/evm';
 
 import { AppError } from '../../../core/errors';
-import type { CreateLaunchResponse, HexAddress, HexHash } from '../../../core/types';
+import type {
+  CreateLaunchResponse,
+  HexAddress,
+  HexHash,
+  RangesCurveInput,
+} from '../../../core/types';
 import type { PricingService } from '../../pricing/service';
 import type { CreateMulticurveLaunchRequestInput } from '../../launches/schema';
 import type { ChainContext } from '../../../infra/chain/registry';
-import type { DopplerSdkRegistry } from '../../../infra/doppler/sdk-client';
+import {
+  type DopplerSdkRegistry,
+  withCreateSimulationErrorTranslation,
+} from '../../../infra/doppler/sdk-client';
 import type { TxSubmitter } from '../../../infra/tx/submitter';
 import { resolveGovernance } from '../../governance/policy';
 import { resolveMigration } from '../../migration/policy';
@@ -46,6 +50,18 @@ const parseNonNegativeBigInt = (value: string, field: string): bigint => {
   return parsed;
 };
 
+const requireModuleAddress = (address: HexAddress | undefined, moduleName: string): HexAddress => {
+  if (!address) {
+    throw new AppError(
+      500,
+      'UNSUPPORTED_CHAIN',
+      `Doppler SDK is missing ${moduleName} for this chain`,
+    );
+  }
+
+  return address;
+};
+
 export const createMulticurveLaunch = async ({
   input,
   chain,
@@ -64,11 +80,10 @@ export const createMulticurveLaunch = async ({
 
   // Resolve policy-gated controls first so planned modes fail fast with 501
   // without requiring any RPC calls.
-  const governance = resolveGovernance(input.governance, chain.config) as GovernanceOption<any>;
-  const migration = resolveMigration(input.migration, chain.config) as MigrationConfig;
+  const governance = resolveGovernance(input.governance, chain.config);
+  const migration = resolveMigration();
 
   const protocolOwner = (await sdk.getAirlockOwner()) as HexAddress;
-
   const numeraireAddress =
     (input.pairing?.numeraireAddress as HexAddress | undefined) ??
     chain.config.defaultNumeraireAddress ??
@@ -98,9 +113,27 @@ export const createMulticurveLaunch = async ({
   const builder = sdk
     .buildMulticurveAuction()
     .tokenConfig({
+      type: 'dopplerERC20V1',
       name: input.tokenMetadata.name,
       symbol: input.tokenMetadata.symbol,
       tokenURI: input.tokenMetadata.tokenURI,
+      ...(input.tokenMetadata.maxBalanceLimit === undefined
+        ? {}
+        : {
+            maxBalanceLimit: parseNonNegativeBigInt(
+              input.tokenMetadata.maxBalanceLimit,
+              'tokenMetadata.maxBalanceLimit',
+            ),
+          }),
+      ...(input.tokenMetadata.balanceLimitEnd === undefined
+        ? {}
+        : { balanceLimitEnd: input.tokenMetadata.balanceLimitEnd }),
+      ...(input.tokenMetadata.balanceController === undefined
+        ? {}
+        : { controller: input.tokenMetadata.balanceController }),
+      ...(input.tokenMetadata.excludedFromBalanceLimit === undefined
+        ? {}
+        : { excludedFromBalanceLimit: input.tokenMetadata.excludedFromBalanceLimit }),
     })
     .saleConfig({
       initialSupply: totalSupply,
@@ -114,10 +147,14 @@ export const createMulticurveLaunch = async ({
 
   if (allocationPlan.allocationAmount > 0n) {
     builder.withVesting({
-      duration: BigInt(allocationPlan.lockDurationSeconds),
-      cliffDuration: allocationPlan.cliffDurationSeconds,
-      recipients: allocationPlan.recipients,
-      amounts: allocationPlan.amounts,
+      allocations: allocationPlan.allocations.map((allocation) => ({
+        recipient: allocation.recipient,
+        amount: allocation.amount,
+        schedule: {
+          duration: BigInt(allocation.durationSeconds),
+          cliffDuration: allocation.cliffDurationSeconds,
+        },
+      })),
     });
   }
 
@@ -140,11 +177,10 @@ export const createMulticurveLaunch = async ({
       tickSpacing: input.auction.curveConfig.tickSpacing,
     });
 
-    const ranges = input.auction.curveConfig.curves.map((curve) => ({
+    const ranges = input.auction.curveConfig.curves.map((curve: RangesCurveInput) => ({
       marketCap: {
         start: curve.marketCapStartUsd,
-        // keep raw request semantics and let the SDK perform validation / conversions
-        end: curve.marketCapEndUsd as unknown as number,
+        end: curve.marketCapEndUsd,
       },
       numPositions: curve.numPositions,
       shares: parsePositiveBigInt(curve.sharesWad, 'auction.curveConfig.curves[].sharesWad'),
@@ -155,51 +191,79 @@ export const createMulticurveLaunch = async ({
       fee: input.auction.curveConfig.fee,
       tickSpacing,
       curves: ranges,
-      beneficiaries: beneficiaries as BeneficiaryData[],
+      beneficiaries,
     });
   }
 
-  const requestedInitializer = input.auction.initializer ?? { type: 'standard' as const };
-  if (requestedInitializer.type === 'standard') {
-    // Standard mode is implemented via scheduled initializer with startTime=0.
-    builder.withSchedule({ startTime: 0 });
-  } else if (requestedInitializer.type === 'scheduled') {
-    builder.withSchedule({ startTime: requestedInitializer.startTime });
-  } else if (requestedInitializer.type === 'decay') {
-    builder.withDecay({
-      startTime: requestedInitializer.startTime,
-      startFee: requestedInitializer.startFee,
-      durationSeconds: requestedInitializer.durationSeconds,
-    });
-  } else {
-    builder.withRehypeDopplerHook({
-      hookAddress: requestedInitializer.config.hookAddress as HexAddress,
-      buybackDestination: requestedInitializer.config.buybackDestination as HexAddress,
-      customFee: requestedInitializer.config.customFee,
-      assetBuybackPercentWad: parseNonNegativeBigInt(
-        requestedInitializer.config.assetBuybackPercentWad,
-        'auction.initializer.config.assetBuybackPercentWad',
+  const initializer = input.auction.initializer;
+  const rehypeDestination = (() => {
+    if ('rehypeFeeBeneficiaries' in initializer) {
+      const [firstBeneficiary, ...remainingBeneficiaries] = initializer.rehypeFeeBeneficiaries;
+      const mapBeneficiary = (beneficiary: typeof firstBeneficiary) => ({
+        beneficiary: beneficiary.address,
+        shares: parsePositiveBigInt(
+          beneficiary.sharesWad,
+          `auction.initializer.rehypeFeeBeneficiaries[${beneficiary.address}].sharesWad`,
+        ),
+      });
+      const feeBeneficiaries: [BeneficiaryData, ...BeneficiaryData[]] = [
+        mapBeneficiary(firstBeneficiary),
+        ...remainingBeneficiaries.map(mapBeneficiary),
+      ];
+      return { feeBeneficiaries };
+    }
+    return { buybackDestination: initializer.buybackDestination };
+  })();
+  builder.withRehypeDopplerHookInitializer({
+    hookAddress: requireModuleAddress(
+      chain.addresses.rehypeDopplerHookInitializer,
+      'rehypeDopplerHookInitializer',
+    ),
+    ...rehypeDestination,
+    startFee: initializer.startFee,
+    ...(initializer.endFee === undefined ? {} : { endFee: initializer.endFee }),
+    ...(initializer.durationSeconds === undefined
+      ? {}
+      : { durationSeconds: initializer.durationSeconds }),
+    ...(initializer.startingTime === undefined ? {} : { startingTime: initializer.startingTime }),
+    feeDistributionInfo: {
+      assetFeesToAssetBuybackWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.assetFeesToAssetBuybackWad,
+        'auction.initializer.feeDistributionInfo.assetFeesToAssetBuybackWad',
       ),
-      numeraireBuybackPercentWad: parseNonNegativeBigInt(
-        requestedInitializer.config.numeraireBuybackPercentWad,
-        'auction.initializer.config.numeraireBuybackPercentWad',
+      assetFeesToNumeraireBuybackWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.assetFeesToNumeraireBuybackWad,
+        'auction.initializer.feeDistributionInfo.assetFeesToNumeraireBuybackWad',
       ),
-      beneficiaryPercentWad: parseNonNegativeBigInt(
-        requestedInitializer.config.beneficiaryPercentWad,
-        'auction.initializer.config.beneficiaryPercentWad',
+      assetFeesToBeneficiaryWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.assetFeesToBeneficiaryWad,
+        'auction.initializer.feeDistributionInfo.assetFeesToBeneficiaryWad',
       ),
-      lpPercentWad: parseNonNegativeBigInt(
-        requestedInitializer.config.lpPercentWad,
-        'auction.initializer.config.lpPercentWad',
+      assetFeesToLpWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.assetFeesToLpWad,
+        'auction.initializer.feeDistributionInfo.assetFeesToLpWad',
       ),
-      graduationCalldata: requestedInitializer.config.graduationCalldata as
-        | `0x${string}`
-        | undefined,
-      graduationMarketCap: requestedInitializer.config.graduationMarketCap,
-      numerairePrice: requestedInitializer.config.numerairePrice,
-      farTick: requestedInitializer.config.farTick,
-    });
-  }
+      numeraireFeesToAssetBuybackWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.numeraireFeesToAssetBuybackWad,
+        'auction.initializer.feeDistributionInfo.numeraireFeesToAssetBuybackWad',
+      ),
+      numeraireFeesToNumeraireBuybackWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.numeraireFeesToNumeraireBuybackWad,
+        'auction.initializer.feeDistributionInfo.numeraireFeesToNumeraireBuybackWad',
+      ),
+      numeraireFeesToBeneficiaryWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.numeraireFeesToBeneficiaryWad,
+        'auction.initializer.feeDistributionInfo.numeraireFeesToBeneficiaryWad',
+      ),
+      numeraireFeesToLpWad: parseNonNegativeBigInt(
+        initializer.feeDistributionInfo.numeraireFeesToLpWad,
+        'auction.initializer.feeDistributionInfo.numeraireFeesToLpWad',
+      ),
+    },
+  });
+  builder.withDopplerHookInitializer(
+    requireModuleAddress(chain.addresses.dopplerHookInitializer, 'dopplerHookInitializer'),
+  );
 
   const params = builder
     .withGovernance(governance)
@@ -207,35 +271,25 @@ export const createMulticurveLaunch = async ({
     .withUserAddress(input.userAddress as HexAddress)
     .build();
 
-  const effectiveInitializer =
-    requestedInitializer.type === 'standard'
-      ? ({ type: 'standard' } as const)
-      : requestedInitializer.type === 'scheduled'
-        ? ({ type: 'scheduled', startTime: requestedInitializer.startTime } as const)
-        : requestedInitializer.type === 'decay'
-          ? ({
-              type: 'decay',
-              startTime: requestedInitializer.startTime ?? 0,
-              startFee: requestedInitializer.startFee,
-              endFee: Number((params as { pool: { fee: number } }).pool.fee),
-              durationSeconds: requestedInitializer.durationSeconds,
-            } as const)
-          : ({ type: 'rehype' } as const);
+  const simulation = await sdk.factory.simulateCreateMulticurve(params);
 
-  const simulation = await sdk.factory.simulateCreateMulticurve(params as any);
-
-  const { request } = await chain.publicClient.simulateContract({
+  const simulationRequest = {
     address: chain.addresses.airlock,
     abi: airlockAbi,
     functionName: 'create',
     args: [{ ...simulation.createParams }],
     account: chain.walletClient.account,
-  });
+    blockTag: 'pending',
+  } as const;
+  const { request } = await withCreateSimulationErrorTranslation(chain, simulationRequest, () =>
+    chain.publicClient.simulateContract(simulationRequest),
+  );
+  const gasEstimate = typeof request.gas === 'bigint' ? request.gas : simulation.gasEstimate;
 
   const txHash = (await txSubmitter.submitCreateTx({
     chain,
     request: request as Record<string, unknown>,
-    gasEstimate: simulation.gasEstimate,
+    gasEstimate,
   })) as HexHash;
 
   const launchId = buildLaunchId(chain.chainId, txHash);
@@ -248,22 +302,21 @@ export const createMulticurveLaunch = async ({
     predicted: {
       tokenAddress: simulation.tokenAddress as HexAddress,
       poolId: simulation.poolId as HexHash,
-      ...(simulation.gasEstimate ? { gasEstimate: simulation.gasEstimate.toString() } : {}),
+      ...(gasEstimate ? { gasEstimate: gasEstimate.toString() } : {}),
     },
     effectiveConfig: {
       tokensForSale: tokensForSale.toString(),
       allocationAmount: allocationPlan.allocationAmount.toString(),
-      allocationRecipient: allocationPlan.recipientAddress,
-      allocationRecipients: allocationPlan.recipients.map((address, index) => ({
-        address,
-        amount: allocationPlan.amounts[index]!.toString(),
+      vestingAllocations: allocationPlan.allocations.map((allocation) => ({
+        recipientAddress: allocation.recipient,
+        amount: allocation.amount.toString(),
+        durationSeconds: allocation.durationSeconds,
+        cliffDurationSeconds: allocation.cliffDurationSeconds,
       })),
-      allocationLockMode: allocationPlan.lockMode,
-      allocationLockDurationSeconds: allocationPlan.lockDurationSeconds,
       numeraireAddress,
       numerairePriceUsd,
-      feeBeneficiariesSource: source,
-      initializer: effectiveInitializer,
+      poolFeeBeneficiariesSource: source,
+      initializer,
     },
   };
 };

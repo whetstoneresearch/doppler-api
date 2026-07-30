@@ -5,7 +5,7 @@ export type IdempotencyBackend = 'file' | 'redis';
 export type PriceProvider = 'coingecko' | 'none';
 
 export interface DopplerTemplateChainConfigV1 {
-  rpcUrl: string;
+  rpcEnvVar: string;
   defaultNumeraireAddress?: `0x${string}`;
   auctionTypes: AuctionType[];
   migrationModes: MigrationType[];
@@ -17,7 +17,6 @@ export interface DopplerTemplateConfigV1 {
   version: 1;
   port: number;
   deploymentMode: DeploymentMode;
-  defaultChainId: number;
   logLevel: string;
   readyRpcTimeoutMs: number;
   corsOrigins: string[];

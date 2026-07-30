@@ -1,90 +1,406 @@
+// allow: SIZE_OK — SDK-backed canonical launch scenarios share one typed harness.
+import {
+  getAddresses,
+  MulticurveBuilder,
+  type CreateMulticurveParams,
+  type CreateParams,
+  type MulticurveMarketCapCurvesConfig,
+  type RehypeDopplerHookInitializerConfig,
+} from '@whetstone-research/doppler-sdk/evm';
+import { createPublicClient, createWalletClient, defineChain, http } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { AppConfig } from '../../src/core/config';
+import type { ChainContext } from '../../src/infra/chain/registry';
+import { DopplerSdkRegistry } from '../../src/infra/doppler/sdk-client';
+import { TxSubmitter } from '../../src/infra/tx/submitter';
 import { createMulticurveLaunch } from '../../src/modules/auctions/multicurve/service';
 import type { CreateMulticurveLaunchRequestInput } from '../../src/modules/launches/schema';
+import { PricingService } from '../../src/modules/pricing/service';
+
+const USER = '0x1111111111111111111111111111111111111111';
+const BENEFICIARY = '0x2222222222222222222222222222222222222222';
+const REHYPE_BENEFICIARY_TWO = '0x5555555555555555555555555555555555555555';
+const REHYPE_BENEFICIARY_THREE = '0x6666666666666666666666666666666666666666';
+const PROTOCOL_OWNER = '0x9999999999999999999999999999999999999999';
+const BUYBACK_DESTINATION = '0x3333333333333333333333333333333333333333';
+const CONTROLLER = '0x4444444444444444444444444444444444444444';
+const EXCLUDED = '0x5555555555555555555555555555555555555555';
+const PRIVATE_KEY = `0x${'11'.repeat(32)}` as const;
+const CHAIN_IDS = [1, 143, 4663, 8453, 84532] as const;
+
+const pricingConfig = {
+  port: 0,
+  deploymentMode: 'standalone',
+  apiKey: 'test-key',
+  apiKeys: ['test-key'],
+  defaultChainId: 84532,
+  chains: {},
+  privateKey: PRIVATE_KEY,
+  logLevel: 'silent',
+  readyRpcTimeoutMs: 1,
+  corsOrigins: [],
+  rateLimit: { max: 1, timeWindowMs: 1 },
+  redis: { keyPrefix: 'test' },
+  idempotency: {
+    enabled: false,
+    backend: 'file',
+    requireKey: false,
+    ttlMs: 1,
+    storePath: '.data/test.json',
+    redisLockTtlMs: 1,
+    redisLockRefreshMs: 1,
+  },
+  pricing: {
+    enabled: false,
+    provider: 'none',
+    baseUrl: 'https://example.invalid',
+    timeoutMs: 1,
+    cacheTtlMs: 1,
+    coingeckoAssetId: 'ethereum',
+  },
+  solana: {
+    enabled: false,
+    defaultNetwork: 'solanaDevnet',
+    devnetRpcUrl: 'https://example.invalid',
+    devnetWsUrl: 'wss://example.invalid',
+    confirmTimeoutMs: 1,
+    priceMode: 'required',
+    coingeckoAssetId: 'solana',
+  },
+} satisfies AppConfig;
+
+class CapturedMulticurveParamsError extends Error {
+  constructor(
+    readonly params: CreateMulticurveParams,
+    readonly createParams: CreateParams,
+  ) {
+    super('Captured canonical multicurve params');
+  }
+}
+
+const buildChain = (chainId: number): ChainContext => {
+  const chainDefinition = defineChain({
+    id: chainId,
+    name: `test-${chainId}`,
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: ['http://127.0.0.1:1'] } },
+  });
+  const account = privateKeyToAccount(PRIVATE_KEY);
+
+  return {
+    chainId,
+    config: {
+      chainId,
+      rpcUrl: 'http://127.0.0.1:1',
+      defaultNumeraireAddress: getAddresses(chainId).weth,
+      auctionTypes: ['multicurve'],
+      migrationModes: ['noOp'],
+      governanceModes: ['noOp', 'default', 'custom'],
+      governanceEnabled: true,
+    },
+    addresses: getAddresses(chainId),
+    publicClient: createPublicClient({ chain: chainDefinition, transport: http() }),
+    walletClient: createWalletClient({ account, chain: chainDefinition, transport: http() }),
+  };
+};
+
+const captureBuiltParams = async (
+  input: CreateMulticurveLaunchRequestInput,
+): Promise<CapturedMulticurveParamsError> => {
+  const chain = buildChain(input.chainId ?? 84532);
+  const sdkRegistry = new DopplerSdkRegistry([chain]);
+  const sdk = sdkRegistry.get(chain.chainId);
+  vi.spyOn(sdk, 'getAirlockOwner').mockResolvedValue(PROTOCOL_OWNER);
+  vi.spyOn(sdk.factory, 'simulateCreateMulticurve').mockImplementation(async (params) => {
+    throw new CapturedMulticurveParamsError(
+      params,
+      sdk.factory.encodeCreateMulticurveParams(params),
+    );
+  });
+  const txSubmitter = new TxSubmitter();
+  const submitSpy = vi.spyOn(txSubmitter, 'submitCreateTx');
+
+  try {
+    await createMulticurveLaunch({
+      input,
+      chain,
+      sdkRegistry,
+      pricingService: new PricingService(pricingConfig),
+      txSubmitter,
+    });
+  } catch (error) {
+    if (error instanceof CapturedMulticurveParamsError) {
+      expect(submitSpy).not.toHaveBeenCalled();
+      return error;
+    }
+    throw error;
+  }
+
+  throw new Error('Expected SDK params capture to stop launch submission');
+};
+
+const buildBuybackInput = (chainId: number): CreateMulticurveLaunchRequestInput => ({
+  chainId,
+  userAddress: USER,
+  tokenMetadata: {
+    name: 'Canonical Multicurve',
+    symbol: 'CMC',
+    tokenURI: 'ipfs://canonical',
+    maxBalanceLimit: '123456789',
+    balanceLimitEnd: 4_000_000_000,
+    balanceController: CONTROLLER,
+    excludedFromBalanceLimit: [EXCLUDED],
+  },
+  economics: {
+    totalSupply: '1000000000000000000000000000',
+    tokensForSale: '800000000000000000000000000',
+    allocations: [
+      {
+        recipientAddress: BENEFICIARY,
+        amount: '200000000000000000000000000',
+        durationSeconds: 86_400,
+        cliffDurationSeconds: 3_600,
+      },
+    ],
+  },
+  pricing: { numerairePriceUsd: 3_000 },
+  poolFeeBeneficiaries: [{ address: BENEFICIARY, sharesWad: '950000000000000000' }],
+  governance: true,
+  auction: {
+    type: 'multicurve',
+    curveConfig: {
+      type: 'ranges',
+      fee: 10_000,
+      curves: [
+        {
+          marketCapStartUsd: 10_000,
+          marketCapEndUsd: 'max',
+          numPositions: 10,
+          sharesWad: '1000000000000000000',
+        },
+      ],
+    },
+    initializer: {
+      buybackDestination: BUYBACK_DESTINATION,
+      startFee: 30_000,
+      endFee: 10_000,
+      durationSeconds: 86_400,
+      startingTime: 1_700_000_000,
+      feeDistributionInfo: {
+        assetFeesToAssetBuybackWad: '200000000000000000',
+        assetFeesToNumeraireBuybackWad: '300000000000000000',
+        assetFeesToBeneficiaryWad: '100000000000000000',
+        assetFeesToLpWad: '400000000000000000',
+        numeraireFeesToAssetBuybackWad: '200000000000000000',
+        numeraireFeesToNumeraireBuybackWad: '300000000000000000',
+        numeraireFeesToBeneficiaryWad: '100000000000000000',
+        numeraireFeesToLpWad: '400000000000000000',
+      },
+    },
+  },
+});
 
 describe('multicurve launch service', () => {
-  it('maps governance=true to SDK default governance', async () => {
-    const builder = {
-      tokenConfig: vi.fn().mockReturnThis(),
-      saleConfig: vi.fn().mockReturnThis(),
-      withIntegrator: vi.fn().mockReturnThis(),
-      withVesting: vi.fn().mockReturnThis(),
-      withMarketCapPresets: vi.fn().mockReturnThis(),
-      withCurves: vi.fn().mockReturnThis(),
-      withSchedule: vi.fn().mockReturnThis(),
-      withDecay: vi.fn().mockReturnThis(),
-      withRehypeDopplerHook: vi.fn().mockReturnThis(),
-      withGovernance: vi.fn().mockReturnThis(),
-      withMigration: vi.fn().mockReturnThis(),
-      withUserAddress: vi.fn().mockReturnThis(),
-      build: vi.fn().mockReturnValue({ pool: { fee: 20_000 } }),
-    };
+  it('maps flattened Rehype buyback configuration on all configured EVM chains', async () => {
+    const withCurvesSpy = vi.spyOn(MulticurveBuilder.prototype, 'withCurves');
+    const withRehypeSpy = vi.spyOn(MulticurveBuilder.prototype, 'withRehypeDopplerHookInitializer');
 
-    const simulation = {
-      createParams: { salt: '0x04' },
-      tokenAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-      poolId: '0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
-      gasEstimate: 111n,
-    };
+    for (const chainId of CHAIN_IDS) {
+      const captured = await captureBuiltParams(buildBuybackInput(chainId));
+      const addresses = getAddresses(chainId);
+      const rehypeInput = withRehypeSpy.mock.calls.at(-1)?.[0] satisfies
+        | RehypeDopplerHookInitializerConfig
+        | undefined;
 
-    const sdk = {
-      buildMulticurveAuction: vi.fn(() => builder),
-      getAirlockOwner: vi.fn().mockResolvedValue('0x9999999999999999999999999999999999999999'),
-      factory: {
-        simulateCreateMulticurve: vi.fn().mockResolvedValue(simulation),
-      },
-    };
+      expect(rehypeInput).toEqual({
+        hookAddress: addresses.rehypeDopplerHookInitializer,
+        buybackDestination: BUYBACK_DESTINATION,
+        startFee: 30_000,
+        endFee: 10_000,
+        durationSeconds: 86_400,
+        startingTime: 1_700_000_000,
+        feeDistributionInfo: {
+          assetFeesToAssetBuybackWad: 200000000000000000n,
+          assetFeesToNumeraireBuybackWad: 300000000000000000n,
+          assetFeesToBeneficiaryWad: 100000000000000000n,
+          assetFeesToLpWad: 400000000000000000n,
+          numeraireFeesToAssetBuybackWad: 200000000000000000n,
+          numeraireFeesToNumeraireBuybackWad: 300000000000000000n,
+          numeraireFeesToBeneficiaryWad: 100000000000000000n,
+          numeraireFeesToLpWad: 400000000000000000n,
+        },
+      });
+      expect(rehypeInput).not.toHaveProperty('graduationCalldata');
+      expect(rehypeInput).not.toHaveProperty('graduationMarketCap');
+      expect(rehypeInput).not.toHaveProperty('numerairePrice');
+      expect(rehypeInput).not.toHaveProperty('farTick');
+      expect(captured.params.initializer).toMatchObject({
+        type: 'rehype',
+        config: {
+          hookAddress: addresses.rehypeDopplerHookInitializer,
+          buybackDestination: BUYBACK_DESTINATION,
+          feeRoutingMode: 0,
+          startFee: 30_000,
+          endFee: 10_000,
+          durationSeconds: 86_400,
+          startingTime: 1_700_000_000,
+        },
+      });
+      expect(captured.params.modules?.dopplerHookInitializer).toBe(
+        addresses.dopplerHookInitializer,
+      );
+      expect(captured.createParams.poolInitializer).toBe(addresses.dopplerHookInitializer);
+      expect(captured.createParams.poolInitializerData).toMatch(/^0x[0-9a-f]+$/i);
+      expect(captured.params.token).toEqual({
+        type: 'dopplerERC20V1',
+        name: 'Canonical Multicurve',
+        symbol: 'CMC',
+        tokenURI: 'ipfs://canonical',
+        maxBalanceLimit: 123456789n,
+        balanceLimitEnd: 4_000_000_000,
+        controller: CONTROLLER,
+        excludedFromBalanceLimit: [EXCLUDED],
+      });
+      expect(captured.params.migration).toEqual({ type: 'noOp' });
+      expect(captured.params.governance).toEqual({ type: 'default' });
+      expect(captured.params.vesting).toEqual({
+        allocations: [
+          {
+            recipient: BENEFICIARY,
+            amount: 200000000000000000000000000n,
+            schedule: { duration: 86_400, cliffDuration: 3_600 },
+          },
+        ],
+      });
+      expect(captured.params.pool.beneficiaries).toEqual(
+        expect.arrayContaining([
+          { beneficiary: BENEFICIARY, shares: 950000000000000000n },
+          { beneficiary: PROTOCOL_OWNER, shares: 50000000000000000n },
+        ]),
+      );
+    }
 
-    const chain = {
-      chainId: 84532,
-      config: {
-        chainId: 84532,
-        rpcUrl: 'http://localhost:8545',
-        defaultNumeraireAddress: '0x4200000000000000000000000000000000000006',
-        auctionTypes: ['multicurve'],
-        migrationModes: ['noOp'],
-        governanceModes: ['noOp', 'default'],
-        governanceEnabled: true,
-      },
-      addresses: {
-        airlock: '0x0000000000000000000000000000000000000001',
-        weth: '0x4200000000000000000000000000000000000006',
-      },
-      publicClient: {
-        simulateContract: vi.fn().mockResolvedValue({ request: { to: '0xairlock' } }),
-      },
-      walletClient: {
-        account: { address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
-      },
-    };
+    const ranges = withCurvesSpy.mock.calls.at(-1)?.[0] satisfies
+      | MulticurveMarketCapCurvesConfig
+      | undefined;
+    expect(ranges?.curves[0]?.marketCap.end).toBe('max');
+  });
 
+  it('maps flattened weighted Rehype beneficiaries without appending the Airlock owner', async () => {
+    const withRehypeSpy = vi.spyOn(MulticurveBuilder.prototype, 'withRehypeDopplerHookInitializer');
     const input: CreateMulticurveLaunchRequestInput = {
       chainId: 84532,
-      userAddress: '0x1111111111111111111111111111111111111111',
-      tokenMetadata: { name: 'Multicurve', symbol: 'MLT', tokenURI: 'ipfs://token' },
+      userAddress: USER,
+      tokenMetadata: { name: 'Rehype', symbol: 'RHP', tokenURI: 'ipfs://rehype' },
       economics: { totalSupply: '1000', tokensForSale: '1000' },
-      governance: true,
-      migration: { type: 'noOp' },
+      pricing: { numerairePriceUsd: 3_000 },
+      poolFeeBeneficiaries: [{ address: BENEFICIARY, sharesWad: '950000000000000000' }],
       auction: {
         type: 'multicurve',
         curveConfig: { type: 'preset', presets: ['medium'] },
+        initializer: {
+          rehypeFeeBeneficiaries: [
+            { address: BENEFICIARY, sharesWad: '200000000000000000' },
+            { address: REHYPE_BENEFICIARY_TWO, sharesWad: '300000000000000000' },
+            { address: REHYPE_BENEFICIARY_THREE, sharesWad: '500000000000000000' },
+          ],
+          startFee: 30_000,
+          feeDistributionInfo: {
+            assetFeesToAssetBuybackWad: '0',
+            assetFeesToNumeraireBuybackWad: '0',
+            assetFeesToBeneficiaryWad: '1000000000000000000',
+            assetFeesToLpWad: '0',
+            numeraireFeesToAssetBuybackWad: '0',
+            numeraireFeesToNumeraireBuybackWad: '0',
+            numeraireFeesToBeneficiaryWad: '1000000000000000000',
+            numeraireFeesToLpWad: '0',
+          },
+        },
       },
     };
 
-    await createMulticurveLaunch({
-      input,
-      chain: chain as any,
-      sdkRegistry: { get: vi.fn().mockReturnValue(sdk) } as any,
-      pricingService: { resolveNumerairePriceUsd: vi.fn().mockResolvedValue(3000) } as any,
-      txSubmitter: {
-        submitCreateTx: vi
-          .fn()
-          .mockResolvedValue('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
-      } as any,
-    });
+    const captured = await captureBuiltParams(input);
+    const addresses = getAddresses(84532);
+    const rehypeInput = withRehypeSpy.mock.calls.at(-1)?.[0] satisfies
+      | RehypeDopplerHookInitializerConfig
+      | undefined;
 
-    expect(builder.withGovernance).toHaveBeenCalledWith({ type: 'default' });
-    expect(builder.withMigration).toHaveBeenCalledWith({ type: 'noOp' });
+    expect(rehypeInput).toEqual({
+      hookAddress: addresses.rehypeDopplerHookInitializer,
+      feeBeneficiaries: [
+        { beneficiary: BENEFICIARY, shares: 200000000000000000n },
+        { beneficiary: REHYPE_BENEFICIARY_TWO, shares: 300000000000000000n },
+        { beneficiary: REHYPE_BENEFICIARY_THREE, shares: 500000000000000000n },
+      ],
+      startFee: 30_000,
+      feeDistributionInfo: {
+        assetFeesToAssetBuybackWad: 0n,
+        assetFeesToNumeraireBuybackWad: 0n,
+        assetFeesToBeneficiaryWad: 1000000000000000000n,
+        assetFeesToLpWad: 0n,
+        numeraireFeesToAssetBuybackWad: 0n,
+        numeraireFeesToNumeraireBuybackWad: 0n,
+        numeraireFeesToBeneficiaryWad: 1000000000000000000n,
+        numeraireFeesToLpWad: 0n,
+      },
+    });
+    expect(rehypeInput).not.toHaveProperty('buybackDestination');
+    expect(rehypeInput).not.toHaveProperty('graduationCalldata');
+    expect(rehypeInput).not.toHaveProperty('graduationMarketCap');
+    expect(rehypeInput).not.toHaveProperty('numerairePrice');
+    expect(rehypeInput).not.toHaveProperty('farTick');
+    expect(captured.params.initializer).toMatchObject({
+      type: 'rehype',
+      config: {
+        hookAddress: addresses.rehypeDopplerHookInitializer,
+        feeBeneficiaries: [
+          { beneficiary: BENEFICIARY, shares: 200000000000000000n },
+          { beneficiary: REHYPE_BENEFICIARY_TWO, shares: 300000000000000000n },
+          { beneficiary: REHYPE_BENEFICIARY_THREE, shares: 500000000000000000n },
+        ],
+        feeRoutingMode: 1,
+        startFee: 30_000,
+        endFee: 30_000,
+        durationSeconds: 0,
+        startingTime: 0,
+      },
+    });
+    expect(rehypeInput?.feeBeneficiaries).not.toEqual(
+      expect.arrayContaining([{ beneficiary: PROTOCOL_OWNER, shares: expect.any(BigInt) }]),
+    );
+  });
+
+  it('rejects a missing DopplerHookInitializer before simulation or submission', async () => {
+    const canonicalChain = buildChain(84532);
+    const chain = {
+      ...canonicalChain,
+      addresses: {
+        ...canonicalChain.addresses,
+        dopplerHookInitializer: undefined,
+      },
+    } satisfies ChainContext;
+    const sdkRegistry = new DopplerSdkRegistry([chain]);
+    const sdk = sdkRegistry.get(chain.chainId);
+    vi.spyOn(sdk, 'getAirlockOwner').mockResolvedValue(PROTOCOL_OWNER);
+    const simulationSpy = vi.spyOn(sdk.factory, 'simulateCreateMulticurve');
+    const txSubmitter = new TxSubmitter();
+    const submitSpy = vi.spyOn(txSubmitter, 'submitCreateTx');
+
+    await expect(
+      createMulticurveLaunch({
+        input: buildBuybackInput(84532),
+        chain,
+        sdkRegistry,
+        pricingService: new PricingService(pricingConfig),
+        txSubmitter,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 500,
+      code: 'UNSUPPORTED_CHAIN',
+    });
+    expect(simulationSpy).not.toHaveBeenCalled();
+    expect(submitSpy).not.toHaveBeenCalled();
   });
 });

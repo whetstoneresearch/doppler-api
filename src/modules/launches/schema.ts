@@ -1,111 +1,249 @@
 import { z } from 'zod';
 
 import { dynamicAuctionSchema } from '../auctions/dynamic/schema';
-import { multicurveAuctionSchema } from '../auctions/multicurve/schema';
-import { staticAuctionSchema } from '../auctions/static/schema';
-
-const addressSchema = z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'must be a valid EVM address');
-const bigintStringSchema = z.string().regex(/^\d+$/, 'must be a positive integer string');
-const auctionSchema = z.discriminatedUnion('type', [
+import {
   multicurveAuctionSchema,
-  staticAuctionSchema,
-  dynamicAuctionSchema,
-]);
-const allocationRecipientSchema = z.object({
-  address: addressSchema,
-  amount: bigintStringSchema,
-});
-const feeBeneficiarySchema = z.object({
-  address: addressSchema,
-  sharesWad: bigintStringSchema,
-});
-const allocationConfigSchema = z
+  rehypeFeeDistributionInfoSchema,
+} from '../auctions/multicurve/schema';
+import { staticAuctionSchema } from '../auctions/static/schema';
+import type { HexAddress } from '../../core/types';
+
+const addressSchema = z
+  .string()
+  .regex(/^0x[a-fA-F0-9]{40}$/, 'must be a valid EVM address')
+  .transform((value: string): HexAddress => `0x${value.slice(2)}`);
+const nonZeroAddressSchema = addressSchema.refine(
+  (value: HexAddress) => !/^0x0{40}$/i.test(value),
+  'must be a non-zero EVM address',
+);
+const UINT256_MAX = 2n ** 256n - 1n;
+const UINT256_PATTERN = /^(?:0|[1-9]\d*)$/;
+const uint256StringSchema = z
+  .string()
+  .regex(UINT256_PATTERN, 'must be a canonical non-negative integer string without leading zeros')
+  .refine(
+    (value) =>
+      !UINT256_PATTERN.test(value) ||
+      value.length < 78 ||
+      (value.length === 78 && BigInt(value) <= UINT256_MAX),
+    `must be less than or equal to ${UINT256_MAX.toString()}`,
+  );
+const positiveUint256StringSchema = uint256StringSchema.refine(
+  (value) => !UINT256_PATTERN.test(value) || value !== '0',
+  'must be a positive integer string',
+);
+const UINT32_MAX = 4_294_967_295;
+const UINT48_MAX = 281_474_976_710_655;
+const V4_MAX_TICK_SPACING = 32_767;
+const MIN_VESTING_DURATION_SECONDS = 86_400;
+
+const vestingAllocationSchema = z
   .object({
-    recipientAddress: addressSchema.optional(),
-    recipients: z.array(allocationRecipientSchema).max(10).optional(),
-    mode: z.enum(['vest', 'unlock', 'vault']).optional(),
-    durationSeconds: z.number().int().nonnegative().optional(),
-    cliffDurationSeconds: z.number().int().nonnegative().optional(),
+    recipientAddress: nonZeroAddressSchema,
+    amount: positiveUint256StringSchema,
+    durationSeconds: z.number().int().min(MIN_VESTING_DURATION_SECONDS).max(UINT32_MAX).safe(),
+    cliffDurationSeconds: z.number().int().min(0).max(UINT32_MAX).safe().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if ((value.cliffDurationSeconds ?? 0) > value.durationSeconds) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cliffDurationSeconds'],
+        message: 'cliffDurationSeconds cannot exceed durationSeconds',
+      });
+    }
+  })
+  .array()
+  .min(1)
+  .max(10);
+
+const poolFeeBeneficiarySchema = z
+  .object({
+    address: nonZeroAddressSchema,
+    sharesWad: positiveUint256StringSchema,
   })
   .strict();
-const migrationSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.enum(['noOp', 'uniswapV2', 'uniswapV3']),
-  }),
-  z.object({
-    type: z.literal('uniswapV4'),
-    fee: z.number().int().nonnegative(),
-    tickSpacing: z.number().int().positive(),
-  }),
-]);
+type PoolFeeBeneficiary = z.infer<typeof poolFeeBeneficiarySchema>;
 
-export const createLaunchRequestSchema = z.object({
-  chainId: z.number().int().positive().optional(),
-  userAddress: addressSchema,
-  integrationAddress: addressSchema.optional(),
-  tokenMetadata: z.object({
+const poolFeeBeneficiariesSchema = z
+  .array(poolFeeBeneficiarySchema)
+  .max(10)
+  .superRefine((value: PoolFeeBeneficiary[], ctx: z.RefinementCtx) => {
+    const seen = new Set<string>();
+    value.forEach((entry, index) => {
+      const normalized = entry.address.toLowerCase();
+      if (seen.has(normalized)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index, 'address'],
+          message: `poolFeeBeneficiaries has duplicate address at index ${index}`,
+        });
+      }
+      seen.add(normalized);
+    });
+  });
+
+const excludedFromBalanceLimitSchema = z
+  .array(addressSchema)
+  .superRefine((value: string[], ctx: z.RefinementCtx) => {
+    const seen = new Set<string>();
+    value.forEach((entry, index) => {
+      const normalized = entry.toLowerCase();
+      if (seen.has(normalized)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index],
+          message: `excludedFromBalanceLimit has duplicate address at index ${index}`,
+        });
+      }
+      seen.add(normalized);
+    });
+  });
+
+const tokenMetadataSchema = z
+  .object({
     name: z.string().min(1),
     symbol: z.string().min(1),
     tokenURI: z.string().min(1),
-  }),
-  economics: z.object({
-    totalSupply: bigintStringSchema,
-    tokensForSale: bigintStringSchema.optional(),
-    allocations: allocationConfigSchema.optional(),
-  }),
-  pairing: z
-    .object({
-      numeraireAddress: addressSchema.optional(),
-    })
-    .optional(),
-  pricing: z
-    .object({
-      numerairePriceUsd: z.number().positive().optional(),
-    })
-    .optional(),
-  feeBeneficiaries: z
-    .array(feeBeneficiarySchema)
-    .max(10)
-    .superRefine((value, ctx) => {
-      const seen = new Set<string>();
-      value.forEach((entry, index) => {
-        const normalized = entry.address.toLowerCase();
-        if (seen.has(normalized)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: [index, 'address'],
-            message: `feeBeneficiaries has duplicate address at index ${index}`,
-          });
-          return;
-        }
-        seen.add(normalized);
+    maxBalanceLimit: positiveUint256StringSchema.optional(),
+    balanceLimitEnd: z.number().int().nonnegative().max(UINT48_MAX).safe().optional(),
+    balanceController: nonZeroAddressSchema.optional(),
+    excludedFromBalanceLimit: excludedFromBalanceLimitSchema.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const { maxBalanceLimit, balanceLimitEnd } = value;
+    const hasMaxBalanceLimit = maxBalanceLimit !== undefined;
+    const hasBalanceLimitEnd = balanceLimitEnd !== undefined;
+    if (hasMaxBalanceLimit !== hasBalanceLimitEnd) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: hasMaxBalanceLimit ? ['balanceLimitEnd'] : ['maxBalanceLimit'],
+        message: 'maxBalanceLimit and balanceLimitEnd must be provided together',
       });
-    })
-    .optional(),
-  governance: z
-    .union([
-      z.boolean(),
-      z.object({
-        enabled: z.boolean(),
-        mode: z.enum(['noOp', 'default']).optional(),
-      }),
-    ])
-    .optional(),
-  migration: migrationSchema,
-  auction: auctionSchema,
-});
+      return;
+    }
+
+    if (maxBalanceLimit === undefined || balanceLimitEnd === undefined) {
+      if ((value.excludedFromBalanceLimit?.length ?? 0) > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['excludedFromBalanceLimit'],
+          message: 'excludedFromBalanceLimit requires balance limiting to be enabled',
+        });
+      }
+      return;
+    }
+  });
+
+const economicsSchema = z
+  .object({
+    totalSupply: positiveUint256StringSchema,
+    tokensForSale: positiveUint256StringSchema.optional(),
+    allocations: vestingAllocationSchema.optional(),
+  })
+  .strict();
+
+const pairingSchema = z.object({ numeraireAddress: addressSchema.optional() }).strict();
+const pricingSchema = z.object({ numerairePriceUsd: z.number().positive().optional() }).strict();
+const governanceSchema = z.union([z.boolean(), nonZeroAddressSchema]);
+
+const commonCreateShape = {
+  chainId: z.number().int().positive().optional(),
+  userAddress: nonZeroAddressSchema,
+  integrationAddress: nonZeroAddressSchema.optional(),
+  tokenMetadata: tokenMetadataSchema,
+  economics: economicsSchema,
+  pairing: pairingSchema.optional(),
+  pricing: pricingSchema.optional(),
+  poolFeeBeneficiaries: poolFeeBeneficiariesSchema.optional(),
+  governance: governanceSchema.optional(),
+};
+
+const uniswapV2MigrationSchema = z
+  .object({
+    type: z.literal('uniswapV2'),
+    feeBeneficiary: z
+      .object({
+        address: nonZeroAddressSchema,
+        percentage: z.number().int().min(1).max(50),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+const uniswapV4MigrationSchema = z
+  .object({
+    type: z.literal('uniswapV4'),
+    fee: z.number().int().min(0).max(150_000),
+    tickSpacing: z.number().int().positive().max(V4_MAX_TICK_SPACING),
+    lockDurationSeconds: z.number().int().min(0).max(UINT32_MAX),
+    rehype: z
+      .object({
+        buybackDestination: nonZeroAddressSchema,
+        customFee: z.number().int().min(0).max(1_000_000),
+        feeRoutingMode: z.enum(['directBuyback', 'routeToBeneficiaryFees']).optional(),
+        feeDistributionInfo: rehypeFeeDistributionInfoSchema,
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+const dynamicMigrationSchema = z.discriminatedUnion('type', [
+  uniswapV2MigrationSchema,
+  uniswapV4MigrationSchema,
+]);
+
+const staticCreateLaunchRequestSchema = z
+  .object({
+    ...commonCreateShape,
+    auction: staticAuctionSchema,
+  })
+  .strict();
+
+const multicurveCreateLaunchRequestSchema = z
+  .object({
+    ...commonCreateShape,
+    auction: multicurveAuctionSchema,
+  })
+  .strict();
+
+const dynamicCreateLaunchRequestBaseSchema = z
+  .object({
+    ...commonCreateShape,
+    migration: dynamicMigrationSchema,
+    auction: dynamicAuctionSchema,
+  })
+  .strict();
+
+const dynamicCreateLaunchRequestSchema = dynamicCreateLaunchRequestBaseSchema.superRefine(
+  (value: z.infer<typeof dynamicCreateLaunchRequestBaseSchema>, ctx: z.RefinementCtx) => {
+    if (value.migration.type === 'uniswapV2' && value.poolFeeBeneficiaries !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['poolFeeBeneficiaries'],
+        message: 'poolFeeBeneficiaries is not supported with migration.type="uniswapV2"',
+      });
+    }
+  },
+);
+
+export const createLaunchRequestSchema = z.union([
+  staticCreateLaunchRequestSchema,
+  multicurveCreateLaunchRequestSchema,
+  dynamicCreateLaunchRequestSchema,
+]);
 
 export const launchIdSchema = z
   .string()
   .regex(/^\d+:0x[a-fA-F0-9]{64}$/, 'launchId must be <chainId>:<txHash>');
 
 export type CreateLaunchRequestInput = z.infer<typeof createLaunchRequestSchema>;
-export type CreateMulticurveLaunchRequestInput = CreateLaunchRequestInput & {
-  auction: z.infer<typeof multicurveAuctionSchema>;
-};
-export type CreateStaticLaunchRequestInput = CreateLaunchRequestInput & {
-  auction: z.infer<typeof staticAuctionSchema>;
-};
-export type CreateDynamicLaunchRequestInput = CreateLaunchRequestInput & {
-  auction: z.infer<typeof dynamicAuctionSchema>;
-};
+export type CreateMulticurveLaunchRequestInput = z.infer<
+  typeof multicurveCreateLaunchRequestSchema
+>;
+export type CreateStaticLaunchRequestInput = z.infer<typeof staticCreateLaunchRequestSchema>;
+export type CreateDynamicLaunchRequestInput = z.infer<typeof dynamicCreateLaunchRequestSchema>;

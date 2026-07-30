@@ -1,5 +1,17 @@
 import { randomUUID } from 'node:crypto';
 
+import {
+  concatHex,
+  encodeFunctionData,
+  HttpRequestError,
+  isAddress,
+  isHex,
+  NonceTooLowError,
+  SocketClosedError,
+  TimeoutError,
+  WebSocketRequestError,
+} from 'viem';
+
 import { AppError } from '../../core/errors';
 import type { HexHash } from '../../core/types';
 import type { ChainContext } from '../chain/registry';
@@ -29,6 +41,71 @@ const delay = async (ms: number): Promise<void> =>
 
 const isLockScriptSuccess = (result: unknown): boolean => result === 1 || result === '1';
 
+const buildTransactionRequest = (request: Record<string, unknown>): Record<string, unknown> => {
+  const { abi, address, args, dataSuffix, functionName, ...transactionRequest } = request;
+  delete transactionRequest.account;
+  delete transactionRequest.chain;
+
+  if (
+    !Array.isArray(abi) ||
+    typeof functionName !== 'string' ||
+    typeof address !== 'string' ||
+    !isAddress(address) ||
+    (args !== undefined && !Array.isArray(args)) ||
+    (dataSuffix !== undefined && !isHex(dataSuffix))
+  ) {
+    throw new AppError(500, 'INTERNAL_ERROR', 'Invalid contract transaction request');
+  }
+
+  const calldata = encodeFunctionData({
+    abi,
+    functionName,
+    ...(args === undefined ? {} : { args }),
+  });
+
+  return {
+    ...transactionRequest,
+    data: dataSuffix === undefined ? calldata : concatHex([calldata, dataSuffix]),
+    to: address,
+  };
+};
+
+const AMBIGUOUS_BROADCAST_MESSAGE =
+  /already known|transaction already imported|nonce too low|replacement transaction underpriced|request timed out|timed out after broadcast|socket hang up|socket (?:has been )?closed|connection reset|econnreset/i;
+
+const isAmbiguousBroadcastError = (error: unknown): boolean => {
+  const seen = new Set<object>();
+  let current = error;
+
+  while (typeof current === 'object' && current !== null && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof HttpRequestError) {
+      return current.status === undefined || current.status === 408 || current.status >= 500;
+    }
+
+    if (
+      current instanceof WebSocketRequestError ||
+      current instanceof SocketClosedError ||
+      current instanceof TimeoutError ||
+      current instanceof NonceTooLowError
+    ) {
+      return true;
+    }
+
+    if (
+      'message' in current &&
+      typeof current.message === 'string' &&
+      AMBIGUOUS_BROADCAST_MESSAGE.test(current.message)
+    ) {
+      return true;
+    }
+
+    current = 'cause' in current ? current.cause : undefined;
+  }
+
+  return false;
+};
+
 export interface TxSubmitterRedisClient {
   set(
     key: string,
@@ -39,15 +116,6 @@ export interface TxSubmitterRedisClient {
   ): Promise<'OK' | null>;
   eval(script: string, numKeys: number, ...args: Array<string | number>): Promise<unknown>;
 }
-
-const isNonceError = (error: unknown): boolean => {
-  const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  return (
-    msg.includes('nonce too low') ||
-    msg.includes('already known') ||
-    msg.includes('replacement transaction underpriced')
-  );
-};
 
 export class TxSubmitter {
   private readonly queueByChain = new Map<number, Promise<unknown>>();
@@ -122,10 +190,10 @@ export class TxSubmitter {
   private async withDistributedNonceLock<T>(args: {
     chainId: number;
     address: `0x${string}`;
-    fn: () => Promise<T>;
+    fn: (verifyLockOwnership: () => Promise<boolean>) => Promise<T>;
   }): Promise<T> {
     if (!this.redis) {
-      return args.fn();
+      return args.fn(async () => true);
     }
 
     const lockKey = this.nonceLockKey(args.chainId, args.address);
@@ -142,6 +210,8 @@ export class TxSubmitter {
     }
 
     let heartbeatTimer: NodeJS.Timeout | undefined;
+    let lockHealthy = true;
+    let releaseLock = true;
     const stopHeartbeat = () => {
       if (!heartbeatTimer) {
         return;
@@ -156,29 +226,49 @@ export class TxSubmitter {
         void this.refreshNonceLock(lockKey, lockValue)
           .then((refreshed) => {
             if (!refreshed) {
+              lockHealthy = false;
               stopHeartbeat();
             }
           })
           .catch(() => {
-            // best-effort heartbeat; lock TTL sizing still provides safety margin
+            lockHealthy = false;
+            stopHeartbeat();
           });
       }, this.lockRefreshMs);
       heartbeatTimer.unref?.();
     }
 
+    const verifyLockOwnership = async (): Promise<boolean> => {
+      if (!lockHealthy) {
+        return false;
+      }
+
+      try {
+        lockHealthy = await this.refreshNonceLock(lockKey, lockValue);
+      } catch {
+        lockHealthy = false;
+      }
+      return lockHealthy;
+    };
+
     try {
-      return await args.fn();
+      return await args.fn(verifyLockOwnership);
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'IDEMPOTENCY_KEY_IN_DOUBT') {
+        releaseLock = false;
+      }
+      throw error;
     } finally {
       stopHeartbeat();
-      try {
-        await this.releaseNonceLock(lockKey, lockValue);
-      } catch {
-        // best-effort release; TTL-based expiry still guarantees eventual unlock
+      if (releaseLock && lockHealthy) {
+        try {
+          await this.releaseNonceLock(lockKey, lockValue);
+        } catch {}
       }
     }
   }
 
-  async submitCreateTx(args: {
+  async submitContractTx(args: {
     chain: ChainContext;
     request: Record<string, unknown>;
     gasEstimate?: bigint;
@@ -197,32 +287,63 @@ export class TxSubmitter {
       this.withDistributedNonceLock({
         chainId: chain.chainId,
         address: account.address,
-        fn: async () => {
+        fn: async (verifyLockOwnership) => {
           const pendingNonce = await chain.publicClient.getTransactionCount({
             address: account.address,
             blockTag: 'pending',
           });
 
-          const txArgs = {
-            ...request,
+          const broadcastInDoubt = () =>
+            new AppError(
+              409,
+              'IDEMPOTENCY_KEY_IN_DOUBT',
+              'Transaction broadcast result is ambiguous; verify the account nonce before retrying',
+              {
+                chainId: chain.chainId,
+                accountAddress: account.address,
+                nonce: pendingNonce,
+              },
+            );
+
+          const transactionRequest = buildTransactionRequest(request);
+          const preparedRequest = await chain.walletClient.prepareTransactionRequest({
+            ...transactionRequest,
+            account,
             nonce: pendingNonce,
             ...(gasEstimate ? { gas: gasEstimate } : {}),
-          } as Record<string, unknown>;
+          } as Parameters<typeof chain.walletClient.prepareTransactionRequest>[0]);
+          const serializedTransaction = await chain.walletClient.signTransaction(
+            preparedRequest as Parameters<typeof chain.walletClient.signTransaction>[0],
+          );
+
+          if (!(await verifyLockOwnership())) {
+            throw new AppError(
+              503,
+              'NONCE_LOCK_LOST',
+              'Distributed nonce lock was lost before transaction broadcast; retry the request',
+            );
+          }
 
           try {
-            return (await chain.walletClient.writeContract(txArgs as any)) as HexHash;
+            return (await chain.walletClient.sendRawTransaction({
+              serializedTransaction,
+            })) as HexHash;
           } catch (error) {
-            if (!isNonceError(error)) throw error;
-
-            const retryNonce = await chain.publicClient.getTransactionCount({
-              address: account.address,
-              blockTag: 'pending',
-            });
-            const retryArgs = { ...txArgs, nonce: retryNonce };
-            return (await chain.walletClient.writeContract(retryArgs as any)) as HexHash;
+            if (isAmbiguousBroadcastError(error)) {
+              throw broadcastInDoubt();
+            }
+            throw error;
           }
         },
       }),
     );
+  }
+
+  async submitCreateTx(args: {
+    chain: ChainContext;
+    request: Record<string, unknown>;
+    gasEstimate?: bigint;
+  }): Promise<HexHash> {
+    return this.submitContractTx(args);
   }
 }
