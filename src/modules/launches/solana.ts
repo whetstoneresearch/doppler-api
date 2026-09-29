@@ -26,6 +26,8 @@ import {
   initializer,
 } from '@whetstone-research/doppler-sdk/solana';
 
+import { prepareSolanaLaunchVaults } from './solana-vaults';
+
 import type { AppConfig } from '../../core/config';
 import { AppError } from '../../core/errors';
 import type {
@@ -683,8 +685,11 @@ export class SolanaLaunchService {
     const [launchFeeStateAddress] = await initializer.getLaunchFeeStateAddress(launchAddress);
     const configAddress = initializerConfig.address;
     const baseMint = await generateKeyPairSigner();
-    const baseVault = await generateKeyPairSigner();
-    const quoteVault = await generateKeyPairSigner();
+    const { baseVault, quoteVault, baseVaultAddress, quoteVaultAddress, buildInstruction } =
+      await prepareSolanaLaunchVaults(
+        launchAddress,
+        this.config.solana.deterministicVaults ?? false,
+      );
     const metadataAddress = await initializer.getTokenMetadataAddress(baseMint.address);
     const [payerBaseAta] = await findAssociatedTokenPda({
       owner: payer.address,
@@ -727,8 +732,8 @@ export class SolanaLaunchService {
       launchFeeStateAddress,
       configAddress,
       baseMint.address,
-      baseVault.address,
-      quoteVault.address,
+      baseVaultAddress,
+      quoteVaultAddress,
       metadataAddress,
       numeraireAddress,
     ]);
@@ -769,13 +774,7 @@ export class SolanaLaunchService {
       feeBeneficiaries: feeBeneficiaries.beneficiaries,
     });
 
-    // The published SDK currently defines the initializer account list for this path.
-    // Live Solana create remains dependent on the SDK/IDL staying in sync with the
-    // deployed devnet program's initialize_launch accounts.
-    const instruction = await initializer.createInitializeLaunchInstruction(
-      initializeAccounts,
-      initializeArgs,
-    );
+    const instruction = await buildInstruction(initializeAccounts, initializeArgs);
 
     let lookupTable: SolanaLookupTable;
     const configuredAltAddress = this.getAltAddress();
@@ -965,8 +964,8 @@ export class SolanaLaunchService {
         tokenAddress: baseMint.address,
         launchAuthorityAddress,
         launchFeeStateAddress,
-        baseVaultAddress: baseVault.address,
-        quoteVaultAddress: quoteVault.address,
+        baseVaultAddress,
+        quoteVaultAddress,
       },
       effectiveConfig: {
         tokensForSale: tokensForSale.toString(),

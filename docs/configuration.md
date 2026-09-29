@@ -128,3 +128,9 @@ These variables configure the onchain live suite and are not service runtime set
 | `LIVE_TEST_ESTIMATED_OVERHEAD_SOL` | `0.01` | Non-negative SOL amount with at most nine decimal places, added when no minimum-balance override is set. |
 
 EVM live filters require `DEFAULT_CHAIN_ID` and its named RPC plus the signer configuration. Solana live filters require `SOLANA_ENABLED=true`, a funded `SOLANA_KEYPAIR_PATH` or `SOLANA_KEYPAIR`, and devnet endpoints. They also require `SOLANA_DEVNET_ALT_ADDRESS`, except for `solana-failing`. Successful Solana live scenarios retry transient `SOLANA_NOT_READY` and `SOLANA_SUBMISSION_FAILED` create responses once after 10 seconds.
+
+### Deterministic Solana curve vaults
+
+`SOLANA_DETERMINISTIC_VAULTS` defaults to `false` and applies to new devnet launches. When enabled, the API uses the SDK's `initialize_launch_v2` builder and derives base and quote vault PDAs under the Initializer program. The response schema and reads of existing launches are unchanged.
+
+Before enabling it, install and lock an SDK release exposing `createInitializeLaunchV2Instruction`, `getBaseVaultAddress`, and `getQuoteVaultAddress`, and upgrade the devnet Initializer to a version with `initialize_launch_v2`. The existing dependency lock remains usable with the flag disabled. Enabling it with an older SDK fails with `503 SOLANA_NOT_READY`; a program upgrade is also required and is not inferred from SDK capability. Turn the flag off to return new creation to the legacy instruction; this does not change any existing launch.

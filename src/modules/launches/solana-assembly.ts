@@ -120,8 +120,8 @@ export const buildSolanaInitializeLaunchInstructionArgs = (args: {
   launchFeeStateAddress: Address;
   baseMint: SolanaSigner;
   quoteMint: Address;
-  baseVault: SolanaSigner;
-  quoteVault: SolanaSigner;
+  baseVault: SolanaSigner | Address;
+  quoteVault: SolanaSigner | Address;
   metadataAddress: Address;
   payer: SolanaSigner;
   namespace: Address;

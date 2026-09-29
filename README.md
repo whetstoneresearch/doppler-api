@@ -96,6 +96,8 @@ Use the [OpenAPI specification](docs/openapi.yaml) for exact request and respons
 
 ## Solana behavior
 
+`SOLANA_DETERMINISTIC_VAULTS=true` selects PDA curve vaults for new launches through `initialize_launch_v2`. It defaults to `false`; enable it only after installing a V2-capable SDK and upgrading the devnet Initializer. Existing launches retain their recorded vaults.
+
 Use `POST /v1/solana/launches` for dedicated Solana creation, or the shared route with a canonical `solanaDevnet` or `solanaMainnetBeta` network. Only Devnet is executable.
 
 All API-created Solana launches use Doppler launch hook v1. `auction.cosignerGate` uses the canonical managed cosigner from the hook's onchain configuration; callers do not provide a cosigner address, and optional expiry supports only `disabled` or `unixTimestamp`. `auction.dynamicFee` may be used independently or with managed cosigning.
