@@ -7,6 +7,8 @@ import {
   createSolanaRpc,
   fetchEncodedAccount,
   generateKeyPairSigner,
+  getAddressEncoder,
+  getProgramDerivedAddress,
   signature as toSolanaSignature,
 } from '@solana/kit';
 import { initializer } from '@whetstone-research/doppler-sdk/solana';
@@ -269,6 +271,21 @@ const verifySuccessfulSolanaLaunch = async (args: {
     await assertSolanaAccountExists(rpc, body.predicted.launchFeeStateAddress);
     await assertSolanaAccountExists(rpc, body.predicted.baseVaultAddress);
     await assertSolanaAccountExists(rpc, body.predicted.quoteVaultAddress);
+    if (config.solana.deterministicVaults) {
+      for (const [seed, actual] of [
+        ['base_vault', body.predicted.baseVaultAddress],
+        ['quote_vault', body.predicted.quoteVaultAddress],
+      ] as const) {
+        const [expected] = await getProgramDerivedAddress({
+          programAddress: initializer.INITIALIZER_PROGRAM_ID,
+          seeds: [
+            new TextEncoder().encode(seed),
+            getAddressEncoder().encode(address(body.launchId)),
+          ],
+        });
+        expect(actual).toBe(expected);
+      }
+    }
 
     const metadataAddress = await initializer.getTokenMetadataAddress(
       address(body.predicted.tokenAddress),

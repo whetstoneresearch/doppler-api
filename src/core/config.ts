@@ -35,6 +35,8 @@ const CHAIN_RPC_ENVIRONMENTS = [
 ] as const;
 
 export interface SolanaRuntimeConfig {
+  /** Enable only after the SDK release and devnet Initializer V2 upgrade. */
+  deterministicVaults?: boolean;
   enabled: boolean;
   defaultNetwork: SolanaNetwork;
   devnetRpcUrl: string;
@@ -542,6 +544,7 @@ export const loadConfig = (): AppConfig => {
       apiKey: process.env.PRICE_API_KEY,
     },
     solana: {
+      deterministicVaults: parseBoolean(process.env.SOLANA_DETERMINISTIC_VAULTS, false),
       enabled: solanaEnabled,
       defaultNetwork: solanaDefaultNetwork,
       devnetRpcUrl: parseStringOrFallback(

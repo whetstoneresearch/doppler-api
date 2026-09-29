@@ -38,6 +38,7 @@ const resetEnv = (overrides: Record<string, string | undefined> = {}): void => {
     'IDEMPOTENCY_REDIS_LOCK_REFRESH_MS',
     'PRICE_COINGECKO_ASSET_ID',
     'SOLANA_ENABLED',
+    'SOLANA_DETERMINISTIC_VAULTS',
     'SOLANA_DEFAULT_NETWORK',
     'SOLANA_DEVNET_RPC_URL',
     'SOLANA_DEVNET_WS_URL',
@@ -384,4 +385,11 @@ describe('shared-environment config guardrails', () => {
       'SOLANA_FIXED_NUMERAIRE_PRICE_USD is required when SOLANA_PRICE_MODE=fixed',
     );
   });
+});
+
+it('requires explicit activation of deterministic Solana vaults', () => {
+  resetEnv({ BASE_SEPOLIA_RPC_URL: 'http://localhost:8545' });
+  expect(loadConfig().solana.deterministicVaults).toBe(false);
+  process.env.SOLANA_DETERMINISTIC_VAULTS = 'true';
+  expect(loadConfig().solana.deterministicVaults).toBe(true);
 });
